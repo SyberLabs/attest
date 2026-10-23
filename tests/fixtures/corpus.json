@@ -1,0 +1,48 @@
+{
+  "description": "Hand-labelled verdict corpus. 25 clean, 8 stale by label, 4 broken, 3 prose. Browser items carry a neutral BrowserObservation; shell items carry a shell result. Nothing here is shaped like any particular browser tool's output.",
+  "items": [
+    {"id": "clean-b01", "kind": "browser", "expects": "Hello, World!", "store_as": "c01_label", "observation": {"status": "passed", "observed": {"c01_label": "Hello, World!"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b02", "kind": "browser", "expects": "Vite + React", "store_as": "c02_label", "observation": {"status": "passed", "observed": {"c02_label": "Vite + React"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b03", "kind": "browser", "expects": "count is 0", "store_as": "c03_label", "observation": {"status": "passed", "observed": {"c03_label": "count is 0"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b04", "kind": "browser", "expects": "count is 1", "store_as": "c04_label", "observation": {"status": "passed", "observed": {"c04_label": "count is 1"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b05", "kind": "browser", "expects": "Create repository", "store_as": "c05_label", "observation": {"status": "passed", "observed": {"c05_label": "Create repository"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b06", "kind": "browser", "expects": "Settings", "store_as": "c06_label", "observation": {"status": "passed", "observed": {"c06_label": "Settings"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b07", "kind": "browser", "expects": "Hello World", "store_as": "c07_label", "observation": {"status": "passed", "observed": {"c07_label": "Hello, World!"}, "screenshot": null, "note": "punctuation differs"}, "label": "proven"},
+    {"id": "clean-b08", "kind": "browser", "expects": "SIGN IN", "store_as": "c08_label", "observation": {"status": "passed", "observed": {"c08_label": "Sign in"}, "screenshot": null, "note": "case differs"}, "label": "proven"},
+    {"id": "clean-b09", "kind": "browser", "expects": "Code security", "store_as": "c09_label", "observation": {"status": "passed", "observed": {"c09_label": "Code security"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b10", "kind": "browser", "expects": "Enable", "store_as": "c10_label", "observation": {"status": "passed", "observed": {"c10_label": "Enable"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b11", "kind": "browser", "expects": "Create a new repository", "store_as": "c11_label", "observation": {"status": "passed", "observed": {"c11_label": "Create repository"}, "screenshot": null, "note": "doc paraphrases the control slightly; same button"}, "label": "proven"},
+    {"id": "clean-b12", "kind": "browser", "expects": "Sign in with GitHub", "store_as": "c12_label", "observation": {"status": "passed", "observed": {"c12_label": "Sign in using GitHub"}, "screenshot": null, "note": "one filler word differs; same control"}, "label": "proven"},
+    {"id": "clean-b13", "kind": "browser", "expects": "Pull requests", "store_as": "c13_label", "observation": {"status": "passed", "observed": {"c13_label": "Pull requests 3"}, "screenshot": null, "note": "label carries a counter badge"}, "label": "proven"},
+    {"id": "clean-b14", "kind": "browser", "expects": "Streamlit Hello", "store_as": "c14_label", "observation": {"status": "passed", "observed": {"c14_label": "Streamlit Hello"}, "screenshot": null, "note": null}, "label": "proven"},
+    {"id": "clean-b15", "kind": "browser", "expects": "Download", "store_as": "c15_label", "observation": {"status": "passed", "observed": {"c15_label": "  Download  "}, "screenshot": null, "note": "whitespace around the label"}, "label": "proven"},
+    {"id": "clean-b16", "kind": "browser", "expects": "Save changes", "store_as": "c16_label", "observation": {"status": "passed", "observed": {"other_key": "Save changes"}, "screenshot": null, "note": "store_as key missing, value under another key"}, "label": "proven"},
+    {"id": "clean-s17", "kind": "shell", "expects": null, "command": "pip install Flask", "exit_code": 0, "timed_out": false, "stdout_tail": "Requirement already satisfied: flask in c:\\python312\\lib\\site-packages (3.1.0)", "label": "proven"},
+    {"id": "clean-s18", "kind": "shell", "expects": "Running on http://127.0.0.1:5000", "command": "flask --app hello run", "exit_code": 0, "timed_out": false, "stdout_tail": " * Serving Flask app 'hello'\n * Debug mode: off\nWARNING: This is a development server.\n * Running on http://127.0.0.1:5000\nPress CTRL+C to quit", "label": "proven"},
+    {"id": "clean-s19", "kind": "shell", "expects": null, "command": "cd my-react-app && npm install", "exit_code": 0, "timed_out": false, "stdout_tail": "added 72 packages, and audited 73 packages in 4s\nfound 0 vulnerabilities", "label": "proven"},
+    {"id": "clean-s20", "kind": "shell", "expects": "Local:   http://localhost:5173/", "command": "cd my-react-app && npm run dev", "exit_code": 0, "timed_out": false, "stdout_tail": "  VITE v7.1.0  ready in 312 ms\n\n  ➜  Local:   http://localhost:5173/\n  ➜  Network: use --host to expose", "label": "proven"},
+    {"id": "clean-s21", "kind": "shell", "expects": null, "command": "echo hello", "exit_code": 0, "timed_out": false, "stdout_tail": "hello", "label": "proven"},
+    {"id": "clean-s22", "kind": "shell", "expects": null, "command": "cat > hello.py <<'EOF'\nprint('hi')\nEOF", "exit_code": 0, "timed_out": false, "stdout_tail": "", "label": "proven"},
+    {"id": "clean-s23", "kind": "shell", "expects": null, "command": "python -m venv .venv", "exit_code": 0, "timed_out": false, "stdout_tail": "", "label": "proven"},
+    {"id": "clean-s24", "kind": "shell", "expects": null, "command": "git clone https://github.com/pallets/flask", "exit_code": 0, "timed_out": false, "stdout_tail": "Cloning into 'flask'...\nResolving deltas: 100% (1/1), done.", "label": "proven"},
+    {"id": "clean-s25", "kind": "shell", "expects": "You can now view your Streamlit app", "command": "streamlit hello", "exit_code": 0, "timed_out": false, "stdout_tail": "\n  Welcome to Streamlit. Check out our demo in your browser.\n\n  You can now view your Streamlit app in your browser.\n\n  Local URL: http://localhost:8501", "label": "proven"},
+
+    {"id": "stale-b26", "kind": "browser", "expects": "Create project", "store_as": "c26_label", "observation": {"status": "passed", "observed": {"c26_label": "New project"}, "screenshot": null, "note": null}, "label": "stale"},
+    {"id": "stale-b27", "kind": "browser", "expects": "secret scanning", "store_as": "c27_label", "observation": {"status": "passed", "observed": {"c27_label": "Secret Protection"}, "screenshot": null, "note": "GitHub renamed the setting"}, "label": "stale"},
+    {"id": "stale-b28", "kind": "browser", "expects": "Sign in", "store_as": "c28_label", "observation": {"status": "passed", "observed": {"c28_label": "Log in"}, "screenshot": null, "note": null}, "label": "stale"},
+    {"id": "stale-b29", "kind": "browser", "expects": "Settings", "store_as": "c29_label", "observation": {"status": "passed", "observed": {"c29_label": "Preferences"}, "screenshot": null, "note": null}, "label": "stale"},
+    {"id": "stale-b30", "kind": "browser", "expects": "Download CSV", "store_as": "c30_label", "observation": {"status": "passed", "observed": {"c30_label": "Export data"}, "screenshot": null, "note": null}, "label": "stale"},
+    {"id": "stale-b31", "kind": "browser", "expects": "Add collaborator", "store_as": "c31_label", "observation": {"status": "passed", "observed": {"c31_label": "Manage access"}, "screenshot": null, "note": null}, "label": "stale"},
+    {"id": "stale-b32", "kind": "browser", "expects": "Vite + React", "store_as": "c32_label", "observation": {"status": "passed", "observed": {"c32_label": "Vite + Vue"}, "screenshot": null, "note": "wrong template"}, "label": "stale"},
+    {"id": "stale-b33", "kind": "browser", "expects": "Enable secret scanning", "store_as": "c33_label", "observation": {"status": "passed", "observed": {"c33_label": "Enable Secret Protection"}, "screenshot": null, "note": "two of three words still match"}, "label": "stale"},
+
+    {"id": "broken-s34", "kind": "shell", "expects": null, "command": "flask --app hello run", "exit_code": 1, "timed_out": false, "stdout_tail": "Traceback (most recent call last):\nModuleNotFoundError: No module named 'flask'", "label": "broken"},
+    {"id": "broken-s35", "kind": "shell", "expects": null, "command": "npm install", "exit_code": null, "timed_out": true, "stdout_tail": "npm WARN deprecated ...", "label": "broken"},
+    {"id": "broken-b36", "kind": "browser", "expects": "Create project", "store_as": "c36_label", "observation": {"status": "failed", "observed": {}, "screenshot": null, "note": "no control labelled Create project on the page"}, "label": "broken"},
+    {"id": "broken-s37", "kind": "shell", "expects": null, "command": "streamlit hello", "exit_code": 127, "timed_out": false, "stdout_tail": "bash: streamlit: command not found", "label": "broken"},
+
+    {"id": "prose-38", "kind": "prose", "text": "This works on most Linux distributions.", "label": "unverifiable"},
+    {"id": "prose-39", "kind": "prose", "text": "Vite is a build tool that aims to provide a faster developer experience.", "label": "unverifiable"},
+    {"id": "prose-40", "kind": "prose", "text": "Now that you have a working application, continue with the documentation.", "label": "unverifiable"}
+  ]
+}
