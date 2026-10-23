@@ -24,9 +24,13 @@ from pathlib import Path
 from .models import Claim, Evidence
 
 URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?(?:/[^\s\"'<>)\]]*)?")
-CWD_MARK = "\x1eATTEST_CWD\x1e"
 TAIL_LINES = 50
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+GIT_BASH_CANDIDATES = (
+    r"C:\Program Files\Git\bin\bash.exe",
+    r"C:\Program Files (x86)\Git\bin\bash.exe",
+)
 
 
 def strip_ansi(s: str) -> str:
@@ -54,7 +58,15 @@ def detect_url(text: str) -> str | None:
 
 
 def find_shell() -> list[str]:
-    """Pick a POSIX shell. Git Bash on Windows, sh elsewhere, cmd as a last resort."""
+    """Pick a POSIX shell. Git Bash on Windows (by its install path first, since
+    PATH may hold Cygwin or the WSL shim), sh elsewhere, cmd as a last resort."""
+    override = os.environ.get("ATTEST_SHELL")
+    if override:
+        return [override, "-c"]
+    if sys.platform == "win32":
+        for cand in GIT_BASH_CANDIDATES:
+            if Path(cand).exists():
+                return [cand, "-c"]
     for name in ("bash", "sh"):
         path = shutil.which(name)
         if path and "System32" not in path:  # skip the WSL launcher shim
@@ -94,20 +106,28 @@ class ShellSession:
         base["NO_COLOR"] = "1"
         base.update(self.env)
         self.env = base
+        self._cwd_file = self.workdir / ".attest-cwd"
+
+    @property
+    def is_posix_shell(self) -> bool:
+        return not self.shell[0].lower().endswith("cmd.exe")
 
     # -- running -----------------------------------------------------------------
 
     def _wrap(self, cmd: str) -> str:
-        """Append a cwd marker so `cd` in one block carries to the next (POSIX shells only)."""
-        if self.shell[0].endswith("cmd.exe"):
+        """Record the final working directory in a side file so `cd` in one block
+        carries to the next. `pwd -W` gives a Windows path under Git Bash."""
+        if not self.is_posix_shell:
             return cmd
-        return f'{cmd}\n__attest_rc=$?\nprintf "\\n{CWD_MARK}%s\\n" "$PWD"\nexit $__attest_rc'
+        marker = str(self._cwd_file).replace("\\", "/")
+        return f"{cmd}\n__attest_rc=$?\n(pwd -W 2>/dev/null || pwd) > '{marker}'\nexit $__attest_rc"
 
     def run(self, claim: Claim, timeout_s: float | None = None) -> Evidence:
         assert claim.kind == "shell" and claim.command is not None
         timeout_s = timeout_s or self.timeout_s
         cmd = executable_command(claim.command)
-        creation = {}
+        self._cwd_file.unlink(missing_ok=True)
+        creation: dict = {}
         if sys.platform == "win32":
             creation["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
@@ -126,16 +146,13 @@ class ShellSession:
             **creation,
         )
         tail: deque[str] = deque(maxlen=TAIL_LINES)
-        state = {"url": None, "cwd": None}
+        state: dict[str, str | None] = {"url": None}
         lock = threading.Lock()
 
         def pump() -> None:
             assert proc.stdout is not None
             for raw in proc.stdout:
                 line = strip_ansi(raw.rstrip("\n"))
-                if line.startswith(CWD_MARK):
-                    state["cwd"] = line[len(CWD_MARK):].strip()
-                    continue
                 with lock:
                     tail.append(line)
                     if state["url"] is None:
@@ -166,18 +183,12 @@ class ShellSession:
                 break
             time.sleep(0.05)
 
-        if not kept_alive:
-            t.join(timeout=5)
-        else:
+        if kept_alive:
             self.servers.append(RunningProcess(claim.id, proc, state["url"]))
             self.base_url = state["url"]
-
-        if state["cwd"]:
-            new = Path(state["cwd"])
-            if not new.is_absolute() or not new.exists():
-                new = _from_posix(state["cwd"])
-            if new.exists():
-                self.cwd = new
+        else:
+            t.join(timeout=5)
+            self._update_cwd()
 
         with lock:
             lines = list(tail)
@@ -197,6 +208,19 @@ class ShellSession:
             stdout_tail="\n".join(lines),
             detected_url=state["url"],
         )
+
+    def _update_cwd(self) -> None:
+        if not self._cwd_file.exists():
+            return
+        raw = self._cwd_file.read_text(encoding="utf-8", errors="replace").strip()
+        self._cwd_file.unlink(missing_ok=True)
+        if not raw:
+            return
+        new = Path(raw)
+        if not new.is_absolute() or not new.exists():
+            new = _from_posix(raw)
+        if new.exists():
+            self.cwd = new
 
     # -- cleanup -----------------------------------------------------------------
 
@@ -239,10 +263,10 @@ class ShellSession:
 
 
 def _from_posix(p: str) -> Path:
-    """Git Bash prints /d/foo for D:\\foo. Map it back."""
-    m = re.match(r"^/([a-zA-Z])/(.*)$", p)
+    """Git Bash prints /d/foo and Cygwin /cygdrive/d/foo for D:\\foo. Map them back."""
+    m = re.match(r"^/(?:cygdrive/)?([a-zA-Z])(?:/(.*))?$", p)
     if m:
-        return Path(f"{m.group(1).upper()}:/{m.group(2)}")
+        return Path(f"{m.group(1).upper()}:/{m.group(2) or ''}")
     return Path(p)
 
 
