@@ -51,6 +51,7 @@ def prove_cmd(
     runner: str = typer.Option("fake", "--runner", help="Browser runner: fake (offline) or kane (event day)."),
     fake_observations: Path | None = typer.Option(None, "--fake-observations", help="JSON of scripted observations for the fake runner."),
     loop: bool = typer.Option(False, "--loop/--no-loop", help="Send stale or broken steps to the coding agent and re-prove them."),
+    apply: bool = typer.Option(False, "--apply", help="With --loop: write the agent's doc patch back to the source file."),
     open_page: bool = typer.Option(False, "--open", help="Open the rendered page in a browser."),
     keep_scratch: bool = typer.Option(False, "--keep-scratch", help="Leave the scratch directory in place."),
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
@@ -58,11 +59,12 @@ def prove_cmd(
     """Execute every claim in a document and render it with badges."""
     br = _runner(runner, fake_observations)
     typer.echo(f"attest prove {source}  (runner: {br.name})")
-    result = prove(source, runner=br, home=home, log=_log)
+    result = prove(source, runner=br, home=home, log=_log, keep_servers=loop)
     if loop and result.failing():
         from .loop import run_loop
 
-        result = run_loop(result, br, home=home, log=_log)
+        typer.echo(f"loop: {len(result.failing())} failing claim(s) go to the agent")
+        result = run_loop(result, br, home=home, log=_log, apply_to_source=apply)
     br.close()
     session = getattr(result, "_session", None)
     if session is not None:
