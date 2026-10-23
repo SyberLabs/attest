@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · Attest</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d0d7de; --code-bg: #f6f8fa;
+    --proven: {{ colors.proven }}; --stale: {{ colors.stale }}; --broken: {{ colors.broken }};
+    --unverifiable: {{ colors.unverifiable }}; --skipped: {{ colors.skipped }};
+    --gutter: 56px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  a { color: #0969da; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; font-size: 13px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; margin: 0; }
+  pre code { background: none; padding: 0; }
+
+  .strip { position: sticky; top: 0; z-index: 5; background: #24292f; color: #fff; padding: 8px 16px; display: flex; gap: 18px; align-items: baseline; font-size: 13px; flex-wrap: wrap; }
+  .strip h1 { font-size: 14px; margin: 0 8px 0 0; font-weight: 600; }
+  .strip .n { font-weight: 700; }
+  .strip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  .strip .meta { margin-left: auto; color: #c9d1d9; }
+
+  main { max-width: 980px; margin: 0 auto; padding: 18px 16px 80px; }
+  .doc { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .head { padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .row { display: grid; grid-template-columns: var(--gutter) 1fr; }
+  .row + .row { border-top: 1px solid #f0f2f4; }
+  .gutter { padding: 10px 6px; display: flex; flex-direction: column; gap: 6px; align-items: center; border-right: 1px solid var(--line); background: #fafbfc; }
+  .content { padding: 10px 18px; min-width: 0; }
+  .content > :first-child { margin-top: 0; } .content > :last-child { margin-bottom: 0; }
+  h1,h2,h3 { line-height: 1.25; } h1 { font-size: 1.7em; } h2 { font-size: 1.35em; border-bottom: 1px solid var(--line); padding-bottom: 4px; } h3 { font-size: 1.1em; }
+  table { border-collapse: collapse; } th, td { border: 1px solid var(--line); padding: 4px 10px; }
+  .badge { position: relative; width: 40px; height: 20px; border-radius: 10px; border: 2px solid; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer; letter-spacing: .3px; color: #fff; background: currentColor; }
+  .badge span { color: #fff; }
+  .badge.proven { color: var(--proven); } .badge.stale { color: var(--stale); } .badge.broken { color: var(--broken); } .badge.skipped { color: var(--skipped); }
+  .badge.unverifiable { color: var(--unverifiable); background: transparent; } .badge.unverifiable span { color: var(--unverifiable); }
+  .badge.none { color: var(--line); background: transparent; } .badge.none span { color: var(--muted); }
+  .badge .tip { display: none; position: absolute; left: 48px; top: -4px; background: #24292f; color: #fff; padding: 6px 9px; border-radius: 6px; font-size: 12px; font-weight: 400; width: max-content; max-width: 420px; z-index: 4; white-space: normal; text-align: left; }
+  .badge:hover .tip { display: block; }
+
+  .drawer { display: none; grid-column: 1 / -1; background: #f6f8fa; border-top: 1px dashed var(--line); padding: 12px 18px 14px calc(var(--gutter) + 18px); font-size: 13px; }
+  .drawer.open { display: block; }
+  .drawer h4 { margin: 0 0 8px; font-size: 13px; } .drawer h4 .st { text-transform: uppercase; font-size: 11px; padding: 1px 7px; border-radius: 10px; color: #fff; margin-left: 6px; }
+  .st.proven { background: var(--proven); } .st.stale { background: var(--stale); } .st.broken { background: var(--broken); } .st.unverifiable { background: var(--unverifiable); } .st.skipped { background: var(--skipped); }
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  .drawer pre { white-space: pre-wrap; word-break: break-word; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  .kv { margin: 0; } .kv dt { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-top: 8px; } .kv dd { margin: 2px 0 0; }
+  .shot { border: 1px solid var(--line); background: #fff; border-radius: 6px; min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--muted); overflow: hidden; }
+  .shot img { max-width: 100%; display: block; }
+  .diff { white-space: pre; } .diff .add { color: #1a7f37; } .diff .del { color: #cf222e; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .pair > div { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 30px; }
+</style>
+</head>
+<body>
+<header class="strip" id="ledger-strip">
+  <h1>Ledger</h1>
+  <span><span class="n">{{ strip.claims }}</span> claims</span>
+  <span><span class="dot" style="background: var(--proven)"></span><span class="n">{{ strip.proven }}</span> proven</span>
+  <span><span class="dot" style="background: var(--stale)"></span><span class="n">{{ strip.stale }}</span> stale</span>
+  <span><span class="dot" style="background: var(--broken)"></span><span class="n">{{ strip.broken }}</span> broken</span>
+  <span><span class="dot" style="background: var(--unverifiable)"></span><span class="n">{{ strip.unverifiable }}</span> unverifiable</span>
+  <span><span class="dot" style="background: var(--skipped)"></span><span class="n">{{ strip.skipped }}</span> skipped</span>
+  <span><span class="n">{{ strip.loops_closed }}</span>/{{ strip.loops_attempted }} loops closed</span>
+  {# SATURDAY: browser step counts (authored, replayed) and credits come from the browser runner's ledger rows #}
+  <span class="meta">turn {{ strip.turn }} · runner {{ runner_name }}</span>
+</header>
+
+<main>
+  <div class="doc">
+    <div class="head">
+      <span>{{ doc.source }}</span>
+      {% if doc.commit %}<span>commit {{ doc.commit[:12] }}</span>{% endif %}
+      <span>sha256 {{ doc.sha256[:12] }}</span>
+      <span>{{ doc.lines|length }} lines</span>
+    </div>
+    {% for b in blocks %}
+    <div class="row" data-lines="{{ b.start_line }}-{{ b.end_line }}">
+      <div class="gutter">
+        {% for c in b.claims %}
+          {% set v = verdicts.get(c.id) %}
+          <div class="badge {{ v.status if v else 'none' }}" data-target="drawer-{{ c.id }}" title="{{ c.id }}">
+            <span>{{ c.id }}</span>
+            <div class="tip">{% if v %}{{ v.reason }}{% else %}no verdict yet{% endif %}</div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="content">{{ b.html|safe }}</div>
+      {% for c in b.claims %}
+        {% set v = verdicts.get(c.id) %}
+        {% set ev = v.evidence if v else none %}
+        {% set brief = briefs.get(c.id) %}
+        {% set before = prior.get(c.id) %}
+        <div class="drawer" id="drawer-{{ c.id }}">
+          <h4>{{ c.id }} · {{ c.kind }} claim · lines {{ c.span.start_line }}-{{ c.span.end_line }}
+            {% if v %}<span class="st {{ v.status }}">{{ v.status }}</span>{% endif %}</h4>
+          {% if v %}<p>{{ v.reason }}</p>{% endif %}
+          <div class="cols">
+            <div>
+              {% if c.kind == 'browser' %}
+                <div class="shot">
+                  {% if ev and ev.screenshot %}<img src="{{ ev.screenshot }}" alt="screenshot for {{ c.id }}">{% else %}screenshot slot: no screenshot from runner "{{ runner_name }}"{% endif %}
+                </div>
+                <dl class="kv">
+                  <dt>Objective</dt><dd>{{ c.objective }}</dd>
+                  <dt>Doc expects</dt><dd><code>{{ c.expects or '' }}</code></dd>
+                  <dt>Page observed</dt><dd>{% if ev and ev.observation %}{% for k, val in ev.observation.observed.items() %}<code>{{ k }}</code> = <code>{{ val }}</code><br>{% else %}nothing stored{% endfor %}{% else %}no observation{% endif %}</dd>
+                  {% if v and v.label_match is not none %}<dt>Label match</dt><dd>{{ '%.2f'|format(v.label_match) }}</dd>{% endif %}
+                  {% if ev and ev.observation and ev.observation.note %}<dt>Runner note</dt><dd>{{ ev.observation.note }}</dd>{% endif %}
+                </dl>
+              {% else %}
+                <dl class="kv">
+                  {% if c.command %}<dt>Command</dt><dd><pre><code>{{ c.command }}</code></pre></dd>{% endif %}
+                  {% if c.expects %}<dt>Doc expects</dt><dd><code>{{ c.expects }}</code></dd>{% endif %}
+                  {% if ev %}
+                    <dt>Exit code</dt><dd>{{ 'timed out' if ev.timed_out else ev.exit_code }}{% if ev.detected_url %} · opened {{ ev.detected_url }}{% endif %}</dd>
+                    <dt>Output tail</dt><dd><pre><code>{{ ev.stdout_tail or '' }}</code></pre></dd>
+                  {% endif %}
+                </dl>
+              {% endif %}
+            </div>
+            <div>
+              {% if brief %}
+                <dl class="kv">
+                  <dt>Loop</dt>
+                  <dd>
+                    <div class="pair">
+                      <div><strong>Before</strong>{% if before %}<br><span class="st {{ before.status }}">{{ before.status }}</span> {{ before.reason }}{% endif %}</div>
+                      <div><strong>After</strong>{% if v %}<br><span class="st {{ v.status }}">{{ v.status }}</span> {{ v.reason }}{% endif %}</div>
+                    </div>
+                  </dd>
+                  <dt>Brief ({{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }})</dt><dd><pre><code>{{ brief.doc_excerpt }}</code></pre></dd>
+                  {% if brief.grounding %}<dt>Grounding</dt><dd><ul>{% for g in brief.grounding %}<li>{{ g }}</li>{% endfor %}</ul></dd>{% endif %}
+                  <dt>Diff</dt><dd><pre class="diff">{% if brief.patch %}{% for line in brief.patch.splitlines() %}<span class="{{ 'add' if line.startswith('+') and not line.startswith('+++') else ('del' if line.startswith('-') and not line.startswith('---') else '') }}">{{ line }}</span>
+{% endfor %}{% else %}no patch{% endif %}</pre></dd>
+                </dl>
+              {% else %}
+                <dl class="kv"><dt>Span</dt><dd><pre><code>{{ c.span.text }}</code></pre></dd>
+                {% if c.depends_on %}<dt>Depends on</dt><dd>{{ c.depends_on|join(', ') }}</dd>{% endif %}</dl>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <footer>Attest · every badge has evidence behind it · numbers above come from the ledger</footer>
+</main>
+<script>
+  document.querySelectorAll('.badge[data-target]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var d = document.getElementById(b.dataset.target);
+      if (d) d.classList.toggle('open');
+    });
+  });
+</script>
+</body>
+</html>
