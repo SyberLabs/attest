@@ -1,0 +1,206 @@
+{
+  "sha256": "cd773f0106518ec963b61cc02c0f8d58246e588d0b48fab3a196dae7317e17cc",
+  "source": "demo/answers/github-make-public.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "prose",
+      "span": {
+        "start_line": 1,
+        "end_line": 6,
+        "text": "---\ncard: github-make-public\nmodel: gpt-5-mini\nasked_at: 2026-10-23T22:48:52+00:00\nsystem_prompt: 'Answer as numbered steps a person can follow in a web browser. Name each button or link by its exact label.'\n---"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "prose",
+      "span": {
+        "start_line": 7,
+        "end_line": 7,
+        "text": "# How do I make a GitHub repository public?"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c03",
+      "kind": "prose",
+      "span": {
+        "start_line": 8,
+        "end_line": 8,
+        "text": ""
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c04",
+      "kind": "browser",
+      "span": {
+        "start_line": 9,
+        "end_line": 9,
+        "text": "1. Open your web browser and go to https://github.com.  "
+      },
+      "command": null,
+      "objective": "Open https://github.com and check that the address bar shows \"https://github.com\".",
+      "expects": "https://github.com",
+      "store_as": "c04_label",
+      "depends_on": []
+    },
+    {
+      "id": "c05",
+      "kind": "browser",
+      "span": {
+        "start_line": 10,
+        "end_line": 10,
+        "text": "2. If you aren\u2019t signed in, click the \"Sign in\" link (top-right) and sign in with your account.  "
+      },
+      "command": null,
+      "objective": "If not signed in, click the \"Sign in\" link (top-right) and check for the on-page label \"Sign in\".",
+      "expects": "Sign in",
+      "store_as": "c05_label",
+      "depends_on": [
+        "c04"
+      ]
+    },
+    {
+      "id": "c06",
+      "kind": "browser",
+      "span": {
+        "start_line": 11,
+        "end_line": 11,
+        "text": "3. Click your profile photo (top-right) and select \"Your repositories\", or go to the repository by URL (https://github.com/OWNER/REPOSITORY).  "
+      },
+      "command": null,
+      "objective": "Click your profile photo (top-right) and select \"Your repositories\" and check for the on-page label \"Your repositories\".",
+      "expects": "Your repositories",
+      "store_as": "c06_label",
+      "depends_on": [
+        "c05"
+      ]
+    },
+    {
+      "id": "c07",
+      "kind": "browser",
+      "span": {
+        "start_line": 12,
+        "end_line": 12,
+        "text": "4. On the repository page, click the \"Settings\" tab.  "
+      },
+      "command": null,
+      "objective": "On the repository page, click the \"Settings\" tab and check for the on-page label \"Settings\".",
+      "expects": "Settings",
+      "store_as": "c07_label",
+      "depends_on": [
+        "c06"
+      ]
+    },
+    {
+      "id": "c08",
+      "kind": "browser",
+      "span": {
+        "start_line": 13,
+        "end_line": 13,
+        "text": "5. Scroll down to the \"Danger Zone\" section at the bottom of the Settings page.  "
+      },
+      "command": null,
+      "objective": "Scroll down to the \"Danger Zone\" section and check for the on-page label \"Danger Zone\".",
+      "expects": "Danger Zone",
+      "store_as": "c08_label",
+      "depends_on": [
+        "c07"
+      ]
+    },
+    {
+      "id": "c09",
+      "kind": "browser",
+      "span": {
+        "start_line": 14,
+        "end_line": 14,
+        "text": "6. Click the \"Change visibility\" button next to \"Change repository visibility\".  "
+      },
+      "command": null,
+      "objective": "Click the \"Change visibility\" button next to the text \"Change repository visibility\" and check for the on-page label \"Change visibility\".",
+      "expects": "Change visibility",
+      "store_as": "c09_label",
+      "depends_on": [
+        "c08"
+      ]
+    },
+    {
+      "id": "c10",
+      "kind": "browser",
+      "span": {
+        "start_line": 15,
+        "end_line": 15,
+        "text": "7. In the dialog that appears, click the \"Make public\" option (if shown), then click the \"I understand, change repository visibility\" button.  "
+      },
+      "command": null,
+      "objective": "In the dialog, click the \"Make public\" option if shown, then click the \"I understand, change repository visibility\" button and check for the on-page label \"I understand, change repository visibility\".",
+      "expects": "I understand, change repository visibility",
+      "store_as": "c10_label",
+      "depends_on": [
+        "c09"
+      ]
+    },
+    {
+      "id": "c11",
+      "kind": "browser",
+      "span": {
+        "start_line": 16,
+        "end_line": 16,
+        "text": "8. When prompted, type the repository name exactly as shown to confirm, then click the final \"I understand, change repository visibility\" button."
+      },
+      "command": null,
+      "objective": "When prompted, type the repository name exactly as shown and click the final \"I understand, change repository visibility\" button and check for the on-page label \"I understand, change repository visibility\".",
+      "expects": "I understand, change repository visibility",
+      "store_as": "c11_label",
+      "depends_on": [
+        "c10"
+      ]
+    },
+    {
+      "id": "c12",
+      "kind": "prose",
+      "span": {
+        "start_line": 17,
+        "end_line": 17,
+        "text": ""
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c13",
+      "kind": "prose",
+      "span": {
+        "start_line": 18,
+        "end_line": 21,
+        "text": "Notes:\n- You must have admin permissions on the repository to change its visibility.  \n- If the repository belongs to an organization, org members or policies may require additional approvals; you might see a \"Request to make public\" flow instead.  \n- Changing a repository to public makes its code, issues, pull requests, and history visible to everyone."
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}

@@ -1,0 +1,352 @@
+{
+  "sha256": "c4e14ccf68513e2f29f9fef277e3c60c86416b765a16340a25909ae0e643a213",
+  "source": "demo/answers/census-county-population.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "prose",
+      "span": {
+        "start_line": 1,
+        "end_line": 6,
+        "text": "---\ncard: census-county-population\nmodel: gpt-5-mini\nasked_at: 2026-10-23T22:48:48+00:00\nsystem_prompt: 'Answer as numbered steps a person can follow in a web browser. Name each button or link by its exact label.'\n---"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "prose",
+      "span": {
+        "start_line": 7,
+        "end_line": 7,
+        "text": "# Where do I download Census population data for my county?"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c03",
+      "kind": "browser",
+      "span": {
+        "start_line": 9,
+        "end_line": 9,
+        "text": "1) Open your web browser and go to: https://data.census.gov"
+      },
+      "command": null,
+      "objective": "Open https://data.census.gov and check that the browser address bar shows \"https://data.census.gov\".",
+      "expects": "https://data.census.gov",
+      "store_as": "c03_label",
+      "depends_on": []
+    },
+    {
+      "id": "c04",
+      "kind": "browser",
+      "span": {
+        "start_line": 11,
+        "end_line": 11,
+        "text": "2) Click the link labeled \"Advanced Search\" (top of the page)."
+      },
+      "command": null,
+      "objective": "Click the link labeled \"Advanced Search\" and confirm the page shows the link labeled \"Advanced Search\".",
+      "expects": "Advanced Search",
+      "store_as": "c04_label",
+      "depends_on": [
+        "c03"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "browser",
+      "span": {
+        "start_line": 13,
+        "end_line": 13,
+        "text": "3) Click \"Geography\"."
+      },
+      "command": null,
+      "objective": "Click \"Geography\" and confirm the page shows the link or tab labeled \"Geography\".",
+      "expects": "Geography",
+      "store_as": "c05_label",
+      "depends_on": [
+        "c04"
+      ]
+    },
+    {
+      "id": "c06",
+      "kind": "browser",
+      "span": {
+        "start_line": 15,
+        "end_line": 15,
+        "text": "4) In the geography chooser, click \"County\" (under the list of geography types)."
+      },
+      "command": null,
+      "objective": "In the geography chooser, click \"County\" and confirm the option \"County\" is shown.",
+      "expects": "County",
+      "store_as": "c06_label",
+      "depends_on": [
+        "c05"
+      ]
+    },
+    {
+      "id": "c07",
+      "kind": "browser",
+      "span": {
+        "start_line": 17,
+        "end_line": 17,
+        "text": "5) Click the drop-down labeled \"State\" and select your state (for example, \"California\")."
+      },
+      "command": null,
+      "objective": "Click the drop-down labeled \"State\" and select your state, then confirm the selected state shows the state name you chose (for example, \"California\").",
+      "expects": "California",
+      "store_as": "c07_label",
+      "depends_on": [
+        "c06"
+      ]
+    },
+    {
+      "id": "c08",
+      "kind": "browser",
+      "span": {
+        "start_line": 19,
+        "end_line": 19,
+        "text": "6) Click the drop-down labeled \"County\" and select your county (for example, \"Los Angeles County\")."
+      },
+      "command": null,
+      "objective": "Click the drop-down labeled \"County\" and select your county, then confirm the selected county shows the county name you chose (for example, \"Los Angeles County\").",
+      "expects": "Los Angeles County",
+      "store_as": "c08_label",
+      "depends_on": [
+        "c07"
+      ]
+    },
+    {
+      "id": "c09",
+      "kind": "browser",
+      "span": {
+        "start_line": 21,
+        "end_line": 21,
+        "text": "7) Click the blue button labeled \"Update Search\" (or \"Done\" if shown) to apply the geography."
+      },
+      "command": null,
+      "objective": "Click the blue button labeled \"Update Search\" and confirm the button labeled \"Update Search\" was used.",
+      "expects": "Update Search",
+      "store_as": "c09_label",
+      "depends_on": [
+        "c08"
+      ]
+    },
+    {
+      "id": "c10",
+      "kind": "browser",
+      "span": {
+        "start_line": 23,
+        "end_line": 23,
+        "text": "8) Back in Advanced Search, click \"Surveys\"."
+      },
+      "command": null,
+      "objective": "In Advanced Search, click \"Surveys\" and confirm the control labeled \"Surveys\" is visible.",
+      "expects": "Surveys",
+      "store_as": "c10_label",
+      "depends_on": [
+        "c09"
+      ]
+    },
+    {
+      "id": "c11",
+      "kind": "prose",
+      "span": {
+        "start_line": 25,
+        "end_line": 25,
+        "text": "9) Select the survey you want:"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c12",
+      "kind": "browser",
+      "span": {
+        "start_line": 26,
+        "end_line": 26,
+        "text": "   - For current multi-year estimates choose \"ACS 5-Year Estimates\"."
+      },
+      "command": null,
+      "objective": "Select \"ACS 5-Year Estimates\" and confirm the survey selection shows \"ACS 5-Year Estimates\".",
+      "expects": "ACS 5-Year Estimates",
+      "store_as": "c12_label",
+      "depends_on": [
+        "c10"
+      ]
+    },
+    {
+      "id": "c13",
+      "kind": "browser",
+      "span": {
+        "start_line": 27,
+        "end_line": 27,
+        "text": "   - For the official population count from the 2020 Census choose \"Decennial Census\"."
+      },
+      "command": null,
+      "objective": "Select \"Decennial Census\" and confirm the survey selection shows \"Decennial Census\".",
+      "expects": "Decennial Census",
+      "store_as": "c13_label",
+      "depends_on": [
+        "c12"
+      ]
+    },
+    {
+      "id": "c14",
+      "kind": "browser",
+      "span": {
+        "start_line": 29,
+        "end_line": 29,
+        "text": "10) Click \"Topics\"."
+      },
+      "command": null,
+      "objective": "Click \"Topics\" and confirm the control labeled \"Topics\" is visible.",
+      "expects": "Topics",
+      "store_as": "c14_label",
+      "depends_on": [
+        "c13"
+      ]
+    },
+    {
+      "id": "c15",
+      "kind": "browser",
+      "span": {
+        "start_line": 31,
+        "end_line": 31,
+        "text": "11) In Topics, type and select \"B01003: Total population\" (or type \"population\" and choose the topic/table labeled \"Total Population\" or \"B01003: Total Population\")."
+      },
+      "command": null,
+      "objective": "In Topics, type and select \"B01003: Total population\" and confirm the selection shows \"B01003: Total population\".",
+      "expects": "B01003: Total population",
+      "store_as": "c15_label",
+      "depends_on": [
+        "c14"
+      ]
+    },
+    {
+      "id": "c16",
+      "kind": "browser",
+      "span": {
+        "start_line": 33,
+        "end_line": 33,
+        "text": "12) Click the blue button labeled \"Search\" (top-right)."
+      },
+      "command": null,
+      "objective": "Click the blue button labeled \"Search\" and confirm the button labeled \"Search\" was clicked.",
+      "expects": "Search",
+      "store_as": "c16_label",
+      "depends_on": [
+        "c15"
+      ]
+    },
+    {
+      "id": "c17",
+      "kind": "browser",
+      "span": {
+        "start_line": 35,
+        "end_line": 35,
+        "text": "13) In the search results, click the table titled \"B01003: TOTAL POPULATION\" (or the specific table name that appears for the selected survey)."
+      },
+      "command": null,
+      "objective": "In the search results, click the table titled \"B01003: TOTAL POPULATION\" and confirm the table title \"B01003: TOTAL POPULATION\" is shown.",
+      "expects": "B01003: TOTAL POPULATION",
+      "store_as": "c17_label",
+      "depends_on": [
+        "c16"
+      ]
+    },
+    {
+      "id": "c18",
+      "kind": "browser",
+      "span": {
+        "start_line": 37,
+        "end_line": 37,
+        "text": "14) On the table page, confirm the geography in the header shows your county."
+      },
+      "command": null,
+      "objective": "On the table page, check the header to confirm it shows your county.",
+      "expects": null,
+      "store_as": "c18_label",
+      "depends_on": [
+        "c17"
+      ]
+    },
+    {
+      "id": "c19",
+      "kind": "browser",
+      "span": {
+        "start_line": 39,
+        "end_line": 39,
+        "text": "15) Click the button labeled \"Download\" (usually at the upper-right of the table)."
+      },
+      "command": null,
+      "objective": "Click the button labeled \"Download\" and confirm the button labeled \"Download\" is visible.",
+      "expects": "Download",
+      "store_as": "c19_label",
+      "depends_on": [
+        "c18"
+      ]
+    },
+    {
+      "id": "c20",
+      "kind": "browser",
+      "span": {
+        "start_line": 41,
+        "end_line": 41,
+        "text": "16) In the Download dialog, choose format \"CSV\" (or \"CSV / Excel\") and click the blue button labeled \"Download\" (or \"Download Data\")."
+      },
+      "command": null,
+      "objective": "In the Download dialog, choose format \"CSV\" and confirm the format option labeled \"CSV\" is selected.",
+      "expects": "CSV",
+      "store_as": "c20_label",
+      "depends_on": [
+        "c19"
+      ]
+    },
+    {
+      "id": "c21",
+      "kind": "browser",
+      "span": {
+        "start_line": 43,
+        "end_line": 43,
+        "text": "17) Save the CSV file when prompted \u2014 it will contain the population for the selected county."
+      },
+      "command": null,
+      "objective": "Save the CSV file when prompted and confirm the file was saved.",
+      "expects": null,
+      "store_as": "c21_label",
+      "depends_on": [
+        "c20"
+      ]
+    },
+    {
+      "id": "c22",
+      "kind": "prose",
+      "span": {
+        "start_line": 45,
+        "end_line": 47,
+        "text": "Notes:\n- If you need yearly estimates for multiple years, in Advanced Search use \"Year\" to pick a specific ACS year before searching.\n- If you want a quick single value without table details, search the data.census.gov search box (top) for \"County Name population\" and open the relevant result, then use \"Download\"."
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}

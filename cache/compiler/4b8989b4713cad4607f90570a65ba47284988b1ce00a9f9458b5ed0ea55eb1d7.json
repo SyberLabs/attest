@@ -1,0 +1,242 @@
+{
+  "sha256": "4b8989b4713cad4607f90570a65ba47284988b1ce00a9f9458b5ed0ea55eb1d7",
+  "source": "demo/answers/sf-parking-citation.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "prose",
+      "span": {
+        "start_line": 1,
+        "end_line": 6,
+        "text": "---\ncard: sf-parking-citation\nmodel: gpt-5-mini\nasked_at: 2026-10-23T22:48:39+00:00\nsystem_prompt: 'Answer as numbered steps a person can follow in a web browser. Name each button or link by its exact label.'\n---"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "prose",
+      "span": {
+        "start_line": 7,
+        "end_line": 7,
+        "text": "# How do I appeal a parking citation in San Francisco online?"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c03",
+      "kind": "browser",
+      "span": {
+        "start_line": 9,
+        "end_line": 9,
+        "text": "1. Open your web browser and go to the SFMTA parking tickets page: https://www.sfmta.org/pay-or-contest-parking-ticket"
+      },
+      "command": null,
+      "objective": "Open https://www.sfmta.org/pay-or-contest-parking-ticket and check for the button labeled \"Pay or Contest Parking Tickets\".",
+      "expects": "Pay or Contest Parking Tickets",
+      "store_as": "c03_label",
+      "depends_on": []
+    },
+    {
+      "id": "c04",
+      "kind": "browser",
+      "span": {
+        "start_line": 11,
+        "end_line": 11,
+        "text": "2. On that page click the button labeled \"Pay or Contest Parking Tickets\"."
+      },
+      "command": null,
+      "objective": "Click the button labeled \"Pay or Contest Parking Tickets\" and check that the next page shows a link or button labeled \"Contest a Citation\".",
+      "expects": "Contest a Citation",
+      "store_as": "c04_label",
+      "depends_on": [
+        "c03"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "browser",
+      "span": {
+        "start_line": 13,
+        "end_line": 13,
+        "text": "3. On the next page, click the link or button labeled \"Contest a Citation\"."
+      },
+      "command": null,
+      "objective": "Click the link or button labeled \"Contest a Citation\" and check for a button labeled \"Continue\" on the resulting form page.",
+      "expects": "Continue",
+      "store_as": "c05_label",
+      "depends_on": [
+        "c04"
+      ]
+    },
+    {
+      "id": "c06",
+      "kind": "browser",
+      "span": {
+        "start_line": 15,
+        "end_line": 15,
+        "text": "4. Enter the citation number and license plate (or other requested identifying info) in the fields shown, then click \"Continue\"."
+      },
+      "command": null,
+      "objective": "Enter the citation number and license plate (or other requested identifying info) in the fields shown, click \"Continue\", and check for options such as \"Request Administrative Review\" or \"Request a Hearing\".",
+      "expects": "Request Administrative Review",
+      "store_as": "c06_label",
+      "depends_on": [
+        "c05"
+      ]
+    },
+    {
+      "id": "c07",
+      "kind": "browser",
+      "span": {
+        "start_line": 17,
+        "end_line": 17,
+        "text": "5. When prompted, choose the type of contest you want (for example \"Request Administrative Review\" or \"Request a Hearing\") by clicking the corresponding option, then click \"Continue\" or \"Next\"."
+      },
+      "command": null,
+      "objective": "Choose the contest type by clicking the option labeled \"Request Administrative Review\" or \"Request a Hearing\", then click \"Continue\" or \"Next\" and check for the online contest form fields.",
+      "expects": "Attach file",
+      "store_as": "c07_label",
+      "depends_on": [
+        "c06"
+      ]
+    },
+    {
+      "id": "c08",
+      "kind": "browser",
+      "span": {
+        "start_line": 19,
+        "end_line": 19,
+        "text": "6. Fill out the online contest form:"
+      },
+      "command": null,
+      "objective": "Fill out the online contest form and check that the form includes fields to select a reason and enter an explanation.",
+      "expects": "Attach file",
+      "store_as": "c08_label",
+      "depends_on": [
+        "c07"
+      ]
+    },
+    {
+      "id": "c09",
+      "kind": "browser",
+      "span": {
+        "start_line": 20,
+        "end_line": 20,
+        "text": "   - Select the reason for your appeal from the provided options."
+      },
+      "command": null,
+      "objective": "Select the reason for your appeal from the provided options and check that an option you can choose is visible.",
+      "expects": "Attach file",
+      "store_as": "c09_label",
+      "depends_on": [
+        "c08"
+      ]
+    },
+    {
+      "id": "c10",
+      "kind": "browser",
+      "span": {
+        "start_line": 21,
+        "end_line": 21,
+        "text": "   - Type a clear statement explaining why the ticket should be cancelled."
+      },
+      "command": null,
+      "objective": "Type a clear statement explaining why the ticket should be cancelled and check that the text you entered appears in the explanation field.",
+      "expects": null,
+      "store_as": "c10_label",
+      "depends_on": [
+        "c09"
+      ]
+    },
+    {
+      "id": "c11",
+      "kind": "browser",
+      "span": {
+        "start_line": 22,
+        "end_line": 22,
+        "text": "   - Attach supporting evidence (photos, meter receipts, permits) using the \"Attach file\", \"Upload\", or \"Choose File\" button."
+      },
+      "command": null,
+      "objective": "Attach supporting evidence using the \"Attach file\", \"Upload\", or \"Choose File\" button and check for the presence of one of those buttons.",
+      "expects": "Attach file",
+      "store_as": "c11_label",
+      "depends_on": [
+        "c10"
+      ]
+    },
+    {
+      "id": "c12",
+      "kind": "browser",
+      "span": {
+        "start_line": 24,
+        "end_line": 24,
+        "text": "7. Review your information and then click the button labeled \"Submit\" or \"Submit Request\" to send your contest."
+      },
+      "command": null,
+      "objective": "Review your information and click the button labeled \"Submit\" or \"Submit Request\" and check for a confirmation or confirmation number on the screen.",
+      "expects": "Submit",
+      "store_as": "c12_label",
+      "depends_on": [
+        "c11"
+      ]
+    },
+    {
+      "id": "c13",
+      "kind": "browser",
+      "span": {
+        "start_line": 26,
+        "end_line": 26,
+        "text": "8. Note the confirmation number shown on the screen and/or any confirmation email. If you\u2019re required to pay a deposit to request a hearing, follow the instructions on-screen (buttons may be labeled \"Pay\" or \"Pay Deposit\")."
+      },
+      "command": null,
+      "objective": "Note the confirmation number shown on the screen and follow any on-screen instructions, checking for a button labeled \"Pay\" or \"Pay Deposit\" if a deposit is required.",
+      "expects": "Pay",
+      "store_as": "c13_label",
+      "depends_on": [
+        "c12"
+      ]
+    },
+    {
+      "id": "c14",
+      "kind": "browser",
+      "span": {
+        "start_line": 28,
+        "end_line": 28,
+        "text": "9. Monitor your email for the SFMTA\u2019s decision or further hearing instructions. If you requested a hearing, follow the instructions in the notice to appear by mail, phone, in-person, or virtual hearing as specified."
+      },
+      "command": null,
+      "objective": "Monitor your email for the SFMTA\u2019s decision or further hearing instructions and check for an email from SFMTA with hearing or decision information.",
+      "expects": null,
+      "store_as": "c14_label",
+      "depends_on": [
+        "c13"
+      ]
+    },
+    {
+      "id": "c15",
+      "kind": "prose",
+      "span": {
+        "start_line": 30,
+        "end_line": 30,
+        "text": "If you prefer, you can also call SFMTA Parking Violations at 311 (or 415-701-2311 from outside San Francisco) for assistance. If any page or button label differs from the above, use the site search box on sfmta.org to search for \"contest a citation\" or \"pay or contest parking ticket\"."
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}

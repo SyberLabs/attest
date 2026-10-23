@@ -1,0 +1,162 @@
+{
+  "sha256": "c896531643e2d63b5b7221a3fb94cb63643b5a2487c1f292de43e1832fa6e46f",
+  "source": "demo/answers/github-add-collaborator.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "prose",
+      "span": {
+        "start_line": 1,
+        "end_line": 6,
+        "text": "---\ncard: github-add-collaborator\nmodel: gpt-5-mini\nasked_at: 2026-10-23T22:48:56+00:00\nsystem_prompt: 'Answer as numbered steps a person can follow in a web browser. Name each button or link by its exact label.'\n---"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "prose",
+      "span": {
+        "start_line": 7,
+        "end_line": 7,
+        "text": "# How do I add a collaborator to a GitHub repo?"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c03",
+      "kind": "browser",
+      "span": {
+        "start_line": 9,
+        "end_line": 9,
+        "text": "1. Open your browser and go to https://github.com and sign in."
+      },
+      "command": null,
+      "objective": "Open https://github.com and sign in, then check for the \"Sign in\" label.",
+      "expects": "Sign in",
+      "store_as": "c03_label",
+      "depends_on": []
+    },
+    {
+      "id": "c04",
+      "kind": "browser",
+      "span": {
+        "start_line": 11,
+        "end_line": 12,
+        "text": "2. Click your profile photo (top-right) and select \"Your repositories\".  \n   - Or go directly to the repository page URL (https://github.com/OWNER/REPOSITORY)."
+      },
+      "command": null,
+      "objective": "Click your profile photo (top-right) and select \"Your repositories\", then check for the \"Your repositories\" label.",
+      "expects": "Your repositories",
+      "store_as": "c04_label",
+      "depends_on": [
+        "c03"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "browser",
+      "span": {
+        "start_line": 14,
+        "end_line": 14,
+        "text": "3. On the repository page, click the \"Settings\" tab near the top (right side of the repo tabs)."
+      },
+      "command": null,
+      "objective": "On the repository page, click the \"Settings\" tab and check for the \"Settings\" label.",
+      "expects": "Settings",
+      "store_as": "c05_label",
+      "depends_on": [
+        "c04"
+      ]
+    },
+    {
+      "id": "c06",
+      "kind": "browser",
+      "span": {
+        "start_line": 16,
+        "end_line": 18,
+        "text": "4. In the left sidebar, click \"Manage access\".  \n   - If you do not see \"Manage access\", you likely do not have admin access to the repository or it's an organization repo where you need admin rights.\n"
+      },
+      "command": null,
+      "objective": "In the left sidebar, click \"Manage access\" and check for the \"Manage access\" label.",
+      "expects": "Manage access",
+      "store_as": "c06_label",
+      "depends_on": [
+        "c05"
+      ]
+    },
+    {
+      "id": "c07",
+      "kind": "browser",
+      "span": {
+        "start_line": 19,
+        "end_line": 19,
+        "text": "5. On the \"Manage access\" page, click the green \"Invite a collaborator\" button."
+      },
+      "command": null,
+      "objective": "On the \"Manage access\" page, click the green \"Invite a collaborator\" button and check for the \"Invite a collaborator\" label.",
+      "expects": "Invite a collaborator",
+      "store_as": "c07_label",
+      "depends_on": [
+        "c06"
+      ]
+    },
+    {
+      "id": "c08",
+      "kind": "browser",
+      "span": {
+        "start_line": 21,
+        "end_line": 25,
+        "text": "6. In the dialog that appears, type the GitHub username, full name, or email of the person you want to add. Select the correct user from the dropdown.\n\n7. (Optional) Before sending, click the role dropdown and choose a permission level: \"Read\", \"Triage\", \"Write\", \"Maintain\", or \"Admin\" (the exact choices appear in the invite dialog).\n\n8. Click the \"Add NAME to this repository\" or \"Send invitation\" button (the exact label may vary slightly) to send the invite."
+      },
+      "command": null,
+      "objective": "In the invite dialog, type the person's username, select the correct user, choose a role if desired, then click the invite button and check for the \"Send invitation\" label.",
+      "expects": "Send invitation",
+      "store_as": "c08_label",
+      "depends_on": [
+        "c07"
+      ]
+    },
+    {
+      "id": "c09",
+      "kind": "browser",
+      "span": {
+        "start_line": 27,
+        "end_line": 27,
+        "text": "9. The invitee must accept the invitation. They will receive a notification and can accept from their GitHub \"Notifications\" or the email invite."
+      },
+      "command": null,
+      "objective": "Have the invitee open their GitHub and check their \"Notifications\" to accept the invitation.",
+      "expects": "Notifications",
+      "store_as": "c09_label",
+      "depends_on": [
+        "c08"
+      ]
+    },
+    {
+      "id": "c10",
+      "kind": "prose",
+      "span": {
+        "start_line": 29,
+        "end_line": 31,
+        "text": "Notes:\n- You must be an admin of the repository to add collaborators. For organization repositories, you may need organization owner/admin privileges or to add a team instead: go to \"Settings\" \u2192 \"Manage access\" \u2192 \"Invite teams or people\".\n- To remove a collaborator later: go to \"Settings\" \u2192 \"Manage access\", find the person, click the three-dot menu (or \"Remove\") and confirm removal."
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}
