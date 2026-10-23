@@ -9,7 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_readme_has_no_em_dashes():
-    for p in [ROOT / "README.md", ROOT / "NOTES.md", *(ROOT / "demo").rglob("*.md"), *(ROOT / "attest").rglob("*.py")]:
+    # demo/answers/*.md are verbatim model output and are left as written
+    files = [ROOT / "README.md", ROOT / "NOTES.md", *(ROOT / "demo").glob("*.md"), *(ROOT / "attest").rglob("*.py"), *(ROOT / "tests").rglob("*.md")]
+    for p in files:
         assert "—" not in p.read_text(encoding="utf-8"), p
 
 
