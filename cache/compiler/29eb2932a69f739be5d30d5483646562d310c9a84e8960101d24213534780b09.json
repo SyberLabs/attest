@@ -1,0 +1,128 @@
+{
+  "sha256": "29eb2932a69f739be5d30d5483646562d310c9a84e8960101d24213534780b09",
+  "source": "demo/flask.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "prose",
+      "span": {
+        "start_line": 1,
+        "end_line": 10,
+        "text": "# Flask Quickstart\n\nLocal demo copy, adapted from the Flask documentation quickstart\n(pallets/flask, docs/quickstart.rst, commit 9b74a90dd3c47f792734823e8793ac36f38bc4dd).\nCode blocks are written as shell commands so that every step can be executed as written.\n\n## A Minimal Application\n\nInstall Flask:\n"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "shell",
+      "span": {
+        "start_line": 12,
+        "end_line": 12,
+        "text": "pip install Flask"
+      },
+      "command": "pip install Flask",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c03",
+      "kind": "prose",
+      "span": {
+        "start_line": 15,
+        "end_line": 16,
+        "text": "A minimal Flask application looks like this. Save it as `hello.py`:\n"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c04",
+      "kind": "shell",
+      "span": {
+        "start_line": 18,
+        "end_line": 26,
+        "text": "cat > hello.py <<'EOF'\nfrom flask import Flask\n\napp = Flask(__name__)\n\n@app.route(\"/\")\ndef hello_world():\n    return \"<p>Hello, World!</p>\"\nEOF"
+      },
+      "command": "cat > hello.py <<'EOF'\nfrom flask import Flask\n\napp = Flask(__name__)\n\n@app.route(\"/\")\ndef hello_world():\n    return \"<p>Hello, World!</p>\"\nEOF",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c02"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "prose",
+      "span": {
+        "start_line": 29,
+        "end_line": 34,
+        "text": "To run the application, use the `flask` command and point it at your application:\n\n```bash\nflask --app hello run\n```\n"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c06",
+      "kind": "shell",
+      "span": {
+        "start_line": 32,
+        "end_line": 32,
+        "text": "flask --app hello run"
+      },
+      "command": "flask --app hello run",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c04"
+      ]
+    },
+    {
+      "id": "c07",
+      "kind": "browser",
+      "span": {
+        "start_line": 35,
+        "end_line": 35,
+        "text": "This launches a very simple builtin server. Head over to http://127.0.0.1:5000/ in your browser and you should see the greeting \"Hello, World!\" on the page."
+      },
+      "command": null,
+      "objective": "Open http://127.0.0.1:5000/ in your browser and check that the page shows Hello, World!",
+      "expects": "Hello, World!",
+      "store_as": "c07_label",
+      "depends_on": [
+        "c06"
+      ]
+    },
+    {
+      "id": "c08",
+      "kind": "prose",
+      "span": {
+        "start_line": 36,
+        "end_line": 39,
+        "text": "\nIf another program is already using port 5000 you will see an \"Address already in use\" error when the server tries to start.\n\nNow that you have a working application, continue with the Flask documentation to learn about routing, templates and request data."
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}

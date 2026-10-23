@@ -1,0 +1,24 @@
+# Demo targets. Each doc has a local copy under demo/ so the demo never fetches GitHub.
+# Roles follow docs/ARCHITECTURE.md: the fastest clean opener, a second real doc, and Attest itself.
+targets:
+  - name: flask
+    role: opener
+    doc: demo/flask.md
+    upstream: https://github.com/pallets/flask/blob/9b74a90dd3c47f792734823e8793ac36f38bc4dd/docs/quickstart.rst
+    commit: 9b74a90dd3c47f792734823e8793ac36f38bc4dd
+    expected_url: http://127.0.0.1:5000/
+    notes: Shell steps run in about 10 s with a warm pip cache. Too small to show a stale step.
+  - name: vite
+    role: second doc
+    doc: demo/vite.md
+    upstream: https://github.com/vitejs/vite/blob/7e221fc61e3f4c57371ce7dc24c51e887ae33157/docs/guide/index.md
+    commit: 7e221fc61e3f4c57371ce7dc24c51e887ae33157
+    expected_url: http://localhost:5173/
+    notes: Needs a warm npm cache. Whether any browser step is stale is decided by Saturday's browser run, not before.
+  - name: attest
+    role: self-check
+    doc: README.md
+    upstream: https://github.com/SyberLabs/attest
+    commit: null   # pinned at the pre-event tag; the self-check always runs on the checked-out README
+    expected_url: http://localhost:4848/
+    notes: Proven last, after everything else is frozen.

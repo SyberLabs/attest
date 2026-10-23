@@ -1,0 +1,162 @@
+{
+  "sha256": "7010d1204090865f70b2b689a75a5f5c58a518a95a7cf2d2d5aa022ba1b42572",
+  "source": "demo/vite.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "prose",
+      "span": {
+        "start_line": 1,
+        "end_line": 20,
+        "text": "# Vite: Getting Started\n\nLocal demo copy, adapted from the Vite guide\n(vitejs/vite, docs/guide/index.md, commit 7e221fc61e3f4c57371ce7dc24c51e887ae33157).\nThe guide offers one command per package manager; this copy keeps the npm form, drops the\n`$` prompts and passes the template on the command line so no step is interactive.\n\n## Overview\n\nVite is a build tool that aims to provide a faster and leaner development experience for\nmodern web projects. It consists of a dev server with hot module replacement and a build\ncommand that bundles your code for production.\n\nVite requires Node.js version 20.19+ or 22.12+.\n\n## Scaffolding Your First Vite Project\n\nYou can directly specify the project name and the template you want to use via command\nline options. To scaffold a Vite + React project without interactive prompts, run:\n"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "shell",
+      "span": {
+        "start_line": 22,
+        "end_line": 22,
+        "text": "npm create vite@latest my-react-app -- --template react --no-interactive"
+      },
+      "command": "npm create vite@latest my-react-app -- --template react --no-interactive",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c03",
+      "kind": "prose",
+      "span": {
+        "start_line": 24,
+        "end_line": 26,
+        "text": "\nThen install the dependencies and start the dev server:\n"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c04",
+      "kind": "shell",
+      "span": {
+        "start_line": 28,
+        "end_line": 28,
+        "text": "cd my-react-app && npm install"
+      },
+      "command": "cd my-react-app && npm install",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c02"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "shell",
+      "span": {
+        "start_line": 32,
+        "end_line": 32,
+        "text": "cd my-react-app && npm run dev"
+      },
+      "command": "cd my-react-app && npm run dev",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c04"
+      ]
+    },
+    {
+      "id": "c06",
+      "kind": "prose",
+      "span": {
+        "start_line": 34,
+        "end_line": 36,
+        "text": "\nThe dev server prints a local address such as `Local: http://localhost:5173/`.\n"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c07",
+      "kind": "browser",
+      "span": {
+        "start_line": 37,
+        "end_line": 37,
+        "text": "Open http://localhost:5173/ in your browser. The starter page shows the heading \"Vite + React\""
+      },
+      "command": null,
+      "objective": "Open http://localhost:5173/ in your browser and check that the page shows the heading \"Vite + React\".",
+      "expects": "Vite + React",
+      "store_as": "c07_label",
+      "depends_on": [
+        "c05"
+      ]
+    },
+    {
+      "id": "c08",
+      "kind": "browser",
+      "span": {
+        "start_line": 38,
+        "end_line": 38,
+        "text": "and a button labelled \"count is 0\"."
+      },
+      "command": null,
+      "objective": "Open http://localhost:5173/ in your browser and check that the button is labeled \"count is 0\".",
+      "expects": "count is 0",
+      "store_as": "c08_label",
+      "depends_on": [
+        "c05",
+        "c07"
+      ]
+    },
+    {
+      "id": "c09",
+      "kind": "browser",
+      "span": {
+        "start_line": 40,
+        "end_line": 40,
+        "text": "Click the \"count is 0\" button once. Its label changes to \"count is 1\"."
+      },
+      "command": null,
+      "objective": "Click the \"count is 0\" button once and check that its label changes to \"count is 1\".",
+      "expects": "count is 1",
+      "store_as": "c09_label",
+      "depends_on": [
+        "c05",
+        "c08"
+      ]
+    },
+    {
+      "id": "c10",
+      "kind": "prose",
+      "span": {
+        "start_line": 42,
+        "end_line": 45,
+        "text": "## Next steps\n\nEdit `src/App.jsx` and save: the page updates without a reload thanks to hot module replacement.\nSee the Features Guide for what else is possible."
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}
