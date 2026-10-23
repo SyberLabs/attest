@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "attest"
+version = "0.1.0"
+description = "Docs that can't lie: execute every claimed step in a README and badge it with evidence."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "pydantic>=2",
+  "httpx",
+  "openai",
+  "rapidfuzz",
+  "jinja2",
+  "typer",
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+test = ["pytest", "flask"]
+
+[project.scripts]
+attest = "attest.cli:app"
+
+[tool.setuptools]
+packages = ["attest"]
+
+[tool.setuptools.package-data]
+attest = ["templates/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
