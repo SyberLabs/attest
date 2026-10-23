@@ -1,0 +1,88 @@
+{
+  "sha256": "6e914d6a34d1d24137fbd5f38203994c634afe63c4503debc969102a312cc83a",
+  "source": "README.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "shell",
+      "span": {
+        "start_line": 19,
+        "end_line": 19,
+        "text": "git clone https://github.com/SyberLabs/attest.git"
+      },
+      "command": "git clone https://github.com/SyberLabs/attest.git",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "shell",
+      "span": {
+        "start_line": 25,
+        "end_line": 25,
+        "text": "cd attest && python -m pip install ."
+      },
+      "command": "cd attest && python -m pip install .",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c01"
+      ]
+    },
+    {
+      "id": "c03",
+      "kind": "shell",
+      "span": {
+        "start_line": 34,
+        "end_line": 34,
+        "text": "cd attest && attest prove demo/flask.md"
+      },
+      "command": "cd attest && attest prove demo/flask.md",
+      "objective": null,
+      "expects": "page:",
+      "store_as": null,
+      "depends_on": [
+        "c02"
+      ]
+    },
+    {
+      "id": "c04",
+      "kind": "shell",
+      "span": {
+        "start_line": 44,
+        "end_line": 44,
+        "text": "cd attest && attest serve"
+      },
+      "command": "cd attest && attest serve",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c03"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "browser",
+      "span": {
+        "start_line": 47,
+        "end_line": 48,
+        "text": "Open http://localhost:4848/ in your browser. The dark strip fixed across the top of the page\nis headed \"Ledger\" and shows the claim counts for this document."
+      },
+      "command": null,
+      "objective": "Open http://localhost:4848/ in a browser and check that the page shows the label exactly \"Ledger\".",
+      "expects": "Ledger",
+      "store_as": "c05_label",
+      "depends_on": [
+        "c04"
+      ]
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}
