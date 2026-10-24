@@ -82,3 +82,14 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Stale target is Vite, now `role: stale` in targets.yaml. Real Kane run: create-vite 9.3.1's React starter shows "Get started"; the doc (pinned 7e221fc) says "Vite + React". c07 on line 37 is stale, label_match 0.48, screenshot shows the new page. Kane also read c08 as "Count is 0" and c09 as "Count is 1", both of which match the doc once case is folded; Attest marks them skipped because they depend on the stale c07.
 - `demo/vite.md` had an adaptation bug of ours, not upstream: line 32 said `cd my-react-app && npm run dev` after line 28 had already changed into the directory, so the shell runner (which carries `cd` across blocks) failed with exit 1. Fixed to `npm run dev`. With no OpenAI key on this machine yet, the compiler cache entry was derived from the old one by replacing c05's command with the new fence text (fenced blocks are shell claims verbatim by construction); `meta.mode` says `derived`.
 - Credits: Vite authored 3 steps for 48.5. Balance after: about 997.
+
+### 13:00 to 15:00 loop wired to Kane (done at 11:06)
+
+- Gate 15:00 met at 11:06: `attest prove demo/vite.md --runner kane --loop` closed on the stale target. The agent (`claude.exe -p` from the VS Code extension, via `ATTEST_AGENT_CMD`) patched line 37 to "Get started", the no-key re-compile followed the new quote, Kane re-authored the file (28.9 credits) and c07 went green; c08 and c09 were judged from that same run (`after loop on c07`). 6 of 6 proven, both verdicts for c07 under one turn.
+- First loop attempt failed for a reason outside Kane: an orphaned Vite dev server from the 10:40 run held port 5173, the new server moved to 5174, and Kane opened the doc's 5173 and saw a 404. Fixes: the shell session also kills whatever listens on the announced port at close, and steps point local doc URLs at the URL the server printed. Port 5173 was still held once after the successful loop run; killed by hand, to fix.
+- Kane keeps one recording per test file, so a doc that alternates between original and patched wording would re-author every time. The runner snapshots `output-<stem>/` per file-text hash after a passing run and restores it when that text comes back. Both Vite versions are now recorded.
+
+### Event platform (11:08)
+
+- Ran the event installer as published (`install.ps1 -Yes`, 0.1.20): Codex CLI installed, Kane CLI upgraded to 0.10.0-rc.3 with its skill, `kanehack` 0.1.20, hack-os and hack-gtm skills, Codex connected to the `kane-hack-event` MCP server (config.toml backed up). Flask re-proved on rc.3 by replay, 0 credits, unchanged output.
+- Account steps (password, register or sign in, team, claim, pair, Codex login) are Mateo's, in his own terminal.
