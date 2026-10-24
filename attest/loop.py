@@ -294,7 +294,8 @@ def run_loop(
     for claim in result.failing():
         if on_update:
             on_update(f"Asking the agent to fix line {claim.span.start_line}")
-        print(f"Asking the agent to fix line {claim.span.start_line}...")
+        typer.echo("")
+        typer.echo(f"   {typer.style('AGENT', fg=typer.colors.MAGENTA, bold=True)}     {typer.style(f'line {claim.span.start_line}', dim=True)}  asking the coding agent to fix the doc...")
         before = verdict_map[claim.id]
         grounding = ground(doc, claim)
         doc_path = Path(doc.source).name if not doc.source.startswith("http") else "doc.md"
@@ -311,9 +312,20 @@ def run_loop(
                 continue
             brief = brief.model_copy(update={"patch": diff})
             if diff:
+                from .cli import _ascii  # terminal stays ASCII on PowerShell 5.1
+
                 for line in diff.splitlines():
-                    color = typer.colors.GREEN if line.startswith("+") and not line.startswith("+++") else typer.colors.RED if line.startswith("-") and not line.startswith("---") else None
-                    print(typer.style(line, fg=color) if color else line)
+                    shown = "             | " + _ascii(line)
+                    if line.startswith(("+++", "---", "diff ", "index ")):
+                        typer.echo(typer.style(shown, dim=True))
+                    elif line.startswith("@@"):
+                        typer.echo(typer.style(shown, fg=typer.colors.CYAN))
+                    elif line.startswith("+"):
+                        typer.echo(typer.style(shown, fg=typer.colors.GREEN, bold=True))
+                    elif line.startswith("-"):
+                        typer.echo(typer.style(shown, fg=typer.colors.RED, bold=True))
+                    else:
+                        typer.echo(shown)
             ok, message = co.apply(diff)
             if ok:
                 text = co.doc_path.read_text(encoding="utf-8")
@@ -335,7 +347,7 @@ def run_loop(
         new_claims = [fresh if c.id == claim.id else c for c in new_claims]
         if on_update:
             on_update(f"Kane is re-checking line {claim.span.start_line}")
-        print(f"Kane is re-checking line {claim.span.start_line}...")
+        typer.echo(typer.style(f"   ...       {'Kane' if fresh.kind == 'browser' else 'Attest'} is re-checking line {claim.span.start_line}", fg=typer.colors.BRIGHT_BLACK))
         ev = rerun_claim(fresh, result, runner, rules, shell_env=shell_env)
         runs = getattr(runner, "runs", None)
         if runs is not None and len(runs) > recorded_runs:

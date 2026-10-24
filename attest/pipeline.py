@@ -281,20 +281,21 @@ def localize_screenshots(result: ProveResult) -> tuple[list[Verdict], dict[str, 
     """
     shots = result.out_dir / "shots"
 
-    def local(ev: Evidence | None) -> Evidence | None:
+    def local(ev: Evidence | None, tag: str = "") -> Evidence | None:
         if ev is None or ev.observation is None or not ev.observation.screenshot:
             return ev
         src = Path(ev.observation.screenshot)
         if not src.is_absolute() or not src.is_file():
             return ev
         shots.mkdir(parents=True, exist_ok=True)
-        dest = shots / f"{ev.claim_id}{src.suffix}"
+        # a looped claim keeps both pictures: <claim>.jpg (now) and <claim>-before.jpg
+        dest = shots / f"{ev.claim_id}{tag}{src.suffix}"
         shutil.copyfile(src, dest)
         obs = ev.observation.model_copy(update={"screenshot": f"shots/{dest.name}"})
         return ev.model_copy(update={"observation": obs})
 
     verdicts = [v.model_copy(update={"evidence": local(v.evidence)}) for v in result.verdicts]
-    prior = {k: v.model_copy(update={"evidence": local(v.evidence)}) for k, v in result.prior.items()}
+    prior = {k: v.model_copy(update={"evidence": local(v.evidence, "-before")}) for k, v in result.prior.items()}
     return verdicts, prior
 
 

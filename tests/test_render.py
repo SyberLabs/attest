@@ -95,7 +95,7 @@ def test_render_page_contains_badges_reasons_drawers_and_strip_numbers():
     strip = {"claims": 2, "proven": 1, "stale": 1, "broken": 0, "unverifiable": 0, "skipped": 0, "turn": 7, "loops_attempted": 1, "loops_closed": 0}
     brief = Brief(claim_id="c02", verdict=v2, doc_excerpt="35  Head over...", grounding=["[docs] says Hello", "[githits search] unavailable: AUTH_REQUIRED: login"], patch="--- a/x\n+++ b/x\n-old\n+new", attempts=1)
     html = render_page(doc, [c1, c2], [v1, v2], strip, briefs={"c02": brief}, prior_verdicts={"c02": v2}, runner_name="fake")
-    assert 'id="ledger-strip"' in html and ">Ledger<" in html
+    assert 'id="ledger-strip"' in html
     assert 'class="badge proven"' in html and 'class="badge stale"' in html
     assert "proven: exit 0" in html and "stale: label_match 0.67" in html
     assert 'id="drawer-c01"' in html and 'id="drawer-c02"' in html
@@ -108,12 +108,13 @@ def test_render_page_contains_badges_reasons_drawers_and_strip_numbers():
     assert "[docs] says Hello" in html and "+new" in html  # brief and diff
     assert "turn 7" in html and "runner fake" in html
     html_with_kane = render_page(doc, [c1, c2], [v1, v2], {**strip, "kane_steps": 5, "authored": 2, "replayed": 3}, runner_name="fake")
-    assert "5 Kane steps Â· 2 authored, 3 replayed" in html_with_kane
+    assert "5</span> Kane steps &middot; 2 authored, 3 replayed" in html_with_kane
+    assert chr(0xC2) not in html_with_kane  # no mojibake in the strip
     html_without_kane = render_page(doc, [c1, c2], [v1, v2], {**strip, "kane_steps": 0, "authored": 0, "replayed": 0}, runner_name="fake")
     assert "Kane steps" not in html_without_kane
-    # strip numbers are the ones passed in, in order
-    pos = [html.index(s) for s in ('<span class="n">2</span> claims', '<span class="n">1</span> proven', '<span class="n">1</span> stale', '<span class="n">0</span> broken')]
-    assert pos == sorted(pos)
+    # strip numbers are the ones passed in, never recounted
+    for key, n in (("proven", 1), ("claims", 2), ("stale", 1), ("broken", 0)):
+        assert f'data-count="{key}">{n}<' in html, key
     assert "<script>alert" not in html
 
 
@@ -211,8 +212,8 @@ def test_cli_prove_serve_badge(tmp_path, monkeypatch):
     r = cli.invoke(app, ["prove", str(FLASK), "--runner", "fake", "--home", str(tmp_path)])
     assert r.exit_code == 0, r.output
     assert "runner: fake" in r.output
-    assert "claims |" in r.output and "proven" in r.output
-    assert "page:" in r.output
+    assert "/" in r.output and " proven |" in r.output and "0 broken" in r.output
+    assert "page " in r.output and "index.html" in r.output
     r = cli.invoke(app, ["badge", "--home", str(tmp_path), "--out", str(tmp_path / "exp")])
     assert r.exit_code == 0, r.output
     assert (tmp_path / "exp" / "docs-proven.svg").exists()
@@ -225,3 +226,21 @@ def test_cli_prove_serve_badge(tmp_path, monkeypatch):
 def test_cli_serve_without_pages_errors(tmp_path):
     r = CliRunner().invoke(app, ["serve", "--home", str(tmp_path)])
     assert r.exit_code == 1
+
+
+def test_looped_claim_shows_before_after_and_word_level_diff():
+    doc = ingest(str(FLASK))
+    claim = Claim(id="c02", kind="browser", span=Span(start_line=35, end_line=35, text=doc.lines[34]), objective="Open it", expects="Get started")
+    seen = Evidence(claim_id="c02", kind="browser", observation=BrowserObservation(status="passed", observed={"c02_label": "Get started"}))
+    before = Verdict(claim_id="c02", status="stale", reason="stale: label_match 0.18", evidence=seen, label_match=0.18)
+    after = Verdict(claim_id="c02", status="proven", reason="proven (after loop)", evidence=seen, label_match=1.0)
+    patch = '--- a/doc.md\n+++ b/doc.md\n@@ -35 +35 @@\n-The page shows the heading "Vite + React"\n+The page shows the heading "Get started"\n'
+    brief = Brief(claim_id="c02", verdict=before, doc_excerpt="35  ...", patch=patch, attempts=1)
+    strip = {"claims": 1, "proven": 1, "stale": 0, "broken": 0, "unverifiable": 0, "skipped": 0, "turn": 2, "loops_attempted": 1, "loops_closed": 1}
+    html = render_page(doc, [claim], [after], strip, briefs={"c02": brief}, prior_verdicts={"c02": before})
+    assert 'class="drawer looped open" id="drawer-c02"' in html  # the fix opens itself
+    assert "Caught and fixed" in html and "data-fixed" in html
+    assert '<span class="v">Vite + React</span>' in html and '<span class="v">Get started</span>' in html
+    assert '<mark>Vite + React</mark>' in html and '<mark>Get started</mark>' in html
+    assert "1/1</span> fixed by agent" in html
+    assert "location.reload" not in html  # a finished page never reloads

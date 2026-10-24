@@ -11,6 +11,7 @@ lines the claims came from.
 
 from __future__ import annotations
 
+import difflib
 import html
 import re
 from urllib.parse import urlsplit
@@ -18,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
 
 from .models import Brief, Claim, Doc, Verdict
 
@@ -216,8 +218,10 @@ def render_page(
             }
         else:
             runner_notes[claim.id] = {"text": note or "", "pack": None, "path": None}
+    view = _presentation(doc, claims, by_id, blks, strip, briefs, prior_verdicts, now)
     tmpl = _env().get_template("index.html.j2")
     return tmpl.render(
+        **view,
         title=title or _title_of(doc),
         doc=doc,
         blocks=blks,
@@ -233,6 +237,179 @@ def render_page(
         live=live,
         now=now,
     )
+
+
+# -- presentation helpers (layout only: nothing here judges or counts claims) -----------------
+
+STATUS_ORDER = ("proven", "stale", "broken", "unverifiable", "skipped")
+STATUS_WORDS = {
+    "proven": "proven",
+    "stale": "stale",
+    "broken": "broken",
+    "unverifiable": "unverified",
+    "skipped": "skipped",
+    "none": "waiting",
+}
+_TOKENS = re.compile(r"\s+|\w+|[^\w\s]")
+_LINE_REF = re.compile(r"\bline (\d+)")
+
+
+def _score(strip: dict) -> dict:
+    """Bar widths and a tone for the header, from the ledger numbers as given."""
+    total = int(strip.get("claims") or 0)
+    counts = {s: int(strip.get(s) or 0) for s in STATUS_ORDER}
+    if total and counts["proven"] == total:
+        tone = "proven"
+    elif counts["broken"]:
+        tone = "broken"
+    elif counts["stale"]:
+        tone = "stale"
+    else:
+        tone = "none"
+    segments = [
+        {"status": s, "count": n, "pct": round(100.0 * n / total, 3)}
+        for s, n in counts.items()
+        if n and total
+    ]
+    return {"tone": tone, "segments": segments}
+
+
+def _intraline(old: str, new: str) -> tuple[str, str, str, str]:
+    """GitHub-style word highlight for one removed/added pair.
+
+    Returns (old_html, new_html, old_fragment, new_fragment); fragments are the
+    changed words, used for the Before / After cards.
+    """
+    a, b = _TOKENS.findall(old), _TOKENS.findall(new)
+    sm = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
+    if sm.ratio() < 0.3:
+        return html.escape(old), html.escape(new), old.strip(), new.strip()
+    changed = [op for op in sm.get_opcodes() if op[0] != "equal"]
+    if not changed:
+        return html.escape(old), html.escape(new), "", ""
+    # one highlighted region per side, from the first change to the last, so
+    # "Vite + React" -> "Get started" reads as one phrase, not word confetti
+    i1, i2 = changed[0][1], changed[-1][2]
+    j1, j2 = changed[0][3], changed[-1][4]
+
+    def mark(tokens: list[str], s: int, e: int) -> str:
+        mid = "".join(tokens[s:e])
+        return html.escape("".join(tokens[:s])) + (f"<mark>{html.escape(mid)}</mark>" if mid else "") + html.escape("".join(tokens[e:]))
+
+    return mark(a, i1, i2), mark(b, j1, j2), "".join(a[i1:i2]).strip(), "".join(b[j1:j2]).strip()
+
+
+def diff_view(patch: str | None) -> dict:
+    """Rows for the diff box (kind + safe html) and the changed words on each side."""
+    rows: list[dict] = []
+    said: list[str] = []
+    says: list[str] = []
+    if not patch:
+        return {"rows": rows, "said": "", "says": ""}
+    lines = patch.splitlines()
+    i, n = 0, len(lines)
+    while i < n:
+        ln = lines[i]
+        if ln.startswith(("diff ", "index ")):
+            rows.append({"kind": "meta", "html": Markup(html.escape(ln))})
+            i += 1
+            continue
+        if ln.startswith("--- ") and i + 1 < n and lines[i + 1].startswith("+++ "):
+            rows.append({"kind": "meta", "html": Markup(html.escape(ln))})
+            rows.append({"kind": "meta", "html": Markup(html.escape(lines[i + 1]))})
+            i += 2
+            continue
+        if ln.startswith("@@"):
+            rows.append({"kind": "hunk", "html": Markup(html.escape(ln))})
+            i += 1
+            continue
+        if ln.startswith(("-", "+")):
+            dels, adds = [], []
+            while i < n and lines[i].startswith("-") and not (lines[i].startswith("--- ") and i + 1 < n and lines[i + 1].startswith("+++ ")):
+                dels.append(lines[i][1:])
+                i += 1
+            while i < n and lines[i].startswith("+"):
+                adds.append(lines[i][1:])
+                i += 1
+            del_html = [html.escape(d) for d in dels]
+            add_html = [html.escape(a) for a in adds]
+            for k in range(min(len(dels), len(adds))):
+                del_html[k], add_html[k], of, nf = _intraline(dels[k], adds[k])
+                said.append(of)
+                says.append(nf)
+            if not said and not says:
+                said += [d.strip() for d in dels]
+                says += [a.strip() for a in adds]
+            rows += [{"kind": "del", "html": Markup("-" + h)} for h in del_html]
+            rows += [{"kind": "add", "html": Markup("+" + h)} for h in add_html]
+            continue
+        rows.append({"kind": "ctx", "html": Markup(html.escape(ln))})
+        i += 1
+    return {"rows": rows, "said": " / ".join(s for s in said if s), "says": " / ".join(s for s in says if s)}
+
+
+def runner_saw(v: Verdict | None) -> str:
+    """One short phrase for what the runner saw, for the Before / After cards."""
+    if v is None or v.evidence is None:
+        return ""
+    ev = v.evidence
+    if ev.kind == "shell":
+        return "timed out" if ev.timed_out else f"exit code {ev.exit_code}"
+    obs = ev.observation
+    if obs is None:
+        return ""
+    if obs.observed:
+        return ", ".join(f'"{val}"' for val in obs.observed.values())
+    return obs.status
+
+
+def _now_actor(now: str) -> str:
+    low = now.lower()
+    if "agent" in low or "codex" in low:
+        return "agent"
+    if "kane" in low:
+        return "kane"
+    if low.startswith("running"):
+        return "shell"
+    return "attest"
+
+
+def _presentation(doc, claims, by_id, blks, strip, briefs, prior, now) -> dict:
+    badged = [c for c in claims if c.kind != "prose"]
+    m = _LINE_REF.search(now or "")
+    active_line = int(m.group(1)) if m else None
+    active = {c.id for c in badged if active_line is not None and c.span.start_line <= active_line <= c.span.end_line}
+    fixed = {cid for cid in briefs if by_id.get(cid) is not None and by_id[cid].status == "proven"}
+    row_tones = []
+    for b in blks:
+        statuses = {by_id[c.id].status for c in b.claims if c.id in by_id}
+        ids = {c.id for c in b.claims}
+        if "broken" in statuses:
+            tone = "broken"
+        elif "stale" in statuses:
+            tone = "stale"
+        elif ids & fixed:
+            tone = "fixed"
+        elif ids & active:
+            tone = "active"
+        else:
+            tone = ""
+        row_tones.append(tone)
+    open_ids = {c.id for c in badged if c.id in briefs or (c.id in by_id and by_id[c.id].status in ("stale", "broken"))}
+    return {
+        "doc_name": Path(doc.source).name or doc.source,
+        "score": _score(strip),
+        "status_words": STATUS_WORDS,
+        "active_ids": active,
+        "fixed_ids": fixed,
+        "open_ids": open_ids,
+        "row_tones": row_tones,
+        "diffs": {cid: diff_view(b.patch) for cid, b in briefs.items()},
+        "saw": {cid: runner_saw(v) for cid, v in by_id.items()},
+        "saw_before": {cid: runner_saw(v) for cid, v in prior.items()},
+        "now_actor": _now_actor(now or ""),
+        "progress": {"judged": sum(1 for c in badged if c.id in by_id), "total": len(badged)},
+    }
 
 
 def _title_of(doc: Doc) -> str:
