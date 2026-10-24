@@ -119,8 +119,11 @@ def step_body(claim: Claim, base_url: str | None = None) -> str:
     if claim.expects and claim.expects.startswith(("http://", "https://")):
         parts.append(f"Store the URL of the current page as '{key}'.")
     elif claim.expects and re.search(r"\b(?:click|clicks|select|choose|tap|press|toggle|check the box)\b", action, re.I):
-        if re.search(r"changes? to", claim.objective or "", re.I):
-            parts.append(f"Store the exact visible text of that control after the click as '{key}'.")
+        labels = [q.casefold() for q in re.findall(r'"([^"]+)"', action)]
+        if claim.expects.casefold() not in labels:
+            # the doc promises an outcome of the click ("count is 1", a status "Won"), not the
+            # control's own label ("Mark as won"): read the page after acting
+            parts.append(f"Store the exact visible text on the page that is closest to \"{claim.expects}\" after the click as '{key}'.")
         elif _compound(action):
             # the target only exists after an earlier click (a menu item): read it last
             parts.append(f"Store the exact visible text of the last menu item, link or button you clicked as '{key}'.")
@@ -466,6 +469,11 @@ class KaneBrowserRunner:
         if sha:
             wrapper += ["--commit", sha]
         return wrapper + ["--"] + cmd
+
+    def forget(self, claim_ids) -> None:
+        """Drop cached observations so the next observe() runs Kane again (the app changed)."""
+        for cid in claim_ids:
+            self.results.pop(cid, None)
 
     def cached(self, claim_id: str) -> BrowserObservation | None:
         """The latest observation for a claim, from whichever file run produced it."""
