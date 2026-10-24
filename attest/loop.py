@@ -79,7 +79,11 @@ def brief_text(brief: Brief, claim: Claim, doc_path: str) -> str:
         for k, val in (obs.observed if obs else {}).items():
             lines.append(f"observed {k} = {val!r}")
         if obs and obs.note:
-            lines.append(f"runner note: {obs.note}")
+            # the Kane runner joins remark, failure record, root cause and fix with " | "
+            parts = [p.strip() for p in obs.note.split(" | ") if p.strip() and not p.startswith("pack: ")]
+            if parts:
+                lines.append(f"runner note: {parts[0][:300]}")
+                lines += [f"- {p[:300]}" for p in parts[1:6]]
         if obs and obs.screenshot:
             lines.append(f"screenshot: {obs.screenshot}")
     lines += ["", "## Grounding"]
@@ -328,6 +332,9 @@ def run_loop(
         doc = patched_doc.model_copy(update={"claims": new_claims, "sha256": result.doc.sha256})
         result.doc = doc
         ledger.record(result.doc.sha256, result.turn, [fresh], [after], looped=True)
+        if fresh.kind == "browser":
+            _rejudge_dependents(result, fresh, runner, rules, ledger, log)
+            verdict_map = result.by_id
         if apply_to_source and not result.doc.source.startswith("http"):
             Path(result.doc.source).write_text("\n".join(patched_doc.lines) + "\n", encoding="utf-8")
         if log:
@@ -335,6 +342,39 @@ def run_loop(
     for s in getattr(result, "_rerun_sessions", []):
         s.close()
     return result
+
+
+def _rejudge_dependents(result: ProveResult, fixed: Claim, runner: BrowserRunner, rules: Rules, ledger: Ledger, log=None) -> None:
+    """Later browser claims skipped behind the fixed one get judged from the runner's fresh observations.
+
+    A batching runner re-runs the whole test file when one claim changes, so it
+    already holds new observations for the claims after it; nothing runs again.
+    """
+    cached = getattr(runner, "cached", None)
+    if cached is None:
+        return
+    after_fixed = False
+    for c in result.claims:
+        if c.id == fixed.id:
+            after_fixed = True
+            continue
+        if not after_fixed or c.kind != "browser" or result.by_id[c.id].status != "skipped":
+            continue
+        obs = cached(c.id)
+        if obs is None:
+            continue
+        ev = Evidence(claim_id=c.id, kind="browser", observation=obs)
+        before = result.by_id[c.id]
+        v = judge(c, ev, {k: x for k, x in result.by_id.items() if k != c.id}, rules)
+        if v.status == "skipped":
+            continue
+        v = v.model_copy(update={"reason": f"{v.reason} (after loop on {fixed.id})"})
+        result.evidence[c.id] = ev
+        result.prior[c.id] = before
+        _replace_verdict(result, v)
+        ledger.record(result.doc.sha256, result.turn, [c], [v], looped=True)
+        if log:
+            log(c, v)
 
 
 def _replace_verdict(result: ProveResult, v: Verdict) -> None:

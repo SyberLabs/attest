@@ -406,6 +406,11 @@ class KaneBrowserRunner:
         self.run_group(group, base_url)
         return self.results[claim.id][1]
 
+    def cached(self, claim_id: str) -> BrowserObservation | None:
+        """The latest observation for a claim, from whichever file run produced it."""
+        hit = self.results.get(claim_id)
+        return hit[1] if hit else None
+
     def run_group(self, group: list[Claim], base_url: str | None) -> KaneRun:
         path = self.test_path(group)
         path.parent.mkdir(parents=True, exist_ok=True)

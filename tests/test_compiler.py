@@ -233,3 +233,18 @@ def test_live_compile_all_targets(tmp_path):
         for f in doc.fences:
             if classify_fence(f) == "shell":
                 assert f.text in shell_cmds, (t["name"], f.text)
+
+
+def test_requote_follows_a_replaced_quote_without_a_model():
+    from attest.compiler import requote_claim
+    from attest.models import Claim, Span
+
+    old = Claim(id="c07", kind="browser", span=Span(start_line=3, end_line=3, text='The page shows the heading "Vite + React".'),
+                objective='Open the page and check for the heading "Vite + React".', expects="Vite + React", store_as="c07_label")
+    new_span = Span(start_line=3, end_line=3, text='The page shows the heading "Get started".')
+    fresh = requote_claim(old, new_span)
+    assert fresh.expects == "Get started" and fresh.objective == 'Open the page and check for the heading "Get started".'
+    # unchanged quote, or an ambiguous edit, keeps the claim and only moves the span
+    assert requote_claim(old, old.span).expects == "Vite + React"
+    two = Span(start_line=3, end_line=3, text='Shows "A" and "B".')
+    assert requote_claim(old, two).expects == "Vite + React"
