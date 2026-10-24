@@ -23,6 +23,7 @@ patches one claim replays the unchanged steps from Kane's cache.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -415,7 +416,9 @@ class KaneBrowserRunner:
         path = self.test_path(group)
         path.parent.mkdir(parents=True, exist_ok=True)
         url = start_url(group, base_url)
-        path.write_text(test_file_text(group, url, f"{self.label} {group[0].id}-{group[-1].id}", self.max_steps), encoding="utf-8", newline="\n")
+        text = test_file_text(group, url, f"{self.label} {group[0].id}-{group[-1].id}", self.max_steps)
+        self._restore_recordings(path, text)
+        path.write_text(text, encoding="utf-8", newline="\n")
         cmd = [shutil.which(self.kane_cmd) or self.kane_cmd, "testmd", "run", str(path), "--agent", "--timeout", str(STEP_TIMEOUT_S)]
         if self.headless:
             cmd.append("--headless")
@@ -436,8 +439,34 @@ class KaneBrowserRunner:
             if pack is not None:
                 obs = obs.model_copy(update={"note": f"{obs.note} | pack: {pack}"})
             self.results[c.id] = (c, obs)
+        if run.exit_code == 0:
+            self._save_recordings(path, text)
         self.log(f"kane: exit {run.exit_code}, {run.authored} authored, {run.replayed} replayed, {run.credits:.1f} credits")
         return run
+
+    # Kane keeps one recording per test file. The loop alternates a file between the
+    # doc's original and patched wording, so each passing version's output-<stem>/ is
+    # kept under versions/ and put back when that exact text is written again.
+
+    def _versions(self, path: Path, text: str) -> tuple[Path, Path]:
+        stem = path.name[: -len("_test.md")]
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+        return path.parent / f"output-{stem}", self.home / "versions" / stem / digest
+
+    def _save_recordings(self, path: Path, text: str) -> None:
+        output, saved = self._versions(path, text)
+        if output.is_dir():
+            shutil.rmtree(saved, ignore_errors=True)
+            shutil.copytree(output, saved)
+
+    def _restore_recordings(self, path: Path, text: str) -> None:
+        if path.exists() and path.read_text(encoding="utf-8") == text:
+            return
+        output, saved = self._versions(path, text)
+        if saved.is_dir():
+            shutil.rmtree(output, ignore_errors=True)
+            shutil.copytree(saved, output)
+            self.log(f"kane: restored recordings for this version of {path.name}")
 
     def _execute(self, cmd: list[str], timeout_s: float) -> KaneRun:
         self.home.mkdir(parents=True, exist_ok=True)

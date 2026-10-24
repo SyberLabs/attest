@@ -280,3 +280,27 @@ def test_missing_kane_cli_is_a_setup_error(tmp_path, monkeypatch):
     monkeypatch.setattr(kane.shutil, "which", lambda cmd: None)
     with pytest.raises(KaneSetupError):
         KaneBrowserRunner(home=tmp_path)
+
+
+def test_recordings_follow_the_file_version_back_and_forth(runner):
+    """Original wording, patched wording, original again: the third run gets the first run's recordings back."""
+
+    class Recording(Recorder):
+        def __call__(self, cmd, timeout_s):
+            out = Path(cmd[3]).parent / "output-flask-c07"
+            # what Kane would replay from: a recording of the text it just ran
+            self.seen = (out / "rec.txt").read_text() if (out / "rec.txt").exists() else None
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "rec.txt").write_text(Path(cmd[3]).read_text(encoding="utf-8"))
+            return super().__call__(cmd, timeout_s)
+
+    runner._execute = rec = Recording(runner, "witness_stale")
+    runner.prepare([C07, C08], "demo/flask.md")
+    path = runner.test_path([C07, C08])
+    runner.observe(C07, None)
+    original = path.read_text(encoding="utf-8")
+    patched = C08.model_copy(update={"expects": "Hello, World!"})
+    runner.observe(patched, None)
+    assert rec.seen == original  # Kane found the other version's recording (it would re-author)
+    runner.observe(C08, None)
+    assert rec.seen == original  # restored: the original's recording is back for the original text
