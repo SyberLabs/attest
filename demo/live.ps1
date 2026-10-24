@@ -15,6 +15,9 @@ if (Test-Path ".env") {
 }
 # the loop agent: the OpenAI API writes the doc patch (attest.loop.call_openai_agent)
 $env:ATTEST_AGENT_CMD = "openai"
+# the doc agent and the spec worker both use gpt-6-sol on the priority ("fast") tier
+$env:ATTEST_AGENT_MODEL = "gpt-6-sol"
+$env:ATTEST_OPENAI_SERVICE_TIER = "priority"
 
 # The live tab shows the beat title and a countdown to the next beat from .attest\scene.json.
 $global:AttestScenePath = Join-Path $repo ".attest\scene.json"

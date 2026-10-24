@@ -257,3 +257,21 @@ def test_candidate_root_is_absolute_even_with_a_relative_home(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     cand = make_candidate(app, "ab" * 32, Path(".attest"))
     assert cand.root.is_absolute()
+
+
+def test_multi_file_diff_applies_with_recount(tmp_path):
+    # gpt-6-sol changed app.js and index.html; without per-file headers --recount ate "--- a/index.html"
+    import difflib
+
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "app.js").write_text("a\nb\nc\n", encoding="utf-8")
+    (app / "index.html").write_text("<p>x</p>\n", encoding="utf-8")
+    cand = make_candidate(app, "cd" * 32, tmp_path / "home")
+    chunks = []
+    for name, old, new in [("app.js", "a\nb\nc\n", "a\nb\nB2\nc\n"), ("index.html", "<p>x</p>\n", "<p>y</p>\n")]:
+        chunks.append(f"diff --git a/{name} b/{name}\n")
+        chunks.extend(difflib.unified_diff(old.splitlines(True), new.splitlines(True), f"a/{name}", f"b/{name}"))
+    ok, message = cand.apply("".join(chunks))
+    assert ok, message
+    assert (cand.root / "index.html").read_text(encoding="utf-8") == "<p>y</p>\n"

@@ -306,7 +306,9 @@ def _openai_worker(ticket: dict, timeout_s: int) -> str:
         + "\n\n".join(f"=== FILE {name} ===\n{body}" for name, body in files.items())
     )
     model = worker_identity().split(":", 1)[1]
-    kwargs = {"reasoning": {"effort": "low"}} if model.startswith(("gpt-5", "o")) else {}
+    from .compiler import openai_options
+
+    kwargs = openai_options(model)
     try:
         resp = OpenAI(timeout=timeout_s).responses.parse(
             model=model, instructions=BUILTIN_INSTRUCTIONS, input=text, text_format=WorkerResult, **kwargs
@@ -324,7 +326,11 @@ def _openai_worker(ticket: dict, timeout_s: int) -> str:
         if old is None or not safe_app_path(edit.path):
             continue  # only existing app files; new files go through external workers
         new = edit.content if edit.content.endswith("\n") else edit.content + "\n"
-        chunks.extend(difflib.unified_diff(old.splitlines(True), new.splitlines(True), f"a/{edit.path}", f"b/{edit.path}"))
+        hunks = list(difflib.unified_diff(old.splitlines(True), new.splitlines(True), f"a/{edit.path}", f"b/{edit.path}"))
+        if hunks:
+            # a header per file: under --recount, git otherwise reads the next file's "--- a/..." as a deleted line
+            chunks.append(f"diff --git a/{edit.path} b/{edit.path}\n")
+            chunks.extend(hunks)
     return "".join(chunks)
 
 

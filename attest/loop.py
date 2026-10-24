@@ -121,7 +121,9 @@ def call_openai_agent(text: str, model: str | None = None, timeout_s: int = AGEN
     from .compiler import DEFAULT_MODEL
 
     model = model or os.environ.get("ATTEST_AGENT_MODEL") or DEFAULT_MODEL
-    kwargs = {"reasoning": {"effort": "low"}} if model.startswith(("gpt-5", "o")) else {}
+    from .compiler import openai_options
+
+    kwargs = openai_options(model)
     try:
         resp = OpenAI(timeout=timeout_s).responses.create(model=model, instructions=AGENT_INSTRUCTIONS, input=text, **kwargs)
     except Exception as e:  # network, auth or model errors leave the claim for a human

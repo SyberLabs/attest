@@ -31,6 +31,19 @@ from .models import Claim, Doc, Fence, Span
 SHELL_LANGS = {"", "sh", "bash", "shell", "console", "zsh", "shell-session", "terminal", "cmd", "powershell", "ps1"}
 OUTPUT_LANGS = {"text", "txt", "output", "plaintext", "log", "console-output"}
 DEFAULT_MODEL = os.environ.get("ATTEST_OPENAI_MODEL", "gpt-5-mini")
+
+
+def openai_options(model: str) -> dict:
+    """Request options shared by the doc agent and the worker: medium reasoning effort on reasoning
+    models (ATTEST_REASONING_EFFORT overrides), and ATTEST_OPENAI_SERVICE_TIER (e.g. "priority",
+    which the API reports as fast)."""
+    opts: dict = {}
+    if model.startswith(("gpt-5", "gpt-6", "o")):
+        opts["reasoning"] = {"effort": os.environ.get("ATTEST_REASONING_EFFORT", "medium")}
+    tier = os.environ.get("ATTEST_OPENAI_SERVICE_TIER")
+    if tier:
+        opts["service_tier"] = tier
+    return opts
 CACHE_DIR = Path(os.environ.get("ATTEST_CACHE_DIR", "cache")) / "compiler"
 
 
