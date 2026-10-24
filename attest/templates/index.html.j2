@@ -7,6 +7,18 @@
 {%- else -%}<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 2.2"/></svg>
 {%- endif -%}
 {%- endmacro -%}
+{%- macro receipt_strip(rv, ref) -%}
+<div class="rcpt">
+  <dl class="rcpt-g">
+    {% if rv.worker %}<div><dt>Worker</dt><dd>{{ rv.worker }}</dd></div>{% endif %}
+    <div><dt>Authority</dt><dd>{{ rv.decision or 'none' }}{% if rv.rule %}<small>{{ rv.rule }}</small>{% endif %}</dd></div>
+    <div><dt>Disposition</dt><dd class="disp {{ rv.disposition_key }}">{{ rv.disposition or 'pending' }}</dd></div>
+    {% if rv.patch %}<div><dt>Patch sha256</dt><dd><code>{{ rv.patch }}</code></dd></div>{% endif %}
+    {% if rv.before or rv.after %}<div><dt>Status</dt><dd><span class="mini {{ rv.before }}">{{ rv.before or '?' }}</span> <span class="to" aria-label="then">&rarr;</span> <span class="mini {{ rv.after }}">{{ rv.after or '?' }}</span></dd></div>{% endif %}
+  </dl>
+  <div class="rcpt-f"><span>Receipt <code>{{ rv.case_id }}</code></span><span class="rcpt-links"><a href="../receipts/{{ rv.case_id }}.json">receipt</a>{% if ref.get('ticket') %} &middot; <a href="{{ ref.get('ticket') }}">ticket</a>{% endif %}</span></div>
+</div>
+{%- endmacro -%}
 <!doctype html>
 <html lang="en">
 <head>
@@ -190,6 +202,23 @@
   .impl.open .impl-k { color: var(--broken); }
   .impl-t { font-size: 15px; font-weight: 650; line-height: 1.3; word-break: break-word; }
   .impl-n { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+  .impl-lbl { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--faint); margin-bottom: 1px; }
+  .impl-acc { margin-top: 8px; font-size: 13px; line-height: 1.45; word-break: break-word; }
+  .rcpt { border: 1px solid var(--line); border-radius: 10px; background: #fff; margin-bottom: 12px; overflow: hidden; }
+  .rcpt-g { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); margin: 0; }
+  .rcpt-g > div { padding: 8px 12px; min-width: 0; box-shadow: inset -1px 0 0 var(--line-soft), inset 0 -1px 0 var(--line-soft); }
+  .rcpt-g dt { color: var(--faint); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+  .rcpt-g dd { margin: 2px 0 0; font-size: 13px; font-weight: 600; word-break: break-word; }
+  .rcpt-g dd small { display: block; font-size: 11.5px; font-weight: 400; color: var(--muted); line-height: 1.35; margin-top: 1px; }
+  .rcpt-g code { font-size: 12px; }
+  .rcpt-g .disp.implemented, .rcpt-g .disp.repaired { color: var(--proven); }
+  .rcpt-g .disp.unresolved { color: var(--broken); } .rcpt-g .disp.handoff_implementation { color: var(--agent); }
+  .mini { font-size: 10.5px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+  .mini.proven { color: var(--proven); } .mini.stale { color: var(--stale); } .mini.broken { color: var(--broken); }
+  .to { color: var(--faint); font-weight: 400; }
+  .rcpt-f { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 5px 12px; margin-top: -1px; border-top: 1px solid var(--line-soft); background: var(--bg); font-size: 11.5px; color: var(--faint); }
+  .rcpt-f code { font-size: 11px; background: none; padding: 0; color: var(--muted); }
+  .rcpt-links a { color: var(--muted); } .rcpt-links a:hover { color: var(--accent); }
   footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 26px; }
 
   @media (max-width: 560px) {
@@ -278,15 +307,24 @@
             </div>
             {% set auth = authority.get(c.id, {}) %}
             {% set receipt = receipts.get(c.id, {}) %}
+            {% set rv = receipt_views.get(c.id) %}
+            {% if not rv %}
             <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% elif auth.get('decision') == 'implementation_required' %}implementation required{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}{% if receipt.get('ticket') %} &middot; <a href="{{ receipt.get('ticket') }}">Ticket</a>{% endif %}</p>
+            {% elif auth.get('decision') != 'implementation_required' %}{{ receipt_strip(rv, receipt) }}{% endif %}
             {% if auth.get('decision') == 'doc_repair_denied' %}
               <div class="nopatch"><b>DOC REPAIR REFUSED: implementation handoff</b><br>The application must change, not the doc.</div>
             {% elif auth.get('decision') == 'implementation_required' %}
             <div class="impl{% if not closed %} open{% endif %}">
               <div class="impl-k">Missing capability: {% if closed %}implemented by {{ auth.get('agent') or 'OpenAI' }}{% else %}ticket open{% endif %}</div>
+              {% if rv and rv.ticket_title %}
+              <div class="impl-t"><span class="impl-lbl">Ticket</span>{{ rv.ticket_title }}</div>
+              {% if rv.acceptance %}<div class="impl-acc"><span class="impl-lbl">Acceptance criterion</span>{{ rv.acceptance }}</div>{% endif %}
+              {% else %}
               <div class="impl-t">{% if receipt.get('ticket') %}<a href="{{ receipt.get('ticket') }}">{{ receipt.get('ticket_title') }}</a>{% else %}{{ receipt.get('ticket_title') }}{% endif %}</div>
+              {% endif %}
               <div class="impl-n">The spec is the contract: the doc stays as written and the app changed in a candidate copy.</div>
             </div>
+            {% if rv %}{{ receipt_strip(rv, receipt) }}{% endif %}
             <div class="ba">
               <div class="ba-card {{ before.status if before else 'unverifiable' }}">
                 <div class="ba-k">Before {% if before %}<span class="st {{ before.status }}">{{ icon(before.status) }}{{ before.status }}</span>{% endif %}</div>

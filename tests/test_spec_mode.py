@@ -136,6 +136,11 @@ def test_failing_claim_gets_ticket_implementation_and_recheck(tmp_path, monkeypa
     page = render_result(result, home, "fake").read_text(encoding="utf-8")
     assert "Missing capability: implemented by" in page
     assert f"../tickets/{receipt['case_id']}.md" in page and "App change" in page
+    # the ticket and a compact receipt summary are shown inline in the drawer
+    assert 'class="rcpt"' in page and "Acceptance criterion" in page
+    assert receipt["proposal"]["patch_sha256"][:12] in page and receipt["proposal"]["patch_sha256"][:13] not in page
+    assert "implementation required" in page and "spec mode: the spec is the contract" in page
+    assert f"../receipts/{receipt['case_id']}.json" in page
 
 
 def test_diff_outside_app_root_is_rejected(tmp_path, monkeypatch):
