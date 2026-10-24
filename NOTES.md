@@ -110,3 +110,14 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - The negation guard is token-based; contractions lose their apostrophe in normalization ("can't" becomes "can t") and are not caught.
 - Kane keeps one recording per test file; Attest snapshots `output-<stem>/` per file version to replay both a doc and its patch. If Kane changes its cache layout, the first run after re-authors.
 - `git remote` still points at the pre-transfer `sykosyber/attest` URL, which redirects to `SyberLabs/attest`.
+
+### Numbers for the slides (14:10, from `.attest/ledger.jsonl` and `kane-runs.jsonl`)
+
+- Docs proven today: 9 (Flask, Vite, Attest's README, 6 Procedural Truth answers or versions), 23 prove turns.
+- Final verdicts across those turns: 72 proven, 7 stale, 6 broken, 25 unverifiable, 43 skipped. 31 browser claims proven by Kane with a screenshot behind each.
+- Stale caught: 12 first verdicts. The real ones that matter on stage: Vite "Vite + React" is now "Get started"; GitHub "Security & analysis" is now "Advanced Security".
+- Loops: 9 agent calls, 5 closed with the patched claim proven, 10 dependent claims proven from the same Kane run afterwards. Agents: `claude -p` in the morning, Codex (read-only sandbox) since 12:00.
+- Kane steps since ledger accounting (about 12:00): 55 authored, 22 replayed, 746.7 credits. A replayed re-prove costs 0 credits; the full Vite catch-and-fix loop runs for 0 once both doc versions are recorded.
+- Credits: 1200 at 10:12; 891.58 at 11:08 (308.42 spent before plan activation); 100,885.42 after activation at about 11:50; 99,928.89 at 14:08 (956.53 spent since). About 1,265 credits spent today in total.
+- Kane run reports on the event proof page: https://kaneclihack.sh/t/attest/proof (KR-7 onwards, all with commit SHAs).
+- Tests: 179 passed, 1 skipped.
