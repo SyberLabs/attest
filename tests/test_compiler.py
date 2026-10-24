@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 from attest.compiler import (
+    CACHE_SCHEMA_VERSION,
     ClaimSet,
+    CompileError,
     LLMClaim,
     assemble,
     chain_dependencies,
@@ -12,6 +14,7 @@ from attest.compiler import (
     classify_fence,
     compile_doc,
     fences_by_regex,
+    load_cached,
     recompile_claim,
 )
 from attest.ingest import ingest, ingest_text
@@ -115,7 +118,8 @@ def test_compile_happy_path(tmp_path):
     for c in claims:
         assert c.span.text == "\n".join(doc.lines[c.span.start_line - 1 : c.span.end_line])
     # cached by hash
-    cached = json.loads((tmp_path / f"{doc.sha256}.json").read_text())
+    cached = json.loads((tmp_path / f"v{CACHE_SCHEMA_VERSION}-{doc.sha256}.json").read_text())
+    assert cached["cache_key"] == f"compiler-v{CACHE_SCHEMA_VERSION}:{doc.sha256}"
     assert cached["meta"]["mode"] == "llm"
     assert len(cached["claims"]) == 5
     # second call hits the cache, not the model
@@ -136,25 +140,70 @@ def test_compile_retries_with_failing_line_quoted(tmp_path):
     assert [c.command for c in claims if c.kind == "shell"] == [f.text for f in doc.fences]
 
 
-def test_compile_falls_back_to_regex_for_fences(tmp_path):
+def test_compile_rejects_incomplete_fallback_after_retry(tmp_path):
     doc = ingest(str(FLASK))
     drafts = good_drafts(doc)
     bad = [d.model_copy(update={"command": "echo nope"}) if d.kind == "shell" else d for d in drafts]
     llm = FakeLLM(ClaimSet(claims=bad), ClaimSet(claims=bad))
-    claims = compile_doc(doc, llm=llm, cache_dir=tmp_path)
-    assert [c.command for c in claims if c.kind == "shell"] == [f.text for f in doc.fences]
-    # browser and prose claims from the model survive
-    assert [c.kind for c in claims] == ["prose", "shell", "shell", "shell", "browser"]
-    cached = json.loads((tmp_path / f"{doc.sha256}.json").read_text())
-    assert cached["meta"]["mode"] == "fallback"
+    with pytest.raises(CompileError, match="incomplete compilation after retry"):
+        compile_doc(doc, llm=llm, cache_dir=tmp_path)
+    assert not list(tmp_path.glob("*.json"))
 
 
-def test_compile_without_key_or_model_uses_fences_only(tmp_path, monkeypatch):
+def test_compile_rejects_omitted_browser_claim(tmp_path):
+    doc = ingest_text("Open https://example.test and check the page shows Ready.\n")
+    prose = LLMClaim(kind="prose", start_line=1, end_line=1, text=doc.lines[0], command=None, objective=None, expects=None)
+    llm = FakeLLM(ClaimSet(claims=[prose]), ClaimSet(claims=[prose]))
+    with pytest.raises(CompileError, match="browser instruction at line 1 is missing"):
+        compile_doc(doc, llm=llm, cache_dir=tmp_path)
+
+
+def test_compile_rejects_unresolved_browser_claim(tmp_path):
+    doc = ingest_text("Open https://example.test and check the page shows Ready.\n")
+    browser = LLMClaim(
+        kind="browser", start_line=1, end_line=1, text=doc.lines[0],
+        command=None, objective="Open the page and check the label", expects=None,
+    )
+    llm = FakeLLM(ClaimSet(claims=[browser]), ClaimSet(claims=[browser]))
+    with pytest.raises(CompileError, match="no exact expected text"):
+        compile_doc(doc, llm=llm, cache_dir=tmp_path)
+
+
+def test_compile_rejects_browser_expectation_absent_from_source(tmp_path):
+    doc = ingest_text("Open https://example.test and check the page shows Ready.\n")
+    browser = LLMClaim(
+        kind="browser", start_line=1, end_line=1, text=doc.lines[0],
+        command=None, objective="Open the page and check its heading", expects="Admin access",
+    )
+    llm = FakeLLM(ClaimSet(claims=[browser]), ClaimSet(claims=[browser]))
+    with pytest.raises(CompileError, match="expected browser text is not present"):
+        compile_doc(doc, llm=llm, cache_dir=tmp_path)
+
+
+def test_compile_rejects_omitted_browser_result_line(tmp_path):
+    doc = ingest_text("Open https://example.test in the browser.\nThe page shows Ready.\n")
+    browser = LLMClaim(
+        kind="browser", start_line=1, end_line=1, text=doc.lines[0],
+        command=None, objective="Open the page and check Ready", expects="Ready",
+    )
+    llm = FakeLLM(ClaimSet(claims=[browser]), ClaimSet(claims=[browser]))
+    with pytest.raises(CompileError, match="browser instruction at line 2 is missing"):
+        compile_doc(doc, llm=llm, cache_dir=tmp_path)
+
+
+def test_compile_without_model_fails_closed_on_browser_instructions(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     doc = ingest(str(FLASK))
+    with pytest.raises(CompileError, match="browser instructions require a compiler"):
+        compile_doc(doc, llm=None, cache_dir=tmp_path, use_cache=False)
+
+
+def test_compile_without_model_compiles_fenced_document(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    doc = ingest_text("```bash\necho ok\n```\n")
     claims = compile_doc(doc, llm=None, cache_dir=tmp_path, use_cache=False)
-    assert [c.kind for c in claims] == ["shell", "shell", "shell"]
-    assert claims[1].depends_on == ["c01"]
+    assert [c.kind for c in claims] == ["shell"]
+    assert claims[0].command == "echo ok"
 
 
 def test_invented_shell_claim_without_fence_becomes_prose():
@@ -164,6 +213,23 @@ def test_invented_shell_claim_without_fence_becomes_prose():
     ]
     claims = assemble(doc, drafts)
     assert claims[0].kind == "prose"
+
+
+def test_cached_command_must_match_current_source(tmp_path):
+    doc = ingest_text("```bash\necho expected\n```\n")
+    compile_doc(doc, llm=None, cache_dir=tmp_path)
+    path = tmp_path / f"v{CACHE_SCHEMA_VERSION}-{doc.sha256}.json"
+    payload = json.loads(path.read_text())
+    payload["claims"][0]["command"] = "echo forged"
+    path.write_text(json.dumps(payload))
+    assert load_cached(doc, tmp_path) is None
+
+
+def test_cached_source_hash_must_match_current_lines(tmp_path):
+    doc = ingest_text("Intro text\n\n```bash\necho expected\n```\n")
+    compile_doc(doc, llm=None, cache_dir=tmp_path)
+    changed = doc.model_copy(update={"lines": ["Changed intro", *doc.lines[1:]]})
+    assert load_cached(changed, tmp_path) is None
 
 
 def test_chain_dependencies_browser_chain():

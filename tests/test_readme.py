@@ -1,8 +1,9 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
-from attest.compiler import compile_doc, load_cached
+from attest.compiler import CompileError, compile_doc, load_cached
 from attest.ingest import ingest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,4 +49,11 @@ def test_targets_pinned_and_present():
             assert len(t["commit"]) == 40
             assert t["commit"] in (ROOT / t["doc"]).read_text(encoding="utf-8")
         doc = ingest(str(ROOT / t["doc"]))
-        assert load_cached(doc, ROOT / "cache" / "compiler") is not None, f"no compiler cache for {t['doc']}"
+        claims = load_cached(doc, ROOT / "cache" / "compiler")
+        if claims is None:
+            # Invalid legacy cache claims must not be trusted; absent a model, the
+            # uncovered browser promise is a compile failure rather than a cache hit.
+            with pytest.raises(CompileError):
+                compile_doc(doc, llm=None, cache_dir=ROOT / "cache" / "compiler")
+        else:
+            assert compile_doc(doc, llm=None, cache_dir=ROOT / "cache" / "compiler") == claims
