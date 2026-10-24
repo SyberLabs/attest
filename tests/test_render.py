@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import sys
 from pathlib import Path
@@ -108,13 +108,32 @@ def test_render_page_contains_badges_reasons_drawers_and_strip_numbers():
     assert "[docs] says Hello" in html and "+new" in html  # brief and diff
     assert "turn 7" in html and "runner fake" in html
     html_with_kane = render_page(doc, [c1, c2], [v1, v2], {**strip, "kane_steps": 5, "authored": 2, "replayed": 3}, runner_name="fake")
-    assert "5 Kane steps · 2 authored, 3 replayed" in html_with_kane
+    assert "5 Kane steps Â· 2 authored, 3 replayed" in html_with_kane
     html_without_kane = render_page(doc, [c1, c2], [v1, v2], {**strip, "kane_steps": 0, "authored": 0, "replayed": 0}, runner_name="fake")
     assert "Kane steps" not in html_without_kane
     # strip numbers are the ones passed in, in order
     pos = [html.index(s) for s in ('<span class="n">2</span> claims', '<span class="n">1</span> proven', '<span class="n">1</span> stale', '<span class="n">0</span> broken')]
     assert pos == sorted(pos)
     assert "<script>alert" not in html
+
+
+def test_live_render_has_pending_badge_and_reload_banner():
+    doc = ingest(str(FLASK))
+    claim = Claim(id="c99", kind="browser", span=Span(start_line=35, end_line=35, text=doc.lines[34]), objective="Open it")
+    strip = {"claims": 1, "proven": 0, "stale": 0, "broken": 0, "unverifiable": 0, "skipped": 0, "turn": 0, "loops_attempted": 0, "loops_closed": 0}
+    html = render_page(doc, [claim], [], strip, live=True, now="Kane is checking line 35")
+    assert 'class="badge none"' in html
+    assert "Kane is checking line 35" in html
+    assert 'fetch("../latest.json", {cache: "no-store"})' in html
+
+
+def test_live_prove_writes_latest_lifecycle(tmp_path):
+    result = prove(str(FLASK), runner=FakeBrowserRunner(), home=tmp_path, shell_env=venv_env(), live=True)
+    latest = json.loads((tmp_path / "latest.json").read_text())
+    assert latest["running"] is False
+    assert latest["page"] == f"{result.out_dir.name}/index.html"
+    assert latest["now"] == "Proof complete"
+    assert '"running": false' in (tmp_path / "latest.json").read_text()
 
 
 def test_render_hides_grounding_heading_when_all_lines_are_unavailable():

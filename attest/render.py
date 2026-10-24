@@ -189,6 +189,8 @@ def render_page(
     prior_verdicts: dict[str, Verdict] | None = None,
     title: str | None = None,
     runner_name: str = "none",
+    live: bool = False,
+    now: str = "",
 ) -> str:
     """Return the HTML. ``strip`` is the ledger summary dict, already counted."""
     by_id = {v.claim_id: v for v in verdicts}
@@ -228,6 +230,8 @@ def render_page(
         runner_name=runner_name,
         grounding_lines=grounding_lines,
         runner_notes=runner_notes,
+        live=live,
+        now=now,
     )
 
 

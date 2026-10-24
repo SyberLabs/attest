@@ -60,6 +60,7 @@
 </head>
 <body>
 <header class="strip" id="ledger-strip">
+  {% if live %}<span class="meta">{{ now }}</span>{% endif %}
   <h1>Ledger</h1>
   <span><span class="n">{{ strip.claims }}</span> claims</span>
   <span><span class="dot" style="background: var(--proven)"></span><span class="n">{{ strip.proven }}</span> proven</span>
@@ -68,7 +69,7 @@
   <span><span class="dot" style="background: var(--unverifiable)"></span><span class="n">{{ strip.unverifiable }}</span> unverifiable</span>
   <span><span class="dot" style="background: var(--skipped)"></span><span class="n">{{ strip.skipped }}</span> skipped</span>
   <span><span class="n">{{ strip.loops_closed }}</span>/{{ strip.loops_attempted }} loops closed</span>
-  {% if strip.kane_steps|default(0) > 0 %}<span>{{ strip.kane_steps }} Kane steps · {{ strip.authored }} authored, {{ strip.replayed }} replayed</span>{% endif %}
+  {% if strip.kane_steps|default(0) > 0 %}<span>{{ strip.kane_steps }} Kane steps Â· {{ strip.authored }} authored, {{ strip.replayed }} replayed</span>{% endif %}
   <span class="meta">turn {{ strip.turn }} · runner {{ runner_name }}</span>
 </header>
 
@@ -154,6 +155,9 @@
   <footer>Attest · every badge has evidence behind it · numbers above come from the ledger</footer>
 </main>
 <script>
+  {% if live %}
+  (function () { var seen = ""; setInterval(function () { fetch("../latest.json", {cache: "no-store"}).then(function (r) { return r.json(); }).then(function (j) { var key = j.now + j.running + JSON.stringify(j.page); if (key !== seen) { seen = key; location.reload(); } }); }, 1500); })();
+  {% endif %}
   document.querySelectorAll('.badge[data-target]').forEach(function (b) {
     b.addEventListener('click', function () {
       var d = document.getElementById(b.dataset.target);

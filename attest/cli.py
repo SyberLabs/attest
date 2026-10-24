@@ -13,7 +13,7 @@ from pathlib import Path
 import typer
 
 from . import __version__
-from .pipeline import ATTEST_DIR, cleanup_scratch, export_badge, prove, render_result
+from .pipeline import ATTEST_DIR, cleanup_scratch, export_badge, prove, render_result, claim_banner
 from .runner import FakeBrowserRunner
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Docs that can't lie: prove every step of a document.")
@@ -35,8 +35,21 @@ def _runner(name: str, fake_observations: Path | None, headless: bool = False, r
 
 
 def _log(claim, verdict) -> None:
-    mark = STATUS_MARK.get(verdict.status, "?")
-    typer.echo(f"  {mark} {claim.id} {claim.kind:7} L{claim.span.start_line:<4} {verdict.status:12} {verdict.reason}")
+    status = verdict.status.upper()
+    color = {"PROVEN": typer.colors.GREEN, "STALE": typer.colors.YELLOW, "BROKEN": typer.colors.RED}.get(status, typer.colors.BRIGHT_BLACK)
+    evidence = verdict.evidence
+    if verdict.status in ("skipped", "unverifiable"):
+        detail = verdict.reason.split(": ", 1)[-1]
+    elif claim.kind == "shell":
+        detail = f"exit code {'timed out' if evidence and evidence.timed_out else evidence.exit_code if evidence else 'unknown'}"
+    elif evidence and evidence.observation:
+        observed = ", ".join(str(v) for v in evidence.observation.observed.values())
+        detail = f'Kane saw "{observed}"' if observed else verdict.reason
+        if verdict.status == "stale":
+            detail = f'doc says "{claim.expects}", page says "{observed}"'
+    else:
+        detail = verdict.reason
+    typer.echo(typer.style(f"  {status:<8} line {claim.span.start_line}  {detail}", fg=color))
 
 
 @app.callback(invoke_without_command=True)
@@ -61,20 +74,34 @@ def prove_cmd(
     open_page: bool = typer.Option(False, "--open", help="Open the rendered page in a browser."),
     keep_scratch: bool = typer.Option(False, "--keep-scratch", help="Leave the scratch directory in place."),
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
+    live: bool = typer.Option(False, "--live", help="Update a live page while claims run."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
     br = _runner(runner, fake_observations, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
     typer.echo(f"attest prove {source}  (runner: {br.name})")
     try:
         skip_ids = {claim_id.strip() for item in skip for claim_id in item.split(",") if claim_id.strip()}
-        result = prove(source, runner=br, home=home, log=_log, keep_servers=loop, stop_before=stop_before, skip=skip_ids)
+        def narrate(c, v):
+            _log(c, v)
+        def before(c):
+            typer.echo(claim_banner(c))
+        result = prove(source, runner=br, home=home, log=narrate, keep_servers=loop, stop_before=stop_before, skip=skip_ids, live=live, on_start=before)
     except ValueError as e:
         raise typer.BadParameter(str(e)) from e
     if loop and result.failing():
         from .loop import run_loop
 
         typer.echo(f"loop: {len(result.failing())} failing claim(s) go to the agent")
-        result = run_loop(result, br, home=home, log=_log, apply_to_source=apply)
+        def loop_update(message):
+            if live:
+                from .pipeline import _write_live_page
+                _write_live_page(result, home, br.name, message, True)
+        def loop_log(c, v):
+            _log(c, v)
+            if live:
+                from .pipeline import _write_live_page
+                _write_live_page(result, home, br.name, "Proof updated", True)
+        result = run_loop(result, br, home=home, log=loop_log, apply_to_source=apply, on_update=loop_update)
     br.close()
     session = getattr(result, "_session", None)
     if session is not None:
@@ -116,9 +143,14 @@ def serve(
     home: Path = typer.Option(ATTEST_DIR, "--home"),
     doc: Path | None = typer.Option(None, "--doc", help="Serve the rendered page for this document."),
     open_page: bool = typer.Option(False, "--open", help="Open the page in a browser."),
+    live: bool = typer.Option(False, "--live", help="Serve the full home directory with a live page."),
 ) -> None:
     """Serve a rendered page on localhost."""
-    if doc is None:
+    if live:
+        directory = home
+        home.mkdir(parents=True, exist_ok=True)
+        (home / "index.html").write_text('''<!doctype html><meta charset="utf-8"><title>Attest live</title><style>body{margin:0;background:#101419;color:#eee;font:14px system-ui}.strip{height:36px;background:#202830;padding:8px 14px;box-sizing:border-box}iframe{border:0;width:100%;height:calc(100vh - 36px);background:#fff}</style><div class="strip">Attest live proof</div><iframe id="page"></iframe><script>let seen="";async function poll(){try{let j=await fetch("latest.json",{cache:"no-store"}).then(r=>r.json());if(j.page&&j.page!==seen){seen=j.page;document.querySelector("iframe").src=j.page;}}catch(e){}}poll();setInterval(poll,1500);</script>''', encoding="utf-8")
+    elif doc is None:
         directory = _latest_dir(home)
     else:
         from .ingest import ingest

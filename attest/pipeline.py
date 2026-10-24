@@ -62,6 +62,7 @@ def execute(
     log=None,
     stop_before: str | None = None,
     skip: set[str] | None = None,
+    on_start=None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
     """Run claims in doc order and judge each as soon as its evidence exists.
 
@@ -106,6 +107,8 @@ def execute(
                 evidence[c.id] = v.evidence
             verdicts.append(v)
             continue
+        if on_start:
+            on_start(c)
         ev: Evidence | None = None
         deps_ok = all(
             reached.get(d) is None or reached[d].status == "proven" or reached[d].evidence is None
@@ -142,6 +145,8 @@ def prove(
     log=None,
     stop_before: str | None = None,
     skip: set[str] | None = None,
+    live: bool = False,
+    on_start=None,
 ) -> ProveResult:
     rules = rules or load_rules()
     runner = runner or FakeBrowserRunner()
@@ -164,8 +169,30 @@ def prove(
         run_claims = [c for i, c in enumerate(claims) if i < stop_index and c.id not in skip]
         prepare(run_claims, doc.source)
     scratch = new_scratch()
+    out_dir = out_dir_for(doc, home)
+    live_state = {"now": "Preparing claims"}
+    if live:
+        result = ProveResult(doc, claims, {}, [], 0, out_dir, scratch=scratch)
+        _write_live_page(result, home, runner.name, live_state["now"], True)
+
+    def announce(claim):
+        if on_start:
+            on_start(claim)
+        if not live:
+            return
+        live_state["now"] = claim_banner(claim)
+        _write_live_page(result, home, runner.name, live_state["now"], True)
+
+    def record(c, v):
+        if log:
+            log(c, v)
+        if live:
+            result.verdicts.append(v)
+            _write_live_page(result, home, runner.name, live_state["now"], True)
+
     evidence, verdicts, session = execute(
-        claims, runner, rules, scratch, shell_env=shell_env, log=log, stop_before=stop_before, skip=skip
+        claims, runner, rules, scratch, shell_env=shell_env, log=record if live else log,
+        stop_before=stop_before, skip=skip, on_start=announce
     )
     if not keep_servers:
         session.close()
@@ -177,12 +204,46 @@ def prove(
         run_count = ledger.record_new_kane_runs(doc.sha256, turn, runs)
     else:
         run_count = 0
-    out_dir = out_dir_for(doc, home)
     result = ProveResult(doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch)
     result._kane_runs_count = run_count  # type: ignore[attr-defined]
     result._session = session  # type: ignore[attr-defined]
     render_result(result, home, runner.name)
+    if live:
+        _write_live_page(result, home, runner.name, "Proof complete", False)
     return result
+
+
+def claim_banner(claim: Claim) -> str:
+    if claim.kind == "shell":
+        return f"Running `{(claim.command or claim.span.text).strip()}` (line {claim.span.start_line})"
+    if claim.kind == "browser":
+        return f'Kane is checking line {claim.span.start_line}: {claim.objective or "the page"}' + (f' "{claim.expects}"?' if claim.expects else "?")
+    return f"Checking line {claim.span.start_line}"
+
+
+def _write_live_page(result: ProveResult, home: Path, runner_name: str, now: str, running: bool) -> None:
+    import json
+    from .ledger import Ledger
+    from .render import write_page
+
+    result.out_dir.mkdir(parents=True, exist_ok=True)
+    strip = Ledger(home / "ledger.jsonl").summary(result.doc.sha256, result.turn) if result.turn else {
+        "claims": len(result.claims), "proven": 0, "stale": 0, "broken": 0,
+        "unverifiable": 0, "skipped": 0, "turn": 0, "loops_attempted": 0, "loops_closed": 0,
+    }
+    verdicts, prior = localize_screenshots(result)
+    html_text = render_page(result.doc, result.claims, verdicts, strip, briefs=result.briefs,
+                            prior_verdicts=prior, runner_name=runner_name, live=running, now=now)
+    page = result.out_dir / "index.html"
+    tmp = page.with_suffix(".html.tmp")
+    tmp.write_text(html_text, encoding="utf-8")
+    os.replace(tmp, page)
+    result.page = page
+    (home / "latest").write_text(str(result.out_dir.resolve()), encoding="utf-8")
+    latest = home / "latest.json"
+    temp = latest.with_suffix(".json.tmp")
+    temp.write_text(json.dumps({"page": f"{result.out_dir.name}/index.html", "running": running, "now": now}), encoding="utf-8")
+    os.replace(temp, latest)
 
 
 def localize_screenshots(result: ProveResult) -> tuple[list[Verdict], dict[str, Verdict]]:

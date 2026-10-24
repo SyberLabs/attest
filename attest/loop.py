@@ -20,6 +20,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+import typer
 
 from .compiler import recompile_claim
 from .grounding import ground
@@ -281,6 +282,7 @@ def run_loop(
     shell_env: dict[str, str] | None = None,
     log=None,
     apply_to_source: bool = False,
+    on_update=None,
 ) -> ProveResult:
     """Fix the doc for every failing claim, one attempt each, and re-prove those claims."""
     rules = rules or load_rules()
@@ -290,6 +292,9 @@ def run_loop(
     doc = result.doc
     verdict_map = result.by_id
     for claim in result.failing():
+        if on_update:
+            on_update(f"Asking the agent to fix line {claim.span.start_line}")
+        print(f"Asking the agent to fix line {claim.span.start_line}...")
         before = verdict_map[claim.id]
         grounding = ground(doc, claim)
         doc_path = Path(doc.source).name if not doc.source.startswith("http") else "doc.md"
@@ -305,6 +310,10 @@ def run_loop(
                 message = "agent returned no unified diff"
                 continue
             brief = brief.model_copy(update={"patch": diff})
+            if diff:
+                for line in diff.splitlines():
+                    color = typer.colors.GREEN if line.startswith("+") and not line.startswith("+++") else typer.colors.RED if line.startswith("-") and not line.startswith("---") else None
+                    print(typer.style(line, fg=color) if color else line)
             ok, message = co.apply(diff)
             if ok:
                 text = co.doc_path.read_text(encoding="utf-8")
@@ -324,6 +333,9 @@ def run_loop(
         new_claims = shift_spans(result.claims, doc.lines, patched_doc.lines, claim.id)
         fresh = recompile_claim(patched_doc, claim, llm=llm)
         new_claims = [fresh if c.id == claim.id else c for c in new_claims]
+        if on_update:
+            on_update(f"Kane is re-checking line {claim.span.start_line}")
+        print(f"Kane is re-checking line {claim.span.start_line}...")
         ev = rerun_claim(fresh, result, runner, rules, shell_env=shell_env)
         runs = getattr(runner, "runs", None)
         if runs is not None and len(runs) > recorded_runs:
