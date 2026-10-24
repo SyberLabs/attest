@@ -496,7 +496,8 @@ class KaneBrowserRunner:
             cmd += ["--cdp-endpoint", self.cdp_endpoint]
         if self.report:
             cmd = self._reported(cmd, f"attest: prove {self.label} {', '.join(c.id for c in group)}")
-        self.log(f"kane: testmd run {path.name} ({len(group)} step(s), url {url})")
+        # no URL in this line: a shell runner proving a doc that runs attest would take it for a server announcing itself
+        self.log(f"kane: testmd run {path.name} ({len(group)} step(s))")
         started = time.time()
         run = self._execute(cmd, timeout_s=STEP_TIMEOUT_S * len(group) + 180)
         self.runs.append(run)
