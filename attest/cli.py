@@ -111,10 +111,25 @@ def _latest_dir(home: Path) -> Path:
 def serve(
     port: int = typer.Option(4848, "--port"),
     home: Path = typer.Option(ATTEST_DIR, "--home"),
+    doc: Path | None = typer.Option(None, "--doc", help="Serve the rendered page for this document."),
     open_page: bool = typer.Option(False, "--open", help="Open the page in a browser."),
 ) -> None:
-    """Serve the most recently rendered page on localhost."""
-    directory = _latest_dir(home)
+    """Serve a rendered page on localhost."""
+    if doc is None:
+        directory = _latest_dir(home)
+    else:
+        from .ingest import ingest
+        from .pipeline import out_dir_for
+
+        try:
+            document = ingest(str(doc))
+        except (OSError, ValueError) as e:
+            typer.echo(f"cannot load document {doc}: {e}", err=True)
+            raise typer.Exit(1) from e
+        directory = out_dir_for(document, home)
+        if not (directory / "index.html").is_file():
+            typer.echo(f"document has not been proven yet: {doc}", err=True)
+            raise typer.Exit(1)
     handler = functools.partial(_QuietHandler, directory=str(directory))
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:

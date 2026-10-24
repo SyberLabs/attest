@@ -1,0 +1,10 @@
+# Demo commands
+
+Run these from the repository root, in order:
+
+1. `.\demo\beat1.ps1` - prove the Flask quickstart.
+2. `.\demo\beat2.ps1` - catch and fix the Vite quickstart.
+3. `.\demo\beat3.ps1` - prove a Procedural Truth answer; optionally pass `-Ask "<question>"`.
+4. `.\demo\beat4.ps1` - serve Attest's proven README.
+
+GitHub cards need the throwaway Chrome profile set with `kane-cli config chrome-profile`.
