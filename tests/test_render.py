@@ -174,7 +174,8 @@ def test_prove_flask_with_fake_runner(tmp_path):
     browser = [c for c in result.claims if c.kind == "browser"]
     assert len(shell) == 3 and len(browser) == 1
     assert all(statuses[c.id] == "proven" for c in shell), statuses
-    assert statuses[browser[0].id] == "proven"
+    assert statuses[browser[0].id] == "unverifiable"
+    assert "simulation" in result.by_id[browser[0].id].reason
     # the fake runner was handed the detected server URL
     assert runner.calls == [(browser[0].id, "http://127.0.0.1:5000")]
     assert result.page and result.page.exists()
@@ -201,8 +202,8 @@ def test_prove_with_scripted_stale_observation(tmp_path):
     runner = FakeBrowserRunner.from_file(p)
     result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env())
     b = next(c for c in result.claims if c.kind == "browser")
-    assert result.by_id[b.id].status == "stale"
-    assert result.failing() == [b]
+    assert result.by_id[b.id].status == "unverifiable"
+    assert result.failing() == []
 
 
 def test_cli_prove_serve_badge(tmp_path, monkeypatch):
@@ -216,7 +217,8 @@ def test_cli_prove_serve_badge(tmp_path, monkeypatch):
     assert "page " in r.output and "index.html" in r.output
     r = cli.invoke(app, ["badge", "--home", str(tmp_path), "--out", str(tmp_path / "exp")])
     assert r.exit_code == 0, r.output
-    assert (tmp_path / "exp" / "docs-proven.svg").exists()
+    badge = (tmp_path / "exp" / "docs-proven.svg").read_text()
+    assert "#d9a400" in badge  # simulated browser result prevents a green verification badge
     proof = (tmp_path / "exp" / "PROOF.md").read_text()
     assert "proven" in proof and "| c" in proof
     r = cli.invoke(app, ["--version"])
