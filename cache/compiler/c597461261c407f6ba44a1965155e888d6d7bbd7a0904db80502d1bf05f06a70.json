@@ -1,5 +1,5 @@
 {
-  "sha256": "35138eb1f55ef849995daeabceee3a4a2b84adc47898320c81f1269b67c2edf7",
+  "sha256": "c597461261c407f6ba44a1965155e888d6d7bbd7a0904db80502d1bf05f06a70",
   "source": "demo/answers/github-secret-scanning.md",
   "claims": [
     {
@@ -36,11 +36,11 @@
       "span": {
         "start_line": 9,
         "end_line": 9,
-        "text": "1. Open the repository on github.com (URL looks like https://github.com/OWNER/REPO)."
+        "text": "1. Open the repository on github.com (URL looks like https://github.com/kane-user/attest-demo)."
       },
       "command": null,
-      "objective": "Open https://github.com/OWNER/REPO and check that the URL reads https://github.com/OWNER/REPO.",
-      "expects": "https://github.com/OWNER/REPO",
+      "objective": "Open the repository URL and check that the browser address bar shows https://github.com/kane-user/attest-demo",
+      "expects": "https://github.com/kane-user/attest-demo",
       "store_as": "c03_label",
       "depends_on": []
     },
@@ -67,7 +67,7 @@
         "text": "3. Click the \"Settings\" tab near the top of the repo page."
       },
       "command": null,
-      "objective": "Click the \"Settings\" tab and check that the text \"Settings\" is visible.",
+      "objective": "Click the \"Settings\" tab near the top of the repo page and check for the \"Settings\" label",
       "expects": "Settings",
       "store_as": "c05_label",
       "depends_on": [
@@ -83,7 +83,7 @@
         "text": "4. In the left-hand sidebar click \"Security & analysis\"."
       },
       "command": null,
-      "objective": "In the left-hand sidebar click \"Security & analysis\" and check that the text \"Security & analysis\" is visible.",
+      "objective": "In the left-hand sidebar click \"Security & analysis\" and check for the \"Security & analysis\" label",
       "expects": "Security & analysis",
       "store_as": "c06_label",
       "depends_on": [
@@ -99,7 +99,7 @@
         "text": "5. In the \"Code security and analysis\" section find the \"Secret scanning\" row and click the \"Enable\" button (or toggle labeled \"Secret scanning\") to turn it on for this repository."
       },
       "command": null,
-      "objective": "In the \"Code security and analysis\" section find the \"Secret scanning\" row and click the \"Enable\" button, then check for the text \"Enable\".",
+      "objective": "In the \"Code security and analysis\" section click the \"Enable\" button for \"Secret scanning\" and check for the \"Enable\" label",
       "expects": "Enable",
       "store_as": "c07_label",
       "depends_on": [
@@ -115,7 +115,7 @@
         "text": "6. (Recommended) In the same area find \"Push protection\" and click the \"Enable push protection\" button (or toggle labeled \"Push protection\") to block known secret patterns on git push."
       },
       "command": null,
-      "objective": "Find \"Push protection\" and click the \"Enable push protection\" button, then check for the text \"Enable push protection\".",
+      "objective": "Find \"Push protection\" and click the \"Enable push protection\" button and check for the \"Enable push protection\" label",
       "expects": "Enable push protection",
       "store_as": "c08_label",
       "depends_on": [
@@ -131,7 +131,7 @@
         "text": "7. If your repo is in an organization and you want to enable secret scanning for multiple repos at once: go to the organization page, click \"Settings\", then in the left menu click \"Code security and analysis\", then enable \"Secret scanning\" and \"Push protection\" for the organization (buttons labeled \"Enable\")."
       },
       "command": null,
-      "objective": "Go to the organization page, click \"Settings\", then in the left menu click \"Code security and analysis\", then enable \"Secret scanning\" and \"Push protection\" and check for the text \"Enable\".",
+      "objective": "Go to the organization page, click \"Settings\", then click \"Code security and analysis\", then enable \"Secret scanning\" and \"Push protection\" and check for the \"Enable\" label",
       "expects": "Enable",
       "store_as": "c09_label",
       "depends_on": [
