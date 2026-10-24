@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import http.server
 import os
 import re
@@ -294,6 +295,34 @@ def prove_cmd(
         if tee is not None:
             sys.stdout = tee._stream
             tee.close()
+
+
+@app.command("reconcile-spec")
+def reconcile_spec_cmd(
+    diagnosis: Path = typer.Argument(..., help="JSON diagnosis input; see docs/RECONCILE-SPEC.md."),
+    out: Path | None = typer.Option(None, "--out", help="Directory for the Markdown and JSON handoff artifacts."),
+    apply: bool = typer.Option(False, "--apply", help="Always refused in this mode; writes a refusal handoff without changing protected text."),
+    home: Path = typer.Option(ATTEST_DIR, "--home", help="Default artifact root when --out is not supplied."),
+) -> None:
+    """Record a protected-requirement conflict and produce a human handoff; never repair contracts."""
+    from .reconcile_spec import ReconcileRequest, ReconcileSpec, write_handoff
+
+    try:
+        input_bytes = diagnosis.read_bytes()
+        request = ReconcileRequest.model_validate_json(input_bytes)
+    except (OSError, ValueError) as exc:
+        typer.echo(f"invalid Reconcile Spec JSON: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    input_sha = hashlib.sha256(input_bytes).hexdigest()[:16]
+    output_dir = out or home / "reconcile-spec" / input_sha
+    handoff = ReconcileSpec().diagnose(request, apply_requested=apply)
+    markdown_path, json_path = write_handoff(handoff, output_dir)
+    typer.echo(f"handoff: {markdown_path}")
+    typer.echo(f"json: {json_path}")
+    if apply:
+        typer.echo("refused: Reconcile Spec cannot apply or promote protected-contract text", err=True)
+        raise typer.Exit(2)
 
 
 def _header(source: str, runner_name: str) -> None:
