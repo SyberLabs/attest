@@ -304,3 +304,11 @@ def test_recordings_follow_the_file_version_back_and_forth(runner):
     assert rec.seen == original  # Kane found the other version's recording (it would re-author)
     runner.observe(C08, None)
     assert rec.seen == original  # restored: the original's recording is back for the original text
+
+
+def test_local_urls_follow_the_server_that_started():
+    assert kane.retarget("Open http://localhost:5173/ in your browser", "http://localhost:5174/") == "Open http://localhost:5174/ in your browser"
+    assert kane.retarget("Open http://127.0.0.1:5000 now", "http://127.0.0.1:5000/") == "Open http://127.0.0.1:5000 now"
+    assert kane.retarget("Open https://github.com", "http://localhost:5174/") == "Open https://github.com"
+    assert kane.retarget("Open http://localhost:5173/", None) == "Open http://localhost:5173/"
+    assert "http://localhost:5174/" in step_body(browser("c07", "Open http://localhost:5173/ and check the heading", "Vite + React"), "http://localhost:5174/")

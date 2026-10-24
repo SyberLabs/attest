@@ -88,10 +88,21 @@ def store_key(claim: Claim) -> str:
     return claim.store_as or f"{claim.id}_label"
 
 
-def step_body(claim: Claim) -> str:
+_LOCAL = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/?")
+
+
+def retarget(text: str, base_url: str | None) -> str:
+    """Point local URLs in the doc at the server that actually started (a busy port moves Vite to 5174)."""
+    if not base_url or not _LOCAL.match(base_url):
+        return text
+    base = base_url if base_url.endswith("/") else base_url + "/"
+    return _LOCAL.sub(lambda m: base if m.group(0).endswith("/") else base.rstrip("/"), text)
+
+
+def step_body(claim: Claim, base_url: str | None = None) -> str:
     """Witness phrasing: act, store the text closest to what the doc promised, check the page loaded."""
     parts = []
-    action = action_part(claim.objective or "")
+    action = retarget(action_part(claim.objective or ""), base_url)
     if action:
         parts.append(action + ".")
     key = store_key(claim)
@@ -120,7 +131,7 @@ def test_file_text(group: list[Claim], url: str | None, title: str, max_steps: i
         front["url"] = url
     lines = ["---", yaml.safe_dump(front, sort_keys=False).strip(), "---", "", f"# {title}", ""]
     for c in group:
-        lines += [f"## {c.id}", step_body(c), ""]
+        lines += [f"## {c.id}", step_body(c, url), ""]
     return "\n".join(lines)
 
 
