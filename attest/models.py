@@ -15,6 +15,20 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .contracts import (
+    Approval,
+    AuthorityDecision,
+    AuthorityState,
+    ClaimVersion,
+    ComparisonState,
+    EvidenceState,
+    ExecutionState,
+    RepairProposal,
+    RepairState,
+)
+from .receipts import ReceiptEvidence, RunReceipt, VerifiedRunReceipt
+from .snapshots import RepositorySnapshot, SourceVersion
+
 ClaimKind = Literal["shell", "browser", "assert", "prose"]
 VerdictStatus = Literal["proven", "stale", "broken", "unverifiable", "skipped"]
 EvidenceKind = Literal["shell", "browser"]
