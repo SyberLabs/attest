@@ -21,7 +21,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help="Docs that ca
 STATUS_MARK = {"proven": "ok", "stale": "~ ", "broken": "x ", "unverifiable": "- ", "skipped": ">>"}
 
 
-def _runner(name: str, fake_observations: Path | None, headless: bool = False):
+def _runner(name: str, fake_observations: Path | None, headless: bool = False, report: bool = False):
     if name == "fake":
         if fake_observations:
             return FakeBrowserRunner.from_file(fake_observations)
@@ -30,7 +30,7 @@ def _runner(name: str, fake_observations: Path | None, headless: bool = False):
         from .kane import KaneBrowserRunner
         from .verdict import load_rules
 
-        return KaneBrowserRunner(headless=headless, max_steps=load_rules().kane_max_steps, log=typer.echo)
+        return KaneBrowserRunner(headless=headless, max_steps=load_rules().kane_max_steps, report=report, log=typer.echo)
     raise typer.BadParameter(f"unknown runner {name!r}; use fake or kane")
 
 
@@ -51,6 +51,7 @@ def prove_cmd(
     source: str = typer.Argument(..., help="Path or URL of the document to prove."),
     runner: str = typer.Option("fake", "--runner", help="Browser runner: fake (offline) or kane."),
     headless: bool = typer.Option(False, "--headless", help="Kane runs Chrome without a window (automated runs only)."),
+    report: bool = typer.Option(False, "--report", help="File each Kane run with the event's `kanehack report`."),
     fake_observations: Path | None = typer.Option(None, "--fake-observations", help="JSON of scripted observations for the fake runner."),
     loop: bool = typer.Option(False, "--loop/--no-loop", help="Send stale or broken steps to the coding agent and re-prove them."),
     apply: bool = typer.Option(False, "--apply", help="With --loop: write the agent's doc patch back to the source file."),
@@ -59,7 +60,7 @@ def prove_cmd(
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
-    br = _runner(runner, fake_observations, headless=headless)
+    br = _runner(runner, fake_observations, headless=headless, report=report)
     typer.echo(f"attest prove {source}  (runner: {br.name})")
     result = prove(source, runner=br, home=home, log=_log, keep_servers=loop)
     if loop and result.failing():

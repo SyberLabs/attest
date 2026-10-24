@@ -312,3 +312,14 @@ def test_local_urls_follow_the_server_that_started():
     assert kane.retarget("Open https://github.com", "http://localhost:5174/") == "Open https://github.com"
     assert kane.retarget("Open http://localhost:5173/", None) == "Open http://localhost:5173/"
     assert "http://localhost:5174/" in step_body(browser("c07", "Open http://localhost:5173/ and check the heading", "Vite + React"), "http://localhost:5174/")
+
+
+def test_report_wraps_kane_in_kanehack_report(runner):
+    runner.report = True
+    runner._execute = rec = Recorder(runner, "author_pass")
+    runner.prepare([C07], "demo/flask.md")
+    runner.observe(C07, None)
+    cmd = rec.calls[0]
+    assert cmd[:2] == ["kanehack", "report"] and "--objective" in cmd
+    sep = cmd.index("--")
+    assert cmd[sep + 1 : sep + 4] == ["kane-cli", "testmd", "run"]  # Kane's own command, untouched

@@ -376,7 +376,16 @@ class KaneBrowserRunner:
 
     name = "kane"
 
-    def __init__(self, home: Path | None = None, headless: bool = False, kane_cmd: str | None = None, max_steps: int = 15, log=None):
+    def __init__(
+        self,
+        home: Path | None = None,
+        headless: bool = False,
+        kane_cmd: str | None = None,
+        max_steps: int = 15,
+        report: bool = False,
+        log=None,
+    ):
+        self.report = report
         self.home = Path(home or KANE_HOME).resolve()
         self.max_steps = max_steps
         self.headless = headless
@@ -418,6 +427,19 @@ class KaneBrowserRunner:
         self.run_group(group, base_url)
         return self.results[claim.id][1]
 
+    @staticmethod
+    def _reported(cmd: list[str], objective: str) -> list[str]:
+        """Wrap a kane-cli command in the event's ``kanehack report``, which passes Kane's
+        NDJSON and exit code through and files a redacted run summary for the team."""
+        kanehack = shutil.which("kanehack")
+        if kanehack is None:
+            raise KaneSetupError("--report needs the kanehack helper; run the event installer")
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        wrapper = [kanehack, "report", "--objective", objective]
+        if sha:
+            wrapper += ["--commit", sha]
+        return wrapper + ["--"] + cmd
+
     def cached(self, claim_id: str) -> BrowserObservation | None:
         """The latest observation for a claim, from whichever file run produced it."""
         hit = self.results.get(claim_id)
@@ -433,6 +455,8 @@ class KaneBrowserRunner:
         cmd = [shutil.which(self.kane_cmd) or self.kane_cmd, "testmd", "run", str(path), "--agent", "--timeout", str(STEP_TIMEOUT_S)]
         if self.headless:
             cmd.append("--headless")
+        if self.report:
+            cmd = self._reported(cmd, f"attest: prove {self.label} {', '.join(c.id for c in group)}")
         self.log(f"kane: testmd run {path.name} ({len(group)} step(s), url {url})")
         started = time.time()
         run = self._execute(cmd, timeout_s=STEP_TIMEOUT_S * len(group) + 180)
