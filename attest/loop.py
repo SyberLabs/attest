@@ -41,7 +41,9 @@ AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "openai")
 AGENT_INSTRUCTIONS = (
     "You repair documentation. You receive a brief about one doc claim that a browser or shell run "
     "contradicted, with real line numbers. Change the smallest span of the doc so the claim matches what "
-    "was observed. Reply with only a unified diff in git format (paths a/<doc> and b/<doc>), no prose."
+    "was observed. Reply with only a unified diff in git format, no prose and no code fence. Do not use the "
+    "'*** Begin Patch' format. Use real line numbers from the brief. Example of the exact format:\n"
+    "--- a/guide.md\n+++ b/guide.md\n@@ -12 +12 @@\n-The button says \"Save\".\n+The button says \"Save changes\".\n"
 )
 AGENT_TIMEOUT_S = int(os.environ.get("ATTEST_AGENT_TIMEOUT_S", "240"))
 CONTEXT_LINES = 3
