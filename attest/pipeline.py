@@ -214,14 +214,41 @@ def prove(
 
 
 def claim_banner(claim: Claim) -> str:
+    """One plain line saying what is about to happen; shared by the terminal and the live page."""
+    line = claim.span.start_line
     if claim.kind == "shell":
-        return f"Running `{(claim.command or claim.span.text).strip()}` (line {claim.span.start_line})"
+        cmd = (claim.command or claim.span.text).strip().splitlines()[0]
+        more = " ..." if len((claim.command or "").strip().splitlines()) > 1 else ""
+        return f"Running `{cmd}{more}` (line {line})"
     if claim.kind == "browser":
-        return f'Kane is checking line {claim.span.start_line}: {claim.objective or "the page"}' + (f' "{claim.expects}"?' if claim.expects else "?")
-    return f"Checking line {claim.span.start_line}"
+        if claim.expects:
+            return f'Kane is checking line {line}: does the page show "{claim.expects}"?'
+        return f"Kane is checking line {line}"
+    return f"Reading line {line}"
+
+
+def _replace(tmp: Path, target: Path) -> None:
+    """os.replace with a short retry: on Windows the live server may be reading the target."""
+    import time
+
+    for _ in range(20):
+        try:
+            os.replace(tmp, target)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+    tmp.unlink(missing_ok=True)
 
 
 def _write_live_page(result: ProveResult, home: Path, runner_name: str, now: str, running: bool) -> None:
+    """Refresh the live page. A failed refresh never fails the prove."""
+    try:
+        _write_live_page_unsafe(result, home, runner_name, now, running)
+    except OSError:
+        pass
+
+
+def _write_live_page_unsafe(result: ProveResult, home: Path, runner_name: str, now: str, running: bool) -> None:
     import json
     from .ledger import Ledger
     from .render import write_page
@@ -237,13 +264,13 @@ def _write_live_page(result: ProveResult, home: Path, runner_name: str, now: str
     page = result.out_dir / "index.html"
     tmp = page.with_suffix(".html.tmp")
     tmp.write_text(html_text, encoding="utf-8")
-    os.replace(tmp, page)
+    _replace(tmp, page)
     result.page = page
     (home / "latest").write_text(str(result.out_dir.resolve()), encoding="utf-8")
     latest = home / "latest.json"
     temp = latest.with_suffix(".json.tmp")
     temp.write_text(json.dumps({"page": f"{result.out_dir.name}/index.html", "running": running, "now": now}), encoding="utf-8")
-    os.replace(temp, latest)
+    _replace(temp, latest)
 
 
 def localize_screenshots(result: ProveResult) -> tuple[list[Verdict], dict[str, Verdict]]:

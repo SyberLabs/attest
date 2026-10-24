@@ -5,15 +5,7 @@ param(
     [switch]$SignedIn
 )
 
-$attest = ".\.venv\Scripts\attest.exe"
-if (Test-Path ".env") {
-    foreach ($line in Get-Content ".env") {
-        if ($line -match '^\s*OPENAI_API_KEY\s*=(.*)$') {
-            $env:OPENAI_API_KEY = $Matches[1].Trim().Trim('"').Trim("'")
-            break
-        }
-    }
-}
+. "$PSScriptRoot\live.ps1"
 Write-Host "Beat 3: prove a Procedural Truth answer"
 if ($Ask) {
     & $attest ask $Ask --card $Card
@@ -21,7 +13,7 @@ if ($Ask) {
         exit $LASTEXITCODE
     }
 }
-$arguments = @("prove", "demo/answers/$Card.md", "--runner", "kane", "--loop", "--report", "--open")
+$arguments = @("prove", "demo/answers/$Card.md", "--runner", "kane", "--loop", "--report", "--live")
 if ($SignedIn) {
     $endpoint = "http://127.0.0.1:9333"
     $versionUrl = "$endpoint/json/version"
