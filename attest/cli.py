@@ -21,7 +21,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help="Docs that ca
 STATUS_MARK = {"proven": "ok", "stale": "~ ", "broken": "x ", "unverifiable": "- ", "skipped": ">>"}
 
 
-def _runner(name: str, fake_observations: Path | None, headless: bool = False, report: bool = False):
+def _runner(name: str, fake_observations: Path | None, headless: bool = False, report: bool = False, cdp_endpoint: str | None = None):
     if name == "fake":
         if fake_observations:
             return FakeBrowserRunner.from_file(fake_observations)
@@ -30,7 +30,7 @@ def _runner(name: str, fake_observations: Path | None, headless: bool = False, r
         from .kane import KaneBrowserRunner
         from .verdict import load_rules
 
-        return KaneBrowserRunner(headless=headless, max_steps=load_rules().kane_max_steps, report=report, log=typer.echo)
+        return KaneBrowserRunner(headless=headless, max_steps=load_rules().kane_max_steps, report=report, cdp_endpoint=cdp_endpoint, log=typer.echo)
     raise typer.BadParameter(f"unknown runner {name!r}; use fake or kane")
 
 
@@ -52,6 +52,7 @@ def prove_cmd(
     runner: str = typer.Option("kane", "--runner", help="Browser runner: kane (default) or fake (offline)."),
     headless: bool = typer.Option(False, "--headless", help="Kane runs Chrome without a window (automated runs only)."),
     report: bool = typer.Option(False, "--report", help="File each Kane run with the event's `kanehack report`."),
+    cdp_endpoint: str | None = typer.Option(None, "--cdp-endpoint", help="Attach Kane to an existing Chrome debugging endpoint."),
     fake_observations: Path | None = typer.Option(None, "--fake-observations", help="JSON of scripted observations for the fake runner."),
     stop_before: str | None = typer.Option(None, "--stop-before", help="Stop before this claim id (for irreversible or real-form steps)."),
     loop: bool = typer.Option(False, "--loop/--no-loop", help="Send stale or broken steps to the coding agent and re-prove them."),
@@ -61,7 +62,7 @@ def prove_cmd(
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
-    br = _runner(runner, fake_observations, headless=headless, report=report)
+    br = _runner(runner, fake_observations, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
     typer.echo(f"attest prove {source}  (runner: {br.name})")
     try:
         result = prove(source, runner=br, home=home, log=_log, keep_servers=loop, stop_before=stop_before)

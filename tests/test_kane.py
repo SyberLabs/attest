@@ -365,6 +365,21 @@ def test_report_wraps_kane_in_kanehack_report(runner):
     assert cmd[sep + 1 : sep + 4] == ["kane-cli", "testmd", "run"]  # Kane's own command, untouched
 
 
+@pytest.mark.parametrize("report", [False, True])
+def test_cdp_endpoint_is_part_of_kane_command_with_or_without_report(runner, monkeypatch, report):
+    runner.report = report
+    runner.cdp_endpoint = "http://127.0.0.1:9333"
+    if report:
+        monkeypatch.setattr(kane.subprocess, "run", lambda *args, **kwargs: type("Result", (), {"stdout": "abc123\n"})())
+    runner._execute = rec = Recorder(runner, "author_pass")
+    runner.prepare([C07], "demo/flask.md")
+    runner.observe(C07, None)
+    cmd = rec.calls[0]
+    kane_cmd = cmd[cmd.index("--") + 1:] if report else cmd
+    endpoint_index = kane_cmd.index("--cdp-endpoint")
+    assert kane_cmd[endpoint_index + 1] == "http://127.0.0.1:9333"
+
+
 def test_browser_error_page_is_unreachable_not_stale():
     # sfmta.org on the venue network: Kane passed the step but stored Chrome's error page
     run = KaneRun(steps={1: kane.StepRun(index=1, heading="c03", status="passed", variables={"c03_label": "This site can’t be reached"})})

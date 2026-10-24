@@ -394,9 +394,11 @@ class KaneBrowserRunner:
         kane_cmd: str | None = None,
         max_steps: int = 15,
         report: bool = False,
+        cdp_endpoint: str | None = None,
         log=None,
     ):
         self.report = report
+        self.cdp_endpoint = cdp_endpoint
         self.home = Path(home or KANE_HOME).resolve()
         self.max_steps = max_steps
         self.headless = headless
@@ -466,6 +468,8 @@ class KaneBrowserRunner:
         cmd = [shutil.which(self.kane_cmd) or self.kane_cmd, "testmd", "run", str(path), "--agent", "--timeout", str(STEP_TIMEOUT_S)]
         if self.headless:
             cmd.append("--headless")
+        if self.cdp_endpoint:
+            cmd += ["--cdp-endpoint", self.cdp_endpoint]
         if self.report:
             cmd = self._reported(cmd, f"attest: prove {self.label} {', '.join(c.id for c in group)}")
         self.log(f"kane: testmd run {path.name} ({len(group)} step(s), url {url})")

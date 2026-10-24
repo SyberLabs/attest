@@ -7,4 +7,4 @@ Run these from the repository root, in order:
 3. `.\demo\beat3.ps1` - prove a Procedural Truth answer; optionally pass `-Ask "<question>"`.
 4. `.\demo\beat4.ps1` - serve Attest's proven README.
 
-GitHub cards need the throwaway Chrome profile set with `kane-cli config chrome-profile`.
+GitHub cards run with `-SignedIn`; the kane-user GitHub session lives in that profile folder. Sign in once by hand.
