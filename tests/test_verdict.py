@@ -182,6 +182,18 @@ def test_threshold_comes_from_rules():
     assert judge(browser_claim(), ev, rules=Rules(label_match=0.8)).status == "stale"
 
 
+def test_shell_server_readiness_is_distinct_from_successful_exit():
+    claim = shell_claim("c01")
+    evidence = Evidence(claim_id="c01", kind="shell", exit_code=None, service_ready=True)
+
+    verdict = judge(claim, evidence)
+
+    assert verdict.status == "proven"
+    assert verdict.evidence.service_ready is True
+    assert verdict.evidence.exit_code is None
+    assert "service ready" in verdict.reason
+
+
 def test_assert_claim_against_previous_shell_output():
     c = Claim(id="c02", kind="assert", span=span(), expects="Hello from Flask", depends_on=["c01"])
     good = Evidence(claim_id="c02", kind="shell", exit_code=0, stdout_tail="...\nHello from Flask\n")

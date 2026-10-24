@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .compiler import recompile_claim
+from .execution.recipes import ApprovedRecipeExecutor
 from .grounding import ground
 from .ingest import ingest_text
 from .ledger import Ledger
@@ -236,12 +237,20 @@ def rerun_claim(
     runner: BrowserRunner,
     rules: Rules,
     shell_env: dict[str, str] | None = None,
+    recipes_only: bool = True,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> Evidence | None:
     """Run exactly one claim again through the runner kind that produced its evidence."""
     original = result.evidence.get(claim.id)
     if claim.kind == "shell":
         scratch = result.scratch or Path(tempfile.mkdtemp(prefix="attest-rerun-"))
-        session = ShellSession(workdir=scratch, timeout_s=rules.shell_timeout_s, env=shell_env or {})
+        session = ShellSession(
+            workdir=scratch,
+            timeout_s=rules.shell_timeout_s,
+            env=shell_env or {},
+            recipes_only=recipes_only,
+            recipe_executor=recipe_executor,
+        )
         ev = session.run(claim)
         if session.servers:
             # a re-run server stays up for later browser claims in this loop
@@ -275,6 +284,8 @@ def run_loop(
     shell_env: dict[str, str] | None = None,
     log=None,
     apply_to_source: bool = False,
+    recipes_only: bool = True,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> ProveResult:
     """Fix the doc for every failing claim, one attempt each, and re-prove those claims."""
     rules = rules or load_rules()
@@ -317,7 +328,15 @@ def run_loop(
         new_claims = shift_spans(result.claims, doc.lines, patched_doc.lines, claim.id)
         fresh = recompile_claim(patched_doc, claim, llm=llm)
         new_claims = [fresh if c.id == claim.id else c for c in new_claims]
-        ev = rerun_claim(fresh, result, runner, rules, shell_env=shell_env)
+        ev = rerun_claim(
+            fresh,
+            result,
+            runner,
+            rules,
+            shell_env=shell_env,
+            recipes_only=recipes_only,
+            recipe_executor=recipe_executor,
+        )
         if ev is not None:
             result.evidence[claim.id] = ev
         after = judge(fresh, ev, {k: v for k, v in result.by_id.items() if k != claim.id}, rules)

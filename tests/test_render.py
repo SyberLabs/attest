@@ -120,7 +120,7 @@ def test_badge_svg_and_proof_md():
 
 def test_prove_flask_with_fake_runner(tmp_path):
     runner = FakeBrowserRunner()
-    result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env())
+    result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env(), recipes_only=False)
     statuses = {c.id: result.by_id[c.id].status for c in result.claims}
     shell = [c for c in result.claims if c.kind == "shell"]
     browser = [c for c in result.claims if c.kind == "browser"]
@@ -151,7 +151,7 @@ def test_prove_with_scripted_stale_observation(tmp_path):
     p = tmp_path / "obs.json"
     p.write_text(json.dumps(obs))
     runner = FakeBrowserRunner.from_file(p)
-    result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env())
+    result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env(), recipes_only=False)
     b = next(c for c in result.claims if c.kind == "browser")
     assert result.by_id[b.id].status == "stale"
     assert result.failing() == [b]
@@ -161,7 +161,7 @@ def test_cli_prove_serve_badge(tmp_path, monkeypatch):
     for k, v in venv_env().items():
         monkeypatch.setenv(k, v)
     cli = CliRunner()
-    r = cli.invoke(app, ["prove", str(FLASK), "--home", str(tmp_path)])
+    r = cli.invoke(app, ["prove", str(FLASK), "--home", str(tmp_path), "--allow-unapproved-shell"])
     assert r.exit_code == 0, r.output
     assert "runner: fake" in r.output
     assert "claims |" in r.output and "proven" in r.output

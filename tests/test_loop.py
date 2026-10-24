@@ -147,12 +147,12 @@ def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
     runner = FakeBrowserRunner()
-    result = prove(str(doc_path), runner=runner, home=tmp_path / "home", keep_servers=True)
+    result = prove(str(doc_path), runner=runner, home=tmp_path / "home", keep_servers=True, recipes_only=False)
     assert [v.status for v in result.verdicts] == ["proven", "broken"]
     failing = result.failing()
     assert [c.id for c in failing] == ["c02"]
 
-    result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT))
+    result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), recipes_only=False)
     after = result.by_id["c02"]
     assert after.status == "proven", after.reason
     assert "(after loop)" in after.reason
@@ -185,8 +185,8 @@ def test_loop_rejects_diff_touching_other_file(tmp_path, monkeypatch):
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
     runner = FakeBrowserRunner()
-    result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
-    result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "rogue", ROGUE_AGENT))
+    result = prove(str(doc_path), runner=runner, home=tmp_path / "home", recipes_only=False)
+    result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "rogue", ROGUE_AGENT), recipes_only=False)
     after = result.by_id["c02"]
     assert after.status == "broken"
     assert "other than the doc" in after.reason
@@ -200,8 +200,8 @@ def test_loop_handles_agent_without_diff(tmp_path, monkeypatch):
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
     runner = FakeBrowserRunner()
-    result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
-    result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "silent", SILENT_AGENT))
+    result = prove(str(doc_path), runner=runner, home=tmp_path / "home", recipes_only=False)
+    result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "silent", SILENT_AGENT), recipes_only=False)
     assert result.by_id["c02"].status == "broken"
     assert "no unified diff" in result.by_id["c02"].reason
     assert result.briefs["c02"].patch is None
@@ -213,6 +213,6 @@ def test_loop_apply_writes_source(tmp_path, monkeypatch):
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
     runner = FakeBrowserRunner()
-    result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
-    run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), apply_to_source=True)
+    result = prove(str(doc_path), runner=runner, home=tmp_path / "home", recipes_only=False)
+    run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), apply_to_source=True, recipes_only=False)
     assert "exit 0" in doc_path.read_text() and "exit 1" not in doc_path.read_text()

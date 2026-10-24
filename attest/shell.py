@@ -1,10 +1,9 @@
-"""Shell runner: executes shell claims in order inside a scratch directory.
+"""Execute shell claims in a scratch directory with bounded process cleanup.
 
-Each command runs through a real shell (Git Bash or sh when available) with a
-timeout. The runner captures the exit code and the last 50 lines of output,
-watches for the first local URL a command prints, and when it sees one it keeps
-that process alive as a server for later browser claims. ``close()`` kills every
-process tree it started. Nothing here knows about browsers.
+Recipe-only execution is the default: an approved exact command maps to argv
+without a shell. The compatibility mode can use Git Bash or sh explicitly. The
+runner captures bounded output, probes a printed local URL before retaining a
+server, and kills only process trees it started. Nothing here knows about browsers.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -20,7 +20,10 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from .execution.recipes import ApprovedRecipeExecutor
+from .execution.supervisor import terminate_process_tree
 from .models import Claim, Evidence
 
 URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?(?:/[^\s\"'<>)\]]*)?")
@@ -57,6 +60,22 @@ def detect_url(text: str) -> str | None:
     return url.replace("0.0.0.0", "127.0.0.1")
 
 
+def _service_ready(url: str, timeout_s: float = 0.2) -> bool:
+    """Check a local TCP listener without issuing an HTTP request or mutation."""
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or host not in {"localhost", "127.0.0.1"}:
+            return False
+        port = parsed.port
+        if port is None:
+            port = 443 if parsed.scheme == "https" else 80
+        with socket.create_connection((host, port), timeout=timeout_s):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
 def find_shell() -> list[str]:
     """Pick a POSIX shell. Git Bash on Windows (by its install path first, since
     PATH may hold Cygwin or the WSL shim), sh elsewhere, cmd as a last resort."""
@@ -81,6 +100,7 @@ class RunningProcess:
     claim_id: str
     proc: subprocess.Popen
     url: str | None
+    reader: threading.Thread | None = None
 
 
 @dataclass
@@ -93,17 +113,34 @@ class ShellSession:
     base_url: str | None = None
     cwd: Path | None = None
     env: dict[str, str] = field(default_factory=dict)
+    recipe_executor: ApprovedRecipeExecutor | None = None
+    recipes_only: bool = True
 
     def __post_init__(self) -> None:
         self.workdir = Path(self.workdir)
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.cwd = self.cwd or self.workdir
-        base = dict(os.environ)
-        base.setdefault("PYTHONUNBUFFERED", "1")
-        base.setdefault("CI", "1")  # keeps npm, vite and friends from prompting or opening a browser
-        base.setdefault("BROWSER", "none")
-        base.setdefault("FORCE_COLOR", "0")
-        base["NO_COLOR"] = "1"
+        if self.recipes_only and self.recipe_executor is None:
+            self.recipe_executor = ApprovedRecipeExecutor({})
+        search_path = [str(Path(sys.executable).resolve().parent), os.defpath]
+        base = {
+            "PATH": os.pathsep.join(dict.fromkeys(search_path)),
+            "HOME": str(self.workdir),
+            "TMPDIR": str(self.workdir),
+            "TEMP": str(self.workdir),
+            "TMP": str(self.workdir),
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "PYTHONUNBUFFERED": "1",
+            "CI": "1",  # keeps package tools from prompting or opening a browser
+            "BROWSER": "none",
+            "FORCE_COLOR": "0",
+            "NO_COLOR": "1",
+        }
+        if os.name == "nt":
+            for key in ("SYSTEMROOT", "WINDIR", "PATHEXT", "COMSPEC"):
+                if os.environ.get(key):
+                    base[key] = os.environ[key]
         base.update(self.env)
         self.env = base
         self._cwd_file = self.workdir / ".attest-cwd"
@@ -124,16 +161,32 @@ class ShellSession:
 
     def run(self, claim: Claim, timeout_s: float | None = None) -> Evidence:
         assert claim.kind == "shell" and claim.command is not None
-        timeout_s = timeout_s or self.timeout_s
+        timeout_s = self.timeout_s if timeout_s is None else timeout_s
+        if timeout_s <= 0:
+            raise ValueError("timeout_s must be positive")
         cmd = executable_command(claim.command)
-        self._cwd_file.unlink(missing_ok=True)
+        if self.recipes_only:
+            assert self.recipe_executor is not None
+            try:
+                argv = self.recipe_executor.resolve(cmd)
+            except PermissionError as exc:
+                return Evidence(
+                    claim_id=claim.id,
+                    kind="shell",
+                    command=claim.command,
+                    exit_code=126,
+                    stdout_tail=str(exc),
+                )
+        else:
+            self._cwd_file.unlink(missing_ok=True)
+            argv = [*self.shell, self._wrap(cmd)]
         creation: dict = {}
         if sys.platform == "win32":
             creation["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             creation["start_new_session"] = True
         proc = subprocess.Popen(
-            [*self.shell, self._wrap(cmd)],
+            argv,
             cwd=str(self.cwd),
             env=self.env,
             stdout=subprocess.PIPE,
@@ -160,51 +213,82 @@ class ShellSession:
                         if url:
                             state["url"] = url
 
-        t = threading.Thread(target=pump, daemon=True)
-        t.start()
+        reader = threading.Thread(target=pump, name=f"attest-output-{proc.pid}", daemon=True)
+        try:
+            reader.start()
+        except BaseException:
+            self._kill(proc)
+            raise
+        timed_out_event = threading.Event()
+        finished = threading.Event()
 
-        deadline = time.monotonic() + timeout_s
-        timed_out = False
-        kept_alive = False
-        while True:
-            rc = proc.poll()
-            if rc is not None:
-                break
-            if state["url"] is not None:
-                # a server announced itself: give it a moment, then leave it running
-                time.sleep(self.server_grace_s)
-                if proc.poll() is None:
-                    kept_alive = True
-                    break
-                continue
-            if time.monotonic() > deadline:
-                timed_out = True
+        def watchdog() -> None:
+            if not finished.wait(timeout_s):
+                timed_out_event.set()
                 self._kill(proc)
-                break
-            time.sleep(0.05)
 
-        if kept_alive:
-            self.servers.append(RunningProcess(claim.id, proc, state["url"]))
-            self.base_url = state["url"]
-        else:
-            t.join(timeout=5)
-            self._update_cwd()
+        deadline_thread = threading.Thread(target=watchdog, name=f"attest-deadline-{proc.pid}", daemon=True)
+        try:
+            deadline_thread.start()
+        except BaseException:
+            finished.set()
+            self._kill(proc)
+            reader.join(timeout=1)
+            raise
+        kept_alive = False
+        try:
+            deadline = time.monotonic() + timeout_s
+            while True:
+                rc = proc.poll()
+                if rc is not None:
+                    break
+                if timed_out_event.is_set() or time.monotonic() >= deadline:
+                    timed_out_event.set()
+                    self._kill(proc)
+                    break
+                with lock:
+                    url = state["url"]
+                if url is not None:
+                    # A printed URL is only a hint; require a bounded TCP probe
+                    # and a live child before advertising the service as ready.
+                    grace_deadline = min(time.monotonic() + self.server_grace_s, deadline)
+                    ready = False
+                    while proc.poll() is None and not timed_out_event.is_set() and time.monotonic() < grace_deadline:
+                        if _service_ready(url):
+                            ready = True
+                            break
+                        time.sleep(min(0.05, max(0.0, grace_deadline - time.monotonic())))
+                    if ready and proc.poll() is None and not timed_out_event.is_set() and time.monotonic() < deadline:
+                        finished.set()  # the independent deadline ends once readiness is observed
+                        self.servers.append(RunningProcess(claim.id, proc, url, reader))
+                        kept_alive = True
+                        self.base_url = url
+                        break
+                    continue
+                time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+        except BaseException:
+            self._kill(proc)
+            raise
+        finally:
+            finished.set()
+            deadline_thread.join(timeout=2)
+            if not kept_alive:
+                # Also reap descendants when the shell leader exited first.
+                self._kill(proc)
+                reader.join(timeout=1)
+                if not self.recipes_only:
+                    self._update_cwd()
 
         with lock:
             lines = list(tail)
-        exit_code: int | None
-        if kept_alive:
-            exit_code = 0
-        elif timed_out:
-            exit_code = None
-        else:
-            exit_code = proc.returncode
+        timed_out = timed_out_event.is_set() and not kept_alive
         return Evidence(
             claim_id=claim.id,
             kind="shell",
             command=claim.command,
-            exit_code=exit_code,
+            exit_code=None if kept_alive or timed_out else proc.returncode,
             timed_out=timed_out,
+            service_ready=kept_alive,
             stdout_tail="\n".join(lines),
             detected_url=state["url"],
         )
@@ -226,33 +310,15 @@ class ShellSession:
 
     @staticmethod
     def _kill(proc: subprocess.Popen) -> None:
-        if proc.poll() is not None:
-            return
-        try:
-            if sys.platform == "win32":
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                    capture_output=True,
-                    timeout=15,
-                )
-            else:
-                import signal
-
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                try:
-                    proc.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (OSError, subprocess.SubprocessError):
-            pass
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        # Children are isolated in a dedicated process group/tree; never kill
+        # an unrelated process merely because it owns a printed port.
+        terminate_process_tree(proc)
 
     def close(self) -> None:
         for rp in self.servers:
             self._kill(rp.proc)
+            if rp.reader is not None:
+                rp.reader.join(timeout=1)
         self.servers.clear()
 
     def __enter__(self) -> "ShellSession":

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .compiler import compile_doc
+from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
@@ -60,6 +61,8 @@ def execute(
     only: set[str] | None = None,
     prior: dict[str, Verdict] | None = None,
     log=None,
+    recipes_only: bool = True,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
     """Run claims in doc order and judge each as soon as its evidence exists.
 
@@ -70,33 +73,43 @@ def execute(
     evidence: dict[str, Evidence] = {}
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
-    session = ShellSession(workdir=scratch, timeout_s=rules.shell_timeout_s, env=shell_env or {})
-    for c in claims:
-        if only is not None and c.id not in only and c.id in reached:
-            v = reached[c.id]
-            if v.evidence is not None:
-                evidence[c.id] = v.evidence
+    session = ShellSession(
+        workdir=scratch,
+        timeout_s=rules.shell_timeout_s,
+        env=shell_env or {},
+        recipes_only=recipes_only,
+        recipe_executor=recipe_executor,
+    )
+    try:
+        for c in claims:
+            if only is not None and c.id not in only and c.id in reached:
+                v = reached[c.id]
+                if v.evidence is not None:
+                    evidence[c.id] = v.evidence
+                verdicts.append(v)
+                continue
+            ev: Evidence | None = None
+            deps_ok = all(d in reached and reached[d].status == "proven" for d in c.depends_on)
+            if deps_ok:
+                if c.kind == "shell":
+                    ev = session.run(c)
+                elif c.kind == "browser":
+                    obs = runner.observe(c, session.base_url)
+                    ev = Evidence(claim_id=c.id, kind="browser", observation=obs)
+                elif c.kind == "assert":
+                    src = next((reached[d].evidence for d in c.depends_on if d in reached and reached[d].evidence), None)
+                    if src is not None and src.kind == "shell":
+                        ev = src.model_copy(update={"claim_id": c.id})
+            v = judge(c, ev, reached, rules)
+            if ev is not None:
+                evidence[c.id] = ev
+            reached[c.id] = v
             verdicts.append(v)
-            continue
-        ev: Evidence | None = None
-        deps_ok = all(reached.get(d) is None or reached[d].status == "proven" for d in c.depends_on)
-        if deps_ok:
-            if c.kind == "shell":
-                ev = session.run(c)
-            elif c.kind == "browser":
-                obs = runner.observe(c, session.base_url)
-                ev = Evidence(claim_id=c.id, kind="browser", observation=obs)
-            elif c.kind == "assert":
-                src = next((reached[d].evidence for d in c.depends_on if d in reached and reached[d].evidence), None)
-                if src is not None and src.kind == "shell":
-                    ev = src.model_copy(update={"claim_id": c.id})
-        v = judge(c, ev, reached, rules)
-        if ev is not None:
-            evidence[c.id] = ev
-        reached[c.id] = v
-        verdicts.append(v)
-        if log:
-            log(c, v)
+            if log:
+                log(c, v)
+    except BaseException:
+        session.close()
+        raise
     return evidence, verdicts, session
 
 
@@ -109,6 +122,8 @@ def prove(
     keep_servers: bool = False,
     shell_env: dict[str, str] | None = None,
     log=None,
+    recipes_only: bool = True,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> ProveResult:
     rules = rules or load_rules()
     runner = runner or FakeBrowserRunner()
@@ -116,17 +131,31 @@ def prove(
     claims = compile_doc(doc, llm=llm)
     doc = doc.model_copy(update={"claims": claims})
     scratch = new_scratch()
-    evidence, verdicts, session = execute(claims, runner, rules, scratch, shell_env=shell_env, log=log)
-    if not keep_servers:
-        session.close()
-    ledger = Ledger(home / "ledger.jsonl")
-    turn = ledger.next_turn()
-    ledger.record(doc.sha256, turn, claims, verdicts)
-    out_dir = out_dir_for(doc, home)
-    result = ProveResult(doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch)
-    result._session = session  # type: ignore[attr-defined]
-    render_result(result, home, runner.name)
-    return result
+    session: ShellSession | None = None
+    completed = False
+    try:
+        evidence, verdicts, session = execute(
+            claims,
+            runner,
+            rules,
+            scratch,
+            shell_env=shell_env,
+            log=log,
+            recipes_only=recipes_only,
+            recipe_executor=recipe_executor,
+        )
+        ledger = Ledger(home / "ledger.jsonl")
+        turn = ledger.next_turn()
+        ledger.record(doc.sha256, turn, claims, verdicts)
+        out_dir = out_dir_for(doc, home)
+        result = ProveResult(doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch)
+        result._session = session  # type: ignore[attr-defined]
+        render_result(result, home, runner.name)
+        completed = True
+        return result
+    finally:
+        if session is not None and (not completed or not keep_servers):
+            session.close()
 
 
 def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
