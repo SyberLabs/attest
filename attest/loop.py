@@ -20,6 +20,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+import typer
 
 from .compiler import recompile_claim
 from .grounding import ground
@@ -31,7 +32,8 @@ from .runner import BrowserRunner
 from .shell import ShellSession
 from .verdict import Rules, judge, load_rules
 
-AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "claude -p")
+# read-only: the brief carries the numbered excerpt, and the agent must return a diff, not edit
+AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "codex exec -s read-only --skip-git-repo-check")
 AGENT_TIMEOUT_S = int(os.environ.get("ATTEST_AGENT_TIMEOUT_S", "240"))
 CONTEXT_LINES = 3
 
@@ -79,7 +81,11 @@ def brief_text(brief: Brief, claim: Claim, doc_path: str) -> str:
         for k, val in (obs.observed if obs else {}).items():
             lines.append(f"observed {k} = {val!r}")
         if obs and obs.note:
-            lines.append(f"runner note: {obs.note}")
+            # the Kane runner joins remark, failure record, root cause and fix with " | "
+            parts = [p.strip() for p in obs.note.split(" | ") if p.strip() and not p.startswith("pack: ")]
+            if parts:
+                lines.append(f"runner note: {parts[0][:300]}")
+                lines += [f"- {p[:300]}" for p in parts[1:6]]
         if obs and obs.screenshot:
             lines.append(f"screenshot: {obs.screenshot}")
     lines += ["", "## Grounding"]
@@ -180,10 +186,11 @@ class Checkout:
             return False, f"diff touches files other than the doc: {sorted(touched - {self.doc_name})}"
         patch = self.root / ".attest.patch"
         patch.write_text(diff, encoding="utf-8", newline="\n")
-        check = self.git("apply", "--check", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+        # --recount: agents often get hunk line counts wrong while the hunk body is right
+        check = self.git("apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
         if check.returncode != 0:
             return False, f"git apply --check failed: {check.stderr.strip()[:300]}"
-        done = self.git("apply", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+        done = self.git("apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
         patch.unlink(missing_ok=True)
         if done.returncode != 0:
             return False, f"git apply failed: {done.stderr.strip()[:300]}"
@@ -275,14 +282,20 @@ def run_loop(
     shell_env: dict[str, str] | None = None,
     log=None,
     apply_to_source: bool = False,
+    on_update=None,
 ) -> ProveResult:
     """Fix the doc for every failing claim, one attempt each, and re-prove those claims."""
     rules = rules or load_rules()
     attempts_allowed = max(1, rules.loop_attempts)
     ledger = Ledger(home / "ledger.jsonl")
+    recorded_runs = getattr(result, "_kane_runs_count", 0)
     doc = result.doc
     verdict_map = result.by_id
     for claim in result.failing():
+        if on_update:
+            on_update(f"Asking the agent to fix line {claim.span.start_line}")
+        typer.echo("")
+        typer.echo(f"   {typer.style('AGENT', fg=typer.colors.MAGENTA, bold=True)}     {typer.style(f'line {claim.span.start_line}', dim=True)}  asking the coding agent to fix the doc...")
         before = verdict_map[claim.id]
         grounding = ground(doc, claim)
         doc_path = Path(doc.source).name if not doc.source.startswith("http") else "doc.md"
@@ -298,6 +311,21 @@ def run_loop(
                 message = "agent returned no unified diff"
                 continue
             brief = brief.model_copy(update={"patch": diff})
+            if diff:
+                from .cli import _ascii  # terminal stays ASCII on PowerShell 5.1
+
+                for line in diff.splitlines():
+                    shown = "             | " + _ascii(line)
+                    if line.startswith(("+++", "---", "diff ", "index ")):
+                        typer.echo(typer.style(shown, dim=True))
+                    elif line.startswith("@@"):
+                        typer.echo(typer.style(shown, fg=typer.colors.CYAN))
+                    elif line.startswith("+"):
+                        typer.echo(typer.style(shown, fg=typer.colors.GREEN, bold=True))
+                    elif line.startswith("-"):
+                        typer.echo(typer.style(shown, fg=typer.colors.RED, bold=True))
+                    else:
+                        typer.echo(shown)
             ok, message = co.apply(diff)
             if ok:
                 text = co.doc_path.read_text(encoding="utf-8")
@@ -317,7 +345,14 @@ def run_loop(
         new_claims = shift_spans(result.claims, doc.lines, patched_doc.lines, claim.id)
         fresh = recompile_claim(patched_doc, claim, llm=llm)
         new_claims = [fresh if c.id == claim.id else c for c in new_claims]
+        if on_update:
+            on_update(f"Kane is re-checking line {claim.span.start_line}")
+        typer.echo(typer.style(f"   ...       {'Kane' if fresh.kind == 'browser' else 'Attest'} is re-checking line {claim.span.start_line}", fg=typer.colors.BRIGHT_BLACK))
         ev = rerun_claim(fresh, result, runner, rules, shell_env=shell_env)
+        runs = getattr(runner, "runs", None)
+        if runs is not None and len(runs) > recorded_runs:
+            recorded_runs = ledger.record_new_kane_runs(result.doc.sha256, result.turn, runs, recorded_runs)
+            result._kane_runs_count = recorded_runs  # type: ignore[attr-defined]
         if ev is not None:
             result.evidence[claim.id] = ev
         after = judge(fresh, ev, {k: v for k, v in result.by_id.items() if k != claim.id}, rules)
@@ -328,6 +363,9 @@ def run_loop(
         doc = patched_doc.model_copy(update={"claims": new_claims, "sha256": result.doc.sha256})
         result.doc = doc
         ledger.record(result.doc.sha256, result.turn, [fresh], [after], looped=True)
+        if fresh.kind == "browser":
+            _rejudge_dependents(result, fresh, runner, rules, ledger, log)
+            verdict_map = result.by_id
         if apply_to_source and not result.doc.source.startswith("http"):
             Path(result.doc.source).write_text("\n".join(patched_doc.lines) + "\n", encoding="utf-8")
         if log:
@@ -335,6 +373,39 @@ def run_loop(
     for s in getattr(result, "_rerun_sessions", []):
         s.close()
     return result
+
+
+def _rejudge_dependents(result: ProveResult, fixed: Claim, runner: BrowserRunner, rules: Rules, ledger: Ledger, log=None) -> None:
+    """Later browser claims skipped behind the fixed one get judged from the runner's fresh observations.
+
+    A batching runner re-runs the whole test file when one claim changes, so it
+    already holds new observations for the claims after it; nothing runs again.
+    """
+    cached = getattr(runner, "cached", None)
+    if cached is None:
+        return
+    after_fixed = False
+    for c in result.claims:
+        if c.id == fixed.id:
+            after_fixed = True
+            continue
+        if not after_fixed or c.kind != "browser" or result.by_id[c.id].status != "skipped":
+            continue
+        obs = cached(c.id)
+        if obs is None:
+            continue
+        ev = Evidence(claim_id=c.id, kind="browser", observation=obs)
+        before = result.by_id[c.id]
+        v = judge(c, ev, {k: x for k, x in result.by_id.items() if k != c.id}, rules)
+        if v.status == "skipped":
+            continue
+        v = v.model_copy(update={"reason": f"{v.reason} (after loop on {fixed.id})"})
+        result.evidence[c.id] = ev
+        result.prior[c.id] = before
+        _replace_verdict(result, v)
+        ledger.record(result.doc.sha256, result.turn, [c], [v], looped=True)
+        if log:
+            log(c, v)
 
 
 def _replace_verdict(result: ProveResult, v: Verdict) -> None:

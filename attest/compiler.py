@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -435,6 +436,10 @@ def compile_doc(doc: Doc, llm: LLM | None = None, cache_dir: Path = CACHE_DIR, u
             return cached
     if llm is None:
         if not os.environ.get("OPENAI_API_KEY"):
+            # Without a model, compile only source-verbatim fences. Warn on browser
+            # steps as main does, then fail closed rather than treating them as prose.
+            if any(re.search(r"\b(?:open|click|type|browser|page)\b", line, re.I) for line in doc.lines):
+                print(f"warning: {doc.source}: browser steps were not compiled (no OPENAI_API_KEY and no cache)", file=sys.stderr)
             if required_browser_lines(doc):
                 raise CompileError("browser instructions require a compiler; no verified cache or model is available")
             claims = chain_dependencies(fences_by_regex(doc))
@@ -475,6 +480,22 @@ Return a list with exactly one claim covering the numbered lines you are shown, 
 """
 
 
+_QUOTED = re.compile(r'"([^"]+)"')
+
+
+def requote_claim(claim: Claim, span: Span) -> Claim:
+    """No-model re-compile: if the promised quote was replaced by exactly one new quote, follow it."""
+    moved = claim.model_copy(update={"span": span})
+    if not claim.expects or claim.expects in span.text:
+        return moved
+    before = set(_QUOTED.findall(claim.span.text))
+    added = [q for q in _QUOTED.findall(span.text) if q not in before]
+    if len(added) != 1:
+        return moved
+    objective = (claim.objective or "").replace(claim.expects, added[0])
+    return moved.model_copy(update={"expects": added[0], "objective": objective or None})
+
+
 def recompile_claim(doc: Doc, claim: Claim, llm: LLM | None = None) -> Claim:
     """Re-compile only one claim's span against an updated doc. Keeps the id and dependencies."""
     start, end = claim.span.start_line, min(claim.span.end_line, len(doc.lines))
@@ -488,7 +509,7 @@ def recompile_claim(doc: Doc, claim: Claim, llm: LLM | None = None) -> Claim:
         return claim.model_copy(update={"span": span})
     if llm is None:
         if not os.environ.get("OPENAI_API_KEY"):
-            return claim.model_copy(update={"span": span})
+            return requote_claim(claim, span)
         llm = OpenAILLM()
     excerpt = doc.numbered(start, end)
     result = llm.parse_claims(RECOMPILE_PROMPT, f"Lines {start}-{end}:\n\n{excerpt}")

@@ -1,5 +1,6 @@
 from attest.ledger import Ledger
 from attest.models import Claim, Evidence, LedgerRow, Span, Verdict
+from types import SimpleNamespace
 
 
 def claim(cid, kind="shell"):
@@ -73,3 +74,27 @@ def test_session_summary(tmp_path):
     assert s["rows"] == 3
     assert s["loops_closed"] == 1
     assert led.session_summary("1999-01-01")["rows"] == 0
+
+
+def test_kane_runs_are_recorded_once_and_summarized(tmp_path):
+    led = Ledger(tmp_path / "ledger.jsonl")
+    run = SimpleNamespace(authored=2, replayed=3, credits=1.25, exit_code=0)
+    runs = [run]
+    count = led.record_new_kane_runs("sha", 4, runs)
+    count = led.record_new_kane_runs("sha", 4, runs, count)
+    runs.append(SimpleNamespace(authored=1, replayed=0, credits=0.5, exit_code=1))
+    led.record_new_kane_runs("sha", 4, runs, count)
+    rows = led.kane_rows()
+    assert len(rows) == 2
+    assert set(rows[0]) == {"turn", "doc_sha256", "authored", "replayed", "credits", "exit_code", "timestamp"}
+    summary = led.summary("sha", 4)
+    assert (summary["kane_steps"], summary["authored"], summary["replayed"], summary["credits"]) == (6, 3, 3, 1.75)
+    assert led.summary("missing", 4)["kane_steps"] == 0
+
+
+def test_session_summary_includes_kane_accounting(tmp_path):
+    led = Ledger(tmp_path / "ledger.jsonl")
+    run = SimpleNamespace(authored=2, replayed=1, credits=0.75, exit_code=0)
+    led.record_kane_runs("sha", 1, [run])
+    s = led.session_summary(day=led.kane_rows()[0]["timestamp"][:10])
+    assert (s["authored"], s["replayed"], s["credits"]) == (2, 1, 0.75)
