@@ -267,10 +267,11 @@ class ShellSession:
         if not m:
             return
         try:
-            out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=15).stdout
+            # no -p filter: Vite on Node 22 binds localhost as [::1], which -p TCP (IPv4) hides
+            out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=15).stdout
         except (OSError, subprocess.SubprocessError):
             return
-        pids = {ln.split()[-1] for ln in out.splitlines() if "LISTENING" in ln and re.search(rf":{m.group(1)}\s", ln)}
+        pids = {ln.split()[-1] for ln in out.splitlines() if "LISTENING" in ln and re.search(rf"\]?:{m.group(1)}\s", ln)}
         for pid in pids - {"0"}:
             subprocess.run(["taskkill", "/F", "/T", "/PID", pid], capture_output=True, timeout=15)
 
