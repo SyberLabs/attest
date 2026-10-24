@@ -1,5 +1,5 @@
 # Demo targets. Each doc has a local copy under demo/ so the demo never fetches GitHub.
-# Roles follow docs/ARCHITECTURE.md: the fastest clean opener, a second real doc, and Attest itself.
+# Roles follow docs/ARCHITECTURE.md: the fastest clean opener, a doc with a real stale step, and Attest itself.
 targets:
   - name: flask
     role: opener
@@ -9,12 +9,14 @@ targets:
     expected_url: http://127.0.0.1:5000/
     notes: Shell steps run in about 10 s with a warm pip cache. Too small to show a stale step.
   - name: vite
-    role: second doc
+    role: stale
     doc: demo/vite.md
     upstream: https://github.com/vitejs/vite/blob/7e221fc61e3f4c57371ce7dc24c51e887ae33157/docs/guide/index.md
     commit: 7e221fc61e3f4c57371ce7dc24c51e887ae33157
     expected_url: http://localhost:5173/
-    notes: Needs a warm npm cache. Whether any browser step is stale is decided by Saturday's browser run, not before.
+    notes: >-
+      Stale on event day. create-vite 9.3.1's React starter shows the heading "Get started", not
+      "Vite + React" (line 37); Kane stored "Get started", label_match 0.48. Needs a warm npm cache.
   - name: attest
     role: self-check
     doc: README.md

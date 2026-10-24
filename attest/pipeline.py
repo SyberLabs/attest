@@ -60,6 +60,9 @@ def execute(
     only: set[str] | None = None,
     prior: dict[str, Verdict] | None = None,
     log=None,
+    stop_before: str | None = None,
+    skip: set[str] | None = None,
+    on_start=None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
     """Run claims in doc order and judge each as soon as its evidence exists.
 
@@ -70,16 +73,47 @@ def execute(
     evidence: dict[str, Evidence] = {}
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
+    skip = skip or set()
     session = ShellSession(workdir=scratch, timeout_s=rules.shell_timeout_s, env=shell_env or {})
-    for c in claims:
+    stop_index = next((i for i, claim in enumerate(claims) if claim.id == stop_before), None)
+    for i, c in enumerate(claims):
+        if c.id in skip:
+            v = Verdict(
+                claim_id=c.id,
+                status="unverifiable",
+                reason="unverifiable: not applicable on this run (skipped with --skip)",
+                evidence=None,
+            )
+            reached[c.id] = v
+            verdicts.append(v)
+            if log:
+                log(c, v)
+            continue
+        if stop_index is not None and i >= stop_index:
+            v = Verdict(
+                claim_id=c.id,
+                status="unverifiable",
+                reason=f"unverifiable: stopped before {stop_before} (card stops before irreversible or real-form steps)",
+                evidence=None,
+            )
+            reached[c.id] = v
+            verdicts.append(v)
+            if log:
+                log(c, v)
+            continue
         if only is not None and c.id not in only and c.id in reached:
             v = reached[c.id]
             if v.evidence is not None:
                 evidence[c.id] = v.evidence
             verdicts.append(v)
             continue
+        if on_start:
+            on_start(c)
         ev: Evidence | None = None
-        deps_ok = all(reached.get(d) is None or reached[d].status == "proven" for d in c.depends_on)
+        deps_ok = all(
+            reached.get(d) is None or reached[d].status == "proven" or reached[d].evidence is None
+            for d in c.depends_on
+        )
         if deps_ok:
             if c.kind == "shell":
                 ev = session.run(c)
@@ -109,36 +143,173 @@ def prove(
     keep_servers: bool = False,
     shell_env: dict[str, str] | None = None,
     log=None,
+    stop_before: str | None = None,
+    skip: set[str] | None = None,
+    live: bool = False,
+    on_start=None,
 ) -> ProveResult:
     rules = rules or load_rules()
     runner = runner or FakeBrowserRunner()
     doc = ingest(source)
     claims = compile_doc(doc, llm=llm)
     doc = doc.model_copy(update={"claims": claims})
+    if stop_before is not None and stop_before not in {claim.id for claim in claims}:
+        valid_ids = ", ".join(claim.id for claim in claims) or "(none)"
+        raise ValueError(f"unknown claim id {stop_before!r}; valid ids: {valid_ids}")
+    skip = skip or set()
+    unknown_skip = skip - {claim.id for claim in claims}
+    if unknown_skip:
+        valid_ids = ", ".join(claim.id for claim in claims) or "(none)"
+        unknown_ids = ", ".join(sorted(unknown_skip))
+        raise ValueError(f"unknown claim id(s) {unknown_ids!r}; valid ids: {valid_ids}")
+    prepare = getattr(runner, "prepare", None)
+    if prepare is not None:
+        # a batching runner plans its test files from the claims that will run
+        stop_index = next((i for i, c in enumerate(claims) if c.id == stop_before), len(claims))
+        run_claims = [c for i, c in enumerate(claims) if i < stop_index and c.id not in skip]
+        prepare(run_claims, doc.source)
     scratch = new_scratch()
-    evidence, verdicts, session = execute(claims, runner, rules, scratch, shell_env=shell_env, log=log)
+    out_dir = out_dir_for(doc, home)
+    live_state = {"now": "Preparing claims"}
+    if live:
+        result = ProveResult(doc, claims, {}, [], 0, out_dir, scratch=scratch)
+        _write_live_page(result, home, runner.name, live_state["now"], True)
+
+    def announce(claim):
+        if on_start:
+            on_start(claim)
+        if not live:
+            return
+        live_state["now"] = claim_banner(claim)
+        _write_live_page(result, home, runner.name, live_state["now"], True)
+
+    def record(c, v):
+        if log:
+            log(c, v)
+        if live:
+            result.verdicts.append(v)
+            _write_live_page(result, home, runner.name, live_state["now"], True)
+
+    evidence, verdicts, session = execute(
+        claims, runner, rules, scratch, shell_env=shell_env, log=record if live else log,
+        stop_before=stop_before, skip=skip, on_start=announce
+    )
     if not keep_servers:
         session.close()
     ledger = Ledger(home / "ledger.jsonl")
     turn = ledger.next_turn()
     ledger.record(doc.sha256, turn, claims, verdicts)
-    out_dir = out_dir_for(doc, home)
+    runs = getattr(runner, "runs", None)
+    if runs is not None:
+        run_count = ledger.record_new_kane_runs(doc.sha256, turn, runs)
+    else:
+        run_count = 0
     result = ProveResult(doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch)
+    result._kane_runs_count = run_count  # type: ignore[attr-defined]
     result._session = session  # type: ignore[attr-defined]
     render_result(result, home, runner.name)
+    if live:
+        _write_live_page(result, home, runner.name, "Proof complete", False)
     return result
+
+
+def claim_banner(claim: Claim) -> str:
+    """One plain line saying what is about to happen; shared by the terminal and the live page."""
+    line = claim.span.start_line
+    if claim.kind == "shell":
+        cmd = (claim.command or claim.span.text).strip().splitlines()[0]
+        more = " ..." if len((claim.command or "").strip().splitlines()) > 1 else ""
+        return f"Running `{cmd}{more}` (line {line})"
+    if claim.kind == "browser":
+        if claim.expects:
+            return f'Kane is checking line {line}: does the page show "{claim.expects}"?'
+        return f"Kane is checking line {line}"
+    return f"Reading line {line}"
+
+
+def _replace(tmp: Path, target: Path) -> None:
+    """os.replace with a short retry: on Windows the live server may be reading the target."""
+    import time
+
+    for _ in range(20):
+        try:
+            os.replace(tmp, target)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+    tmp.unlink(missing_ok=True)
+
+
+def _write_live_page(result: ProveResult, home: Path, runner_name: str, now: str, running: bool) -> None:
+    """Refresh the live page. A failed refresh never fails the prove."""
+    try:
+        _write_live_page_unsafe(result, home, runner_name, now, running)
+    except OSError:
+        pass
+
+
+def _write_live_page_unsafe(result: ProveResult, home: Path, runner_name: str, now: str, running: bool) -> None:
+    import json
+    from .ledger import Ledger
+    from .render import write_page
+
+    result.out_dir.mkdir(parents=True, exist_ok=True)
+    strip = Ledger(home / "ledger.jsonl").summary(result.doc.sha256, result.turn) if result.turn else {
+        "claims": len(result.claims), "proven": 0, "stale": 0, "broken": 0,
+        "unverifiable": 0, "skipped": 0, "turn": 0, "loops_attempted": 0, "loops_closed": 0,
+    }
+    verdicts, prior = localize_screenshots(result)
+    html_text = render_page(result.doc, result.claims, verdicts, strip, briefs=result.briefs,
+                            prior_verdicts=prior, runner_name=runner_name, live=running, now=now)
+    page = result.out_dir / "index.html"
+    tmp = page.with_suffix(".html.tmp")
+    tmp.write_text(html_text, encoding="utf-8")
+    _replace(tmp, page)
+    result.page = page
+    (home / "latest").write_text(str(result.out_dir.resolve()), encoding="utf-8")
+    latest = home / "latest.json"
+    temp = latest.with_suffix(".json.tmp")
+    temp.write_text(json.dumps({"page": f"{result.out_dir.name}/index.html", "running": running, "now": now}), encoding="utf-8")
+    _replace(temp, latest)
+
+
+def localize_screenshots(result: ProveResult) -> tuple[list[Verdict], dict[str, Verdict]]:
+    """Copy each browser screenshot to <out_dir>/shots/<claim>.<ext> for the page.
+
+    Returns verdicts whose evidence points at the copies; ``result`` keeps the
+    original pack paths so briefs can name them.
+    """
+    shots = result.out_dir / "shots"
+
+    def local(ev: Evidence | None, tag: str = "") -> Evidence | None:
+        if ev is None or ev.observation is None or not ev.observation.screenshot:
+            return ev
+        src = Path(ev.observation.screenshot)
+        if not src.is_absolute() or not src.is_file():
+            return ev
+        shots.mkdir(parents=True, exist_ok=True)
+        # a looped claim keeps both pictures: <claim>.jpg (now) and <claim>-before.jpg
+        dest = shots / f"{ev.claim_id}{tag}{src.suffix}"
+        shutil.copyfile(src, dest)
+        obs = ev.observation.model_copy(update={"screenshot": f"shots/{dest.name}"})
+        return ev.model_copy(update={"observation": obs})
+
+    verdicts = [v.model_copy(update={"evidence": local(v.evidence)}) for v in result.verdicts]
+    prior = {k: v.model_copy(update={"evidence": local(v.evidence, "-before")}) for k, v in result.prior.items()}
+    return verdicts, prior
 
 
 def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
     ledger = Ledger(home / "ledger.jsonl")
     strip = ledger.summary(result.doc.sha256, result.turn)
+    verdicts, prior = localize_screenshots(result)
     html_text = render_page(
         result.doc,
         result.claims,
-        result.verdicts,
+        verdicts,
         strip,
         briefs=result.briefs,
-        prior_verdicts=result.prior,
+        prior_verdicts=prior,
         runner_name=runner_name,
     )
     page = write_page(result.out_dir, html_text)
