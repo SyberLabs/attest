@@ -121,7 +121,12 @@ def test_step_body_is_a_witness_not_a_judge():
         ),
         (
             browser("c91", 'Click the link labeled "Advanced Search" and confirm the page shows the link labeled "Advanced Search".', "Advanced Search"),
-            'Click the link labeled "Advanced Search". Store the exact visible text of the control you clicked or selected as \'c91_label\'. Verify the page has finished loading.',
+            # stored before the click, so the witness is the link itself, not the page it opens
+            'Store the exact visible text of the link or button on the page that is closest to "Advanced Search" as \'c91_label\'. Click the link labeled "Advanced Search". Verify the page has finished loading.',
+        ),
+        (
+            browser("c93", 'In the left-hand sidebar click "Security & analysis" and check for the "Security & analysis" label.', "Security & analysis"),
+            'Store the exact visible text of the link or button on the page that is closest to "Security & analysis" as \'c93_label\'. In the left-hand sidebar click "Security & analysis". Verify the page has finished loading.',
         ),
         (
             browser("c92", 'Click the "count is 0" button once and check that its label changes to "count is 1".', "count is 1"),

@@ -114,7 +114,10 @@ def step_body(claim: Claim, base_url: str | None = None) -> str:
         if re.search(r"changes? to", claim.objective or "", re.I):
             parts.append(f"Store the exact visible text of that control after the click as '{key}'.")
         else:
-            parts.append(f"Store the exact visible text of the control you clicked or selected as '{key}'.")
+            # read the control before clicking: after the click the page has changed and
+            # Kane stored whatever sat nearby ("General" for the Settings tab)
+            store = f"Store the exact visible text of the link or button on the page that is closest to \"{claim.expects}\" as '{key}'."
+            parts.insert(0, store)
     elif claim.expects:
         parts.append(f"Store the exact visible text of the heading, label, button or message on the page that is closest to \"{claim.expects}\" as '{key}'.")
     else:
