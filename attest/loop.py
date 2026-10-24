@@ -31,7 +31,8 @@ from .runner import BrowserRunner
 from .shell import ShellSession
 from .verdict import Rules, judge, load_rules
 
-AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "claude -p")
+# read-only: the brief carries the numbered excerpt, and the agent must return a diff, not edit
+AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "codex exec -s read-only --skip-git-repo-check")
 AGENT_TIMEOUT_S = int(os.environ.get("ATTEST_AGENT_TIMEOUT_S", "240"))
 CONTEXT_LINES = 3
 

@@ -42,7 +42,7 @@ from .models import BrowserObservation, Claim
 KANE_CMD = os.environ.get("ATTEST_KANE_CMD", "kane-cli")
 KANE_HOME = Path(os.environ.get("ATTEST_KANE_HOME", ".attest/kane"))
 STEP_TIMEOUT_S = int(os.environ.get("ATTEST_KANE_STEP_TIMEOUT_S", "180"))
-FILE_MAX_CLAIMS = 12  # keep one test file well under about 15 steps
+FILE_MAX_CLAIMS = 14  # keep one test file under about 15 steps
 
 _UNREACHABLE = re.compile(r"ERR_CONNECTION_REFUSED|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE|ERR_CONNECTION_TIMED_OUT|unreachable", re.I)
 
