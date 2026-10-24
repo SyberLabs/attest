@@ -50,21 +50,43 @@ def prove_cmd(
     source: str = typer.Argument(..., help="Path or URL of the document to prove."),
     runner: str = typer.Option("fake", "--runner", help="Browser runner: fake (offline) or kane (event day)."),
     fake_observations: Path | None = typer.Option(None, "--fake-observations", help="JSON of scripted observations for the fake runner."),
-    loop: bool = typer.Option(False, "--loop/--no-loop", help="Send stale or broken steps to the coding agent and re-prove them."),
-    apply: bool = typer.Option(False, "--apply", help="With --loop: write the agent's doc patch back to the source file."),
+    loop: bool = typer.Option(False, "--loop/--no-loop", help="Ask the agent for one scoped repair proposal; approval and validation are separate."),
+    apply: bool = typer.Option(False, "--apply", help="Deprecated and rejected; promotion requires `resume <id> --apply` after approval and validation."),
+    simulation: bool = typer.Option(False, "--simulation", help="Run with fake observations; never counts as verification evidence."),
     open_page: bool = typer.Option(False, "--open", help="Open the rendered page in a browser."),
     keep_scratch: bool = typer.Option(False, "--keep-scratch", help="Leave the scratch directory in place."),
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
-    br = _runner(runner, fake_observations)
-    typer.echo(f"attest prove {source}  (runner: {br.name})")
-    result = prove(source, runner=br, home=home, log=_log, keep_servers=loop)
+    if apply:
+        typer.echo("--apply is disabled here; use `attest approve` then `attest resume <id> --apply`.", err=True)
+        raise typer.Exit(2)
+    if runner == "fake" and not simulation:
+        typer.echo("fake observations require --simulation and cannot verify claims.", err=True)
+        raise typer.Exit(2)
+    if simulation and runner != "fake":
+        typer.echo("--simulation is only valid with --runner fake.", err=True)
+        raise typer.Exit(2)
+    br = None
+    try:
+        br = _runner(runner, fake_observations)
+        typer.echo(f"attest prove {source}  (runner: {br.name}{' / simulation only' if simulation else ''})")
+        result = prove(source, runner=br, home=home, log=_log, simulation=simulation)
+    except Exception as exc:
+        if br is not None:
+            br.close()
+        typer.echo(f"proof failed closed: {exc}", err=True)
+        raise typer.Exit(1)
     if loop and result.failing():
         from .loop import run_loop
 
         typer.echo(f"loop: {len(result.failing())} failing claim(s) go to the agent")
-        result = run_loop(result, br, home=home, log=_log, apply_to_source=apply)
+        try:
+            result = run_loop(result, br, home=home, log=_log)
+        except Exception as exc:
+            br.close()
+            typer.echo(f"repair proposal failed closed: {exc}", err=True)
+            raise typer.Exit(1)
     br.close()
     session = getattr(result, "_session", None)
     if session is not None:
@@ -75,6 +97,24 @@ def prove_cmd(
     strip_line = _strip_line(result, home)
     typer.echo(strip_line)
     typer.echo(f"page: {result.page}")
+    if result.proposals:
+        from .storage import SQLiteWorkflowStore
+
+        store = SQLiteWorkflowStore(home / "workflow.sqlite3")
+        for claim_id, workflow_id in result.proposals.items():
+            state = result.proposal_states.get(claim_id, "unknown")
+            detail = ""
+            if state == "rejected":
+                decision = store.get(workflow_id).proposal.get("authority") or {}
+                detail = f"; refused: {decision.get('reason', 'authority policy denied the proposal')}"
+            typer.echo(f"{claim_id}: proposal {workflow_id} state={state}{detail}; source unchanged")
+        raise typer.Exit(3)
+    if not simulation and any(
+        result.by_id[claim.id].status != "proven"
+        for claim in result.claims
+        if claim.kind in {"shell", "browser", "assert"}
+    ):
+        raise typer.Exit(1)
     if open_page and result.page:
         webbrowser.open(result.page.resolve().as_uri())
 
@@ -95,6 +135,63 @@ def _latest_dir(home: Path) -> Path:
         typer.echo("nothing rendered yet; run `attest prove <doc>` first", err=True)
         raise typer.Exit(1)
     return Path(pointer.read_text(encoding="utf-8").strip())
+
+
+@app.command()
+def approve(
+    workflow_id: str = typer.Argument(..., help="Workflow ID printed by `attest prove --loop`."),
+    by: str = typer.Option(..., "--by", help="Human approver identity to record."),
+    home: Path = typer.Option(ATTEST_DIR, "--home", help="Where workflow state is stored."),
+) -> None:
+    """Approve the exact proposal, plan, source, build, and policy digests."""
+    from .approvals import ApprovalError, approve_workflow
+    from .storage import SQLiteWorkflowStore, WorkflowStorageError
+
+    try:
+        record = approve_workflow(SQLiteWorkflowStore(home / "workflow.sqlite3"), workflow_id, by)
+    except (ApprovalError, WorkflowStorageError, ValueError) as exc:
+        typer.echo(f"approval failed closed: {exc}", err=True)
+        raise typer.Exit(2)
+    typer.echo(f"approved by {record.approval['actor']}; state: {record.state}; no source was changed")
+
+
+@app.command()
+def resume(
+    workflow_id: str = typer.Argument(..., help="Approved workflow ID."),
+    runner: str = typer.Option("kane", "--runner", help="Fresh validation runner; must be Kane."),
+    fake_observations: Path | None = typer.Option(None, "--fake-observations"),
+    apply: bool = typer.Option(False, "--apply", help="Promote only after successful fresh validation."),
+    simulation: bool = typer.Option(False, "--simulation", help="Simulation cannot validate or promote."),
+    home: Path = typer.Option(ATTEST_DIR, "--home"),
+) -> None:
+    """Resume an approved workflow with fresh whole-document evidence."""
+    from .storage import SQLiteWorkflowStore, WorkflowStorageError
+    from .workflow import WorkflowError, resume_workflow
+
+    if simulation or runner != "kane":
+        typer.echo("resume requires fresh Kane evidence; fake/simulation evidence cannot validate or promote.", err=True)
+        raise typer.Exit(2)
+    try:
+        br = _runner(runner, fake_observations)
+    except Exception as exc:
+        typer.echo(f"resume failed closed: {exc}", err=True)
+        raise typer.Exit(2)
+    try:
+        record = resume_workflow(
+            SQLiteWorkflowStore(home / "workflow.sqlite3"),
+            workflow_id,
+            runner=br,
+            apply=apply,
+            simulation=simulation,
+        )
+    except (WorkflowError, WorkflowStorageError, ValueError, NotImplementedError) as exc:
+        typer.echo(f"resume failed closed: {exc}", err=True)
+        raise typer.Exit(2)
+    finally:
+        br.close()
+    typer.echo(f"workflow {workflow_id}: {record.state}")
+    if record.state in {"rejected", "unresolved"}:
+        raise typer.Exit(1)
 
 
 @app.command()

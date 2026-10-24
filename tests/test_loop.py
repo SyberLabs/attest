@@ -1,5 +1,3 @@
-import json
-import os
 import sys
 import textwrap
 from pathlib import Path
@@ -13,14 +11,23 @@ from attest.loop import (
     run_loop,
     shift_spans,
 )
-from attest.ingest import ingest, ingest_text
+from attest.ingest import ingest_text
 from attest.models import BrowserObservation, Claim, Evidence, Span, Verdict
 from attest.pipeline import prove
-from attest.runner import FakeBrowserRunner
 from attest.verdict import Rules
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
+
+
+class KaneTestRunner:
+    name = "kane"
+
+    def observe(self, claim, base_url):
+        raise AssertionError("the shell-only loop fixture has no browser claims")
+
+    def close(self):
+        pass
 
 BROKEN_DOC = textwrap.dedent(
     """\
@@ -96,6 +103,7 @@ def test_checkout_rejects_foreign_files_and_bad_patches():
     assert not ok and "other than the doc" in msg
     ok, msg = co.apply("--- a/loop.md\n+++ b/loop.md\n@@ -1 +1 @@\n-not in the file\n+zzz\n")
     assert not ok and "apply --check failed" in msg
+    assert not (co.root / ".attest.patch").exists()
     ok, msg = co.apply("--- a/loop.md\n+++ b/loop.md\n@@ -1 +1 @@\n-# Loop test doc\n+# Loop test document\n")
     assert ok
     assert co.doc_path.read_text().startswith("# Loop test document")
@@ -146,7 +154,7 @@ def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home", keep_servers=True)
     assert [v.status for v in result.verdicts] == ["proven", "broken"]
     failing = result.failing()
@@ -154,29 +162,26 @@ def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
 
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT))
     after = result.by_id["c02"]
-    assert after.status == "proven", after.reason
-    assert "(after loop)" in after.reason
+    assert after.status == "broken", after.reason
     brief = result.briefs["c02"]
     assert brief.attempts == 1
     assert brief.patch and "+echo ready && exit 0" in brief.patch and "-echo ready && exit 1" in brief.patch
     assert result.prior["c02"].status == "broken"
-    # the re-compiled claim carries the new command verbatim and the same id
-    c02 = next(c for c in result.claims if c.id == "c02")
-    assert c02.command == "echo ready && exit 0"
-    assert result.doc.lines[c02.span.start_line - 1] == "echo ready && exit 0"
-    # the source file was not modified (apply_to_source defaults to False)
-    assert "exit 1" in doc_path.read_text()
-    # both verdicts under one turn in the ledger
-    rows = [json.loads(l) for l in (tmp_path / "home" / "ledger.jsonl").read_text().splitlines()]
-    c02_rows = [r for r in rows if r["claim_id"] == "c02"]
-    assert [r["status"] for r in c02_rows] == ["broken", "proven"]
-    assert {r["turn"] for r in c02_rows} == {result.turn}
-    assert c02_rows[1]["looped"] is True
-    # the ledger strip now counts the claim as proven and the loop as closed
-    from attest.ledger import Ledger
+    from attest.ingest import sha256_of
 
-    s = Ledger(tmp_path / "home" / "ledger.jsonl").summary(result.doc.sha256, result.turn)
-    assert (s["proven"], s["broken"], s["loops_closed"]) == (2, 0, 1)
+    assert result.doc.sha256 == sha256_of(BROKEN_DOC)
+    assert "exit 1" in doc_path.read_text()
+    workflow_id = result.proposals["c02"]
+    assert result.proposal_states["c02"] == "awaiting_approval"
+    from attest.storage import SQLiteWorkflowStore
+
+    workflow = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get(workflow_id)
+    assert workflow.state == "awaiting_approval"
+    assert workflow.proposal["base_digest"] != workflow.proposal["candidate_digest"]
+    candidate = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get_artifact(
+        workflow.proposal["artifact_digests"]["candidate"]
+    ).decode()
+    assert "echo ready && exit 0" in candidate and "exit 1" not in candidate
 
 
 def test_loop_rejects_diff_touching_other_file(tmp_path, monkeypatch):
@@ -184,7 +189,7 @@ def test_loop_rejects_diff_touching_other_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "rogue", ROGUE_AGENT))
     after = result.by_id["c02"]
@@ -199,7 +204,7 @@ def test_loop_handles_agent_without_diff(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "silent", SILENT_AGENT))
     assert result.by_id["c02"].status == "broken"
@@ -207,12 +212,15 @@ def test_loop_handles_agent_without_diff(tmp_path, monkeypatch):
     assert result.briefs["c02"].patch is None
 
 
-def test_loop_apply_writes_source(tmp_path, monkeypatch):
+def test_loop_apply_flag_cannot_write_source(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
-    run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), apply_to_source=True)
-    assert "exit 0" in doc_path.read_text() and "exit 1" not in doc_path.read_text()
+    import pytest
+
+    with pytest.raises(ValueError, match="source application is disabled"):
+        run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), apply_to_source=True)
+    assert "exit 1" in doc_path.read_text()

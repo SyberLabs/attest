@@ -10,10 +10,28 @@ from attest.ingest import ingest, ingest_text
 from attest.models import Brief, BrowserObservation, Claim, Evidence, Span, Verdict
 from attest.pipeline import prove
 from attest.render import attach_claims, badge_svg, blocks, inline, proof_md, render_page
-from attest.runner import FakeBrowserRunner
 
 ROOT = Path(__file__).resolve().parents[1]
 FLASK = ROOT / "demo" / "flask.md"
+
+
+class KaneTestRunner:
+    name = "kane"
+
+    def __init__(self, observations=None):
+        self.observations = observations or {}
+        self.calls = []
+
+    def observe(self, claim, base_url):
+        self.calls.append((claim.id, base_url))
+        scripted = self.observations.get(claim.expects or "")
+        if scripted is not None:
+            return scripted
+        key = claim.store_as or f"{claim.id}_label"
+        return BrowserObservation(status="passed", observed={key: claim.expects or ""})
+
+    def close(self):
+        pass
 
 
 def venv_env():
@@ -118,8 +136,8 @@ def test_badge_svg_and_proof_md():
 # -- pipeline and CLI ------------------------------------------------------------------------
 
 
-def test_prove_flask_with_fake_runner(tmp_path):
-    runner = FakeBrowserRunner()
+def test_prove_flask_with_fresh_runner(tmp_path):
+    runner = KaneTestRunner()
     result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env())
     statuses = {c.id: result.by_id[c.id].status for c in result.claims}
     shell = [c for c in result.claims if c.kind == "shell"]
@@ -147,10 +165,9 @@ def test_prove_flask_with_fake_runner(tmp_path):
 
 def test_prove_with_scripted_stale_observation(tmp_path):
     doc = ingest(str(FLASK))
-    obs = {"Hello, World!": {"status": "passed", "observed": {"x": "Hello, Flask!"}}}
-    p = tmp_path / "obs.json"
-    p.write_text(json.dumps(obs))
-    runner = FakeBrowserRunner.from_file(p)
+    runner = KaneTestRunner(
+        {"Hello, World!": BrowserObservation(status="passed", observed={"x": "Hello, Flask!"})}
+    )
     result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env())
     b = next(c for c in result.claims if c.kind == "browser")
     assert result.by_id[b.id].status == "stale"
@@ -161,9 +178,12 @@ def test_cli_prove_serve_badge(tmp_path, monkeypatch):
     for k, v in venv_env().items():
         monkeypatch.setenv(k, v)
     cli = CliRunner()
-    r = cli.invoke(app, ["prove", str(FLASK), "--home", str(tmp_path)])
+    import attest.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_runner", lambda name, observations: KaneTestRunner())
+    r = cli.invoke(app, ["prove", str(FLASK), "--runner", "kane", "--home", str(tmp_path)])
     assert r.exit_code == 0, r.output
-    assert "runner: fake" in r.output
+    assert "runner: kane" in r.output
     assert "claims |" in r.output and "proven" in r.output
     assert "page:" in r.output
     r = cli.invoke(app, ["badge", "--home", str(tmp_path), "--out", str(tmp_path / "exp")])
@@ -173,6 +193,25 @@ def test_cli_prove_serve_badge(tmp_path, monkeypatch):
     assert "proven" in proof and "| c" in proof
     r = cli.invoke(app, ["--version"])
     assert r.exit_code == 0 and "attest" in r.output
+
+
+def test_cli_fake_requires_explicit_simulation_and_never_records_proven(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "doc.md"
+    source.write_text("# Demo\n\n```bash\necho ready\n```\n", encoding="utf-8")
+    cli = CliRunner()
+    rejected = cli.invoke(app, ["prove", str(source), "--home", str(tmp_path / "home")])
+    assert rejected.exit_code == 2
+    assert "require --simulation" in rejected.output
+
+    simulated = cli.invoke(
+        app,
+        ["prove", str(source), "--simulation", "--home", str(tmp_path / "home")],
+    )
+    assert simulated.exit_code == 0, simulated.output
+    assert "simulation only" in simulated.output
+    rows = [json.loads(line) for line in (tmp_path / "home" / "ledger.jsonl").read_text().splitlines()]
+    assert rows and all(row["status"] != "proven" for row in rows)
 
 
 def test_cli_serve_without_pages_errors(tmp_path):
