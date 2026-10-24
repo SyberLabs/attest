@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .compiler import compile_doc
+from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
@@ -63,6 +64,8 @@ def execute(
     stop_before: str | None = None,
     skip: set[str] | None = None,
     on_start=None,
+    recipes_only: bool = False,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
     """Run claims in doc order and judge each as soon as its evidence exists.
 
@@ -74,63 +77,75 @@ def execute(
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
     skip = skip or set()
-    session = ShellSession(workdir=scratch, timeout_s=rules.shell_timeout_s, env=shell_env or {})
+    session = ShellSession(
+        workdir=scratch,
+        timeout_s=rules.shell_timeout_s,
+        env=shell_env or {},
+        recipes_only=recipes_only,
+        recipe_executor=recipe_executor,
+    )
     stop_index = next((i for i, claim in enumerate(claims) if claim.id == stop_before), None)
-    for i, c in enumerate(claims):
-        if c.id in skip:
-            v = Verdict(
-                claim_id=c.id,
-                status="unverifiable",
-                reason="unverifiable: not applicable on this run (skipped with --skip)",
-                evidence=None,
+    try:
+        for i, c in enumerate(claims):
+            if c.id in skip:
+                v = Verdict(
+                    claim_id=c.id,
+                    status="unverifiable",
+                    reason="unverifiable: not applicable on this run (skipped with --skip)",
+                    evidence=None,
+                )
+                reached[c.id] = v
+                verdicts.append(v)
+                if log:
+                    log(c, v)
+                continue
+            if stop_index is not None and i >= stop_index:
+                v = Verdict(
+                    claim_id=c.id,
+                    status="unverifiable",
+                    reason=f"unverifiable: stopped before {stop_before} (card stops before irreversible or real-form steps)",
+                    evidence=None,
+                )
+                reached[c.id] = v
+                verdicts.append(v)
+                if log:
+                    log(c, v)
+                continue
+            if only is not None and c.id not in only and c.id in reached:
+                v = reached[c.id]
+                if v.evidence is not None:
+                    evidence[c.id] = v.evidence
+                verdicts.append(v)
+                continue
+            if on_start:
+                on_start(c)
+            ev: Evidence | None = None
+            # A dependency that was never judged is not authorization. Skipped
+            # claims have no evidence and still let dependents run.
+            deps_ok = all(
+                d in reached and (reached[d].status == "proven" or reached[d].evidence is None)
+                for d in c.depends_on
             )
+            if deps_ok:
+                if c.kind == "shell":
+                    ev = session.run(c)
+                elif c.kind == "browser":
+                    obs = runner.observe(c, session.base_url)
+                    ev = Evidence(claim_id=c.id, kind="browser", observation=obs)
+                elif c.kind == "assert":
+                    src = next((reached[d].evidence for d in c.depends_on if d in reached and reached[d].evidence), None)
+                    if src is not None and src.kind == "shell":
+                        ev = src.model_copy(update={"claim_id": c.id})
+            v = judge(c, ev, reached, rules)
+            if ev is not None:
+                evidence[c.id] = ev
             reached[c.id] = v
             verdicts.append(v)
             if log:
                 log(c, v)
-            continue
-        if stop_index is not None and i >= stop_index:
-            v = Verdict(
-                claim_id=c.id,
-                status="unverifiable",
-                reason=f"unverifiable: stopped before {stop_before} (card stops before irreversible or real-form steps)",
-                evidence=None,
-            )
-            reached[c.id] = v
-            verdicts.append(v)
-            if log:
-                log(c, v)
-            continue
-        if only is not None and c.id not in only and c.id in reached:
-            v = reached[c.id]
-            if v.evidence is not None:
-                evidence[c.id] = v.evidence
-            verdicts.append(v)
-            continue
-        if on_start:
-            on_start(c)
-        ev: Evidence | None = None
-        deps_ok = all(
-            reached.get(d) is None or reached[d].status == "proven" or reached[d].evidence is None
-            for d in c.depends_on
-        )
-        if deps_ok:
-            if c.kind == "shell":
-                ev = session.run(c)
-            elif c.kind == "browser":
-                obs = runner.observe(c, session.base_url)
-                ev = Evidence(claim_id=c.id, kind="browser", observation=obs)
-            elif c.kind == "assert":
-                src = next((reached[d].evidence for d in c.depends_on if d in reached and reached[d].evidence), None)
-                if src is not None and src.kind == "shell":
-                    ev = src.model_copy(update={"claim_id": c.id})
-        v = judge(c, ev, reached, rules)
-        if ev is not None:
-            evidence[c.id] = ev
-        reached[c.id] = v
-        verdicts.append(v)
-        if log:
-            log(c, v)
+    except BaseException:
+        session.close()
+        raise
     return evidence, verdicts, session
 
 
@@ -147,6 +162,8 @@ def prove(
     skip: set[str] | None = None,
     live: bool = False,
     on_start=None,
+    recipes_only: bool = False,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> ProveResult:
     rules = rules or load_rules()
     runner = runner or FakeBrowserRunner()
@@ -192,7 +209,8 @@ def prove(
 
     evidence, verdicts, session = execute(
         claims, runner, rules, scratch, shell_env=shell_env, log=record if live else log,
-        stop_before=stop_before, skip=skip, on_start=announce
+        stop_before=stop_before, skip=skip, on_start=announce,
+        recipes_only=recipes_only, recipe_executor=recipe_executor,
     )
     if not keep_servers:
         session.close()

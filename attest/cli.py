@@ -232,6 +232,7 @@ def prove_cmd(
     loop: bool = typer.Option(False, "--loop/--no-loop", help="Send stale or broken steps to the coding agent and re-prove them."),
     apply: bool = typer.Option(False, "--apply", help="With --loop: write the agent's doc patch back to the source file."),
     policy: Path | None = typer.Option(None, "--policy", help="Authority policy YAML for the loop."),
+    recipes_only: bool = typer.Option(False, "--recipes-only", help="Run shell claims only when they match an approved recipe."),
     open_page: bool = typer.Option(False, "--open", help="Open the rendered page in a browser."),
     keep_scratch: bool = typer.Option(False, "--keep-scratch", help="Leave the scratch directory in place."),
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
@@ -252,7 +253,11 @@ def prove_cmd(
                 _log(c, v)
             def before(c):
                 _step(c)
-            result = prove(source, runner=br, home=home, log=narrate, keep_servers=loop, stop_before=stop_before, skip=skip_ids, live=live, on_start=before)
+            result = prove(
+                source, runner=br, home=home, log=narrate, keep_servers=loop,
+                stop_before=stop_before, skip=skip_ids, live=live, on_start=before,
+                recipes_only=recipes_only,
+            )
         except ValueError as e:
             raise typer.BadParameter(str(e)) from e
         if loop and result.failing():
@@ -269,7 +274,10 @@ def prove_cmd(
                 if live:
                     from .pipeline import _write_live_page
                     _write_live_page(result, home, br.name, "Proof updated", True)
-            result = run_loop(result, br, home=home, log=loop_log, apply_to_source=apply, on_update=loop_update, policy_path=policy)
+            result = run_loop(
+                result, br, home=home, log=loop_log, apply_to_source=apply,
+                on_update=loop_update, policy_path=policy, recipes_only=recipes_only,
+            )
         br.close()
         session = getattr(result, "_session", None)
         if session is not None:

@@ -26,7 +26,7 @@ test = ["pytest", "flask"]
 attest = "attest.cli:app"
 
 [tool.setuptools]
-packages = ["attest"]
+packages = ["attest", "attest.execution"]
 
 [tool.setuptools.package-data]
 attest = ["templates/*.j2"]

@@ -118,6 +118,7 @@ class Evidence(BaseModel):
     command: str | None = None
     exit_code: int | None = None
     timed_out: bool = False
+    service_ready: bool = False
     stdout_tail: str | None = None
     detected_url: str | None = None
     observation: BrowserObservation | None = None
@@ -125,8 +126,8 @@ class Evidence(BaseModel):
     @model_validator(mode="after")
     def _shape(self) -> "Evidence":
         if self.kind == "shell":
-            if self.exit_code is None and not self.timed_out:
-                raise ValueError("shell evidence needs an exit_code or timed_out=True")
+            if self.exit_code is None and not self.timed_out and not self.service_ready:
+                raise ValueError("shell evidence needs an exit_code, service_ready=True, or timed_out=True")
             if self.observation is not None:
                 raise ValueError("shell evidence must not carry a browser observation")
         else:
