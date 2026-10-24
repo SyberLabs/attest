@@ -49,7 +49,7 @@ def _main(version: bool = typer.Option(False, "--version", help="Show the versio
 @app.command("prove")
 def prove_cmd(
     source: str = typer.Argument(..., help="Path or URL of the document to prove."),
-    runner: str = typer.Option("fake", "--runner", help="Browser runner: fake (offline) or kane."),
+    runner: str = typer.Option("kane", "--runner", help="Browser runner: kane (default) or fake (offline)."),
     headless: bool = typer.Option(False, "--headless", help="Kane runs Chrome without a window (automated runs only)."),
     report: bool = typer.Option(False, "--report", help="File each Kane run with the event's `kanehack report`."),
     fake_observations: Path | None = typer.Option(None, "--fake-observations", help="JSON of scripted observations for the fake runner."),

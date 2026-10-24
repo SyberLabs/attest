@@ -1,5 +1,5 @@
 {
-  "sha256": "6e914d6a34d1d24137fbd5f38203994c634afe63c4503debc969102a312cc83a",
+  "sha256": "5f53defd28c8263038d7358dbc9c7d7d7c50d522df661c7cfdbd5338e6e1e838",
   "source": "README.md",
   "claims": [
     {
@@ -36,13 +36,13 @@
       "id": "c03",
       "kind": "shell",
       "span": {
-        "start_line": 34,
-        "end_line": 34,
+        "start_line": 37,
+        "end_line": 37,
         "text": "cd attest && attest prove demo/flask.md"
       },
       "command": "cd attest && attest prove demo/flask.md",
       "objective": null,
-      "expects": "page:",
+      "expects": null,
       "store_as": null,
       "depends_on": [
         "c02"
@@ -52,8 +52,8 @@
       "id": "c04",
       "kind": "shell",
       "span": {
-        "start_line": 44,
-        "end_line": 44,
+        "start_line": 47,
+        "end_line": 47,
         "text": "cd attest && attest serve"
       },
       "command": "cd attest && attest serve",
@@ -68,12 +68,12 @@
       "id": "c05",
       "kind": "browser",
       "span": {
-        "start_line": 47,
-        "end_line": 48,
+        "start_line": 50,
+        "end_line": 51,
         "text": "Open http://localhost:4848/ in your browser. The dark strip fixed across the top of the page\nis headed \"Ledger\" and shows the claim counts for this document."
       },
       "command": null,
-      "objective": "Open http://localhost:4848/ in a browser and check that the page shows the label exactly \"Ledger\".",
+      "objective": "Open http://localhost:4848/ in a browser and check that the page shows the label \"Ledger\".",
       "expects": "Ledger",
       "store_as": "c05_label",
       "depends_on": [

@@ -58,7 +58,7 @@ def test_unknown_stop_before_id_is_a_usage_error_with_valid_ids(tmp_path, monkey
     doc.write_text("Card\n", encoding="utf-8")
     monkeypatch.setattr(pipeline, "compile_doc", lambda doc, llm=None: _claims())
 
-    result = CliRunner().invoke(app, ["prove", str(doc), "--stop-before", "c99", "--home", str(tmp_path / "home")])
+    result = CliRunner().invoke(app, ["prove", str(doc), "--runner", "fake", "--stop-before", "c99", "--home", str(tmp_path / "home")])
 
     assert result.exit_code == 2
     assert "unknown claim id 'c99'" in result.output

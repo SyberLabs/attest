@@ -8,7 +8,7 @@ def _prove(tmp_path, monkeypatch, body: str):
     monkeypatch.chdir(tmp_path)
     doc = tmp_path / "doc.md"
     doc.write_text(f"# Doc\n\n```bash\n{body}\n```\n", encoding="utf-8")
-    return CliRunner().invoke(app, ["prove", str(doc), "--home", str(tmp_path / "home")])
+    return CliRunner().invoke(app, ["prove", str(doc), "--runner", "fake", "--home", str(tmp_path / "home")])
 
 
 def test_prove_exits_zero_when_every_claim_holds(tmp_path, monkeypatch):

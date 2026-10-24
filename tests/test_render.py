@@ -165,7 +165,7 @@ def test_cli_prove_serve_badge(tmp_path, monkeypatch):
     for k, v in venv_env().items():
         monkeypatch.setenv(k, v)
     cli = CliRunner()
-    r = cli.invoke(app, ["prove", str(FLASK), "--home", str(tmp_path)])
+    r = cli.invoke(app, ["prove", str(FLASK), "--runner", "fake", "--home", str(tmp_path)])
     assert r.exit_code == 0, r.output
     assert "runner: fake" in r.output
     assert "claims |" in r.output and "proven" in r.output

@@ -28,7 +28,10 @@ cd attest && python -m pip install .
 ## Prove a document
 
 Prove the bundled Flask quickstart. Shell steps run in a scratch directory, the dev server
-it starts is kept alive for the browser steps, and the result is rendered as one HTML page:
+it starts is kept alive for the browser steps, and the result is rendered as one HTML page.
+The default browser runner is Kane CLI, which runs `kane-cli testmd run --agent`; sign in once
+with `kane-cli login`. Use `--runner fake` for offline runs. `--headless` runs Chrome without
+a window. Procedural Truth cards can stop before a claim with `--stop-before <claim>`.
 
 ```bash
 cd attest && attest prove demo/flask.md
@@ -60,8 +63,10 @@ the result in their own README.
 `attest ask "<question>" --card <name>` sends a how-to question to GPT, saves the numbered
 answer as `demo/answers/<name>.md`, and from there it is just another document to prove.
 
-`attest prove <doc> --loop` sends every stale or broken step to the coding agent named in
-`ATTEST_AGENT_CMD` (default `claude -p`) and re-proves only the patched step.
+`attest prove <doc> --loop` sends every stale or broken step to the coding agent and re-proves
+only the patched step. The default agent is `codex exec -s read-only --skip-git-repo-check`;
+set `ATTEST_AGENT_CMD` to override it. Add `--report` to file each Kane run with the event's
+`kanehack report`. `attest prove` exits 1 when a claim ends stale or broken.
 
 ## How it works
 
@@ -80,8 +85,9 @@ answer as `demo/answers/<name>.md`, and from there it is just another document t
 Secrets come from the environment only: `OPENAI_API_KEY` for the compiler and asker,
 `GITHITS_API_TOKEN` optionally for grounding. Nothing is written to disk.
 
-## Event note
+## Built on event day
 
-Attest is a SyberLabs entry for Kane CLI Hack Day, San Francisco, October 24 2026. The browser
-runner that drives a real browser is built on the day; before that, `FakeBrowserRunner` returns
-hand-written observations so every other layer can be tested offline. See `SATURDAY.md`.
+Attest is a SyberLabs entry for Kane CLI Hack Day, San Francisco, October 24 2026. The day
+added the Kane test file writer, NDJSON and evidence pack reader, witness phrasing, and recordings
+per document version. The loop now follows Kane verdicts. It also closed the Vite stale catch:
+the starter showed "Get started" while the doc expected "Vite + React", and the loop patched it.
