@@ -21,6 +21,7 @@ import yaml
 from rapidfuzz import fuzz
 
 from .models import Claim, Evidence, Verdict
+from .runner import SIMULATION_NOTE_PREFIX, SimulationBrowserObservation
 
 RULES_PATH = Path(__file__).resolve().parents[1] / "rules.yaml"
 
@@ -58,6 +59,7 @@ def normalize_label(s: str) -> str:
 
 
 def label_match(expects: str, observed: str) -> float:
+    """Fuzzy similarity for suggestions only; never use this score to prove a claim."""
     a, b = normalize_label(expects), normalize_label(observed)
     if not a and not b:
         return 1.0
@@ -168,14 +170,25 @@ def _judge_browser(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
         # invariant: a browser claim is never proven from the shell runner
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: browser claim has non-browser evidence", evidence=ev)
     obs = ev.observation
+    if isinstance(obs, SimulationBrowserObservation) or (obs.note and obs.note.startswith(SIMULATION_NOTE_PREFIX)):
+        return Verdict(
+            claim_id=claim.id,
+            status="unverifiable",
+            reason="unverifiable: simulation-only browser observation is not verification evidence",
+            evidence=ev,
+        )
     if obs.status == "unreachable":
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: page not reachable", evidence=ev)
     if obs.status == "failed":
         return Verdict(claim_id=claim.id, status="broken", reason="broken: browser step failed", evidence=ev)
-    # No healing rule: on event day Kane never healed (a drifted page replayed and stored
-    # the new text), so there is no remark pattern to trust. Drift lands in label_match.
-    if not claim.expects:
-        return Verdict(claim_id=claim.id, status="proven", reason="proven: step completed, nothing promised", evidence=ev)
+    # Kane does not heal browser steps. Proof still requires an explicit expected label.
+    if not claim.expects or not claim.expects.strip():
+        return Verdict(
+            claim_id=claim.id,
+            status="unverifiable",
+            reason="unverifiable: browser claim has no exact expected text",
+            evidence=ev,
+        )
     seen = observed_text(claim, ev)
     if seen is None:
         return Verdict(
@@ -185,18 +198,21 @@ def _judge_browser(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
             evidence=ev,
         )
     score = label_match(claim.expects, seen)
-    if score < rules.label_match:
+    if normalize_label(claim.expects) != normalize_label(seen):
         return Verdict(
             claim_id=claim.id,
             status="stale",
-            reason=f"stale: label_match {score:.2f} < {rules.label_match:.2f}; doc says {claim.expects!r}, page says {seen!r}",
+            reason=(
+                f"stale: exact label mismatch; similarity {score:.2f} is suggestion-only; "
+                f"doc says {claim.expects!r}, page says {seen!r}"
+            ),
             evidence=ev,
             label_match=score,
         )
     return Verdict(
         claim_id=claim.id,
         status="proven",
-        reason=f"proven: step passed and label_match {score:.2f} >= {rules.label_match:.2f}",
+        reason=f"proven: exact normalized label match; similarity {score:.2f} is suggestion-only",
         evidence=ev,
         label_match=score,
     )

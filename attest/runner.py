@@ -10,9 +10,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from .models import BrowserObservation, Claim
+
+
+RunnerMode = Literal["simulation", "verified"]
+SIMULATION_NOTE_PREFIX = "simulation-only:"
+
+
+class SimulationBrowserObservation(BrowserObservation):
+    """An observation produced by simulation, never by a live verifier."""
 
 
 @runtime_checkable
@@ -27,16 +35,15 @@ class BrowserRunner(Protocol):
 
 
 class FakeBrowserRunner:
-    """Returns scripted observations.
+    """Simulation-only runner for tests and offline demos.
 
     ``observations`` maps claim ids (or the claim's ``expects`` text) to a
-    BrowserObservation. Claims with no script get the default behaviour:
-
-    * ``echo``: pass and report exactly the label the doc expects (a clean run)
-    * ``unreachable``: report the page as unreachable
+    BrowserObservation. Even an echoed or scripted ``passed`` result is marked
+    simulation-only and cannot be used as verification evidence.
     """
 
     name = "fake"
+    mode: RunnerMode = "simulation"
 
     def __init__(self, observations: dict[str, BrowserObservation] | None = None, default: str = "echo"):
         self.observations = observations or {}
@@ -50,21 +57,29 @@ class FakeBrowserRunner:
         obs = {k: BrowserObservation.model_validate(v) for k, v in data.items()}
         return cls(obs, default=default)
 
-    def observe(self, claim: Claim, base_url: str | None) -> BrowserObservation:
+    def observe(self, claim: Claim, base_url: str | None) -> SimulationBrowserObservation:
         self.calls.append((claim.id, base_url))
         scripted = self.observations.get(claim.id)
         if scripted is None and claim.expects:
             scripted = self.observations.get(claim.expects)
         if scripted is not None:
-            return scripted
+            note = f"{SIMULATION_NOTE_PREFIX} fake runner cannot verify page state"
+            if scripted.note:
+                note += f"; scripted note: {scripted.note}"
+            return SimulationBrowserObservation.model_validate(
+                scripted.model_dump() | {"note": note}
+            )
         if self.default == "unreachable" or base_url is None and self._needs_local_url(claim):
-            return BrowserObservation(status="unreachable", note="fake runner: no base URL to open")
+            return SimulationBrowserObservation(
+                status="unreachable",
+                note=f"{SIMULATION_NOTE_PREFIX} fake runner has no base URL to open",
+            )
         key = claim.store_as or f"{claim.id}_label"
         observed = {key: claim.expects} if claim.expects else {}
-        return BrowserObservation(
+        return SimulationBrowserObservation(
             status="passed",
             observed=observed,
-            note="fake runner: echoed the doc's expected label",
+            note=f"{SIMULATION_NOTE_PREFIX} fake runner echoed the expected label; not verification evidence",
         )
 
     @staticmethod

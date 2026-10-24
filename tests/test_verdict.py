@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from attest.models import BrowserObservation, Claim, Evidence, Span, Verdict
+from attest.runner import FakeBrowserRunner, SimulationBrowserObservation
 from attest.verdict import (
     Rules,
     expects_in,
@@ -171,9 +172,10 @@ def test_browser_passed_label_match_proven():
     assert v.label_match == 1.0
 
 
-def test_browser_passed_no_expects_proven():
+def test_browser_passed_without_expectation_is_unverifiable():
     v = judge(browser_claim(expects=None), browser_ev())
-    assert v.status == "proven"
+    assert v.status == "unverifiable"
+    assert "no exact expected text" in v.reason
 
 
 def test_browser_passed_but_nothing_stored_unverifiable():
@@ -182,10 +184,40 @@ def test_browser_passed_but_nothing_stored_unverifiable():
     assert "stored no label" in v.reason
 
 
-def test_threshold_comes_from_rules():
+def test_similarity_is_advisory_and_never_proves_a_mismatch():
     ev = browser_ev(observed={"c02_label": "New project"})
-    assert judge(browser_claim(), ev, rules=Rules(label_match=0.5)).status == "proven"
-    assert judge(browser_claim(), ev, rules=Rules(label_match=0.8)).status == "stale"
+    low_threshold = judge(browser_claim(), ev, rules=Rules(label_match=0.5))
+    high_threshold = judge(browser_claim(), ev, rules=Rules(label_match=0.95))
+    assert low_threshold.status == high_threshold.status == "stale"
+    assert low_threshold.label_match == high_threshold.label_match
+    assert "suggestion-only" in low_threshold.reason
+
+
+def test_exact_numeric_predicate_does_not_fuzzy_match():
+    claim = browser_claim(expects="count is 1")
+    verdict = judge(claim, browser_ev(observed={"c02_label": "count is 10"}))
+    assert verdict.status == "stale"
+    assert verdict.label_match is not None and verdict.label_match <= 0.5
+
+
+def test_high_similarity_nonexact_label_stays_stale():
+    claim = browser_claim(expects="Create a new repository")
+    verdict = judge(claim, browser_ev(observed={"c02_label": "Create repository"}))
+    assert label_match(claim.expects, "Create repository") > 0.8
+    assert verdict.status == "stale"
+    assert "suggestion-only" in verdict.reason
+
+
+def test_fake_runner_observation_is_simulation_not_verification():
+    claim = browser_claim()
+    runner = FakeBrowserRunner()
+    observation = runner.observe(claim, "https://example.test")
+    assert runner.mode == "simulation"
+    assert isinstance(observation, SimulationBrowserObservation)
+    evidence = Evidence(claim_id=claim.id, kind="browser", observation=observation)
+    verdict = judge(claim, evidence)
+    assert verdict.status == "unverifiable"
+    assert "simulation" in verdict.reason
 
 
 def test_assert_claim_against_previous_shell_output():
@@ -251,7 +283,7 @@ def test_verdict_model_rejects_badge_without_evidence():
 def test_corpus_shape():
     corpus = load_corpus()
     assert len(corpus) == 40
-    assert Counter(label for *_, label in corpus) == {"proven": 25, "stale": 8, "broken": 4, "unverifiable": 3}
+    assert Counter(label for *_, label in corpus) == {"proven": 22, "stale": 11, "broken": 4, "unverifiable": 3}
 
 
 def test_corpus_separates_at_chosen_threshold():
@@ -264,23 +296,16 @@ def test_corpus_separates_at_chosen_threshold():
     assert misses == []
 
 
-def test_corpus_threshold_is_tight():
-    """0.80 is the only sweep value that separates the corpus; the neighbours fail."""
-    scores_stale = []
-    scores_proven = []
+def test_similarity_score_cannot_change_corpus_verdicts():
     for _, claim, ev, label in load_corpus():
         if claim.kind == "browser" and ev.observation.status == "passed":
-            s = label_match(claim.expects, observed_text(claim, ev))
-            (scores_stale if label == "stale" else scores_proven).append(s)
-    assert max(scores_stale) < 0.8 <= min(scores_proven)
-    assert max(scores_stale) > 0.75  # a stale case sits just under the line
-    assert min(scores_proven) < 0.85  # a proven case sits just over it
+            assert judge(claim, ev, rules=Rules(label_match=0.1)).status == label
+            assert judge(claim, ev, rules=Rules(label_match=1.0)).status == label
+
 
 
 def test_a_different_number_is_a_different_label():
-    from attest.verdict import label_match
-
-    assert label_match("count is 1", "count is 2") <= 0.5  # the counter that increments by two
+    assert label_match("count is 1", "count is 2") <= 0.5
     assert label_match("3 items", "30 items") <= 0.5
     assert label_match("count is 0", "Count is 0") == 1.0
-    assert label_match("Vite + React", "Vite + React 7") >= 0.8  # numbers on one side only keep the score
+    assert label_match("Vite + React", "Vite + React 7") >= 0.8

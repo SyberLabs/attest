@@ -54,7 +54,8 @@ def test_skip_excludes_claim_from_prepare_and_execution_and_dependent_runs(tmp_p
     assert skipped.reason == "unverifiable: not applicable on this run (skipped with --skip)"
     assert skipped.evidence is None
     assert "c01" not in result.evidence
-    assert result.by_id["c02"].status == "proven"
+    assert result.by_id["c02"].status == "unverifiable"
+    assert "simulation" in result.by_id["c02"].reason
 
 
 def test_skip_with_stop_before_only_prepares_remaining_prefix(tmp_path, monkeypatch):

@@ -26,6 +26,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
+from .ingest import sha256_of
 from .models import Claim, Doc, Fence, Span
 
 SHELL_LANGS = {"", "sh", "bash", "shell", "console", "zsh", "shell-session", "terminal", "cmd", "powershell", "ps1"}
@@ -106,6 +107,36 @@ def _strip_ws(s: str) -> str:
 
 
 _FENCE_LINE = re.compile(r"^\s*(`{3,}|~{3,})\s*[\w+-]*\s*$")
+CACHE_SCHEMA_VERSION = 2
+_BROWSER_ACTION = re.compile(
+    r"\b(?:open|visit|navigate|go\s+to|head\s+over|click|tap|select|choose|type|enter|fill|press|"
+    r"see|shows?|displays?|appears?|receive|accept|label(?:led|ed)|changes?|updates?|renders?)\b",
+    re.I,
+)
+_BROWSER_CONTEXT = re.compile(
+    r"\b(?:browser|page|site|screen|button|menu|tab|field|label|text|url|address bar|notification)\b|https?://",
+    re.I,
+)
+
+
+def _word_text(value: str) -> str:
+    return " ".join(re.findall(r"\w+", value.casefold()))
+
+
+def _expectation_in_source(expects: str, doc: Doc) -> bool:
+    expected = _word_text(expects)
+    source = _word_text("\n".join(doc.lines))
+    return bool(expected) and f" {expected} " in f" {source} "
+
+
+def required_browser_lines(doc: Doc) -> list[int]:
+    """Find non-fenced source lines that promise an observable browser action."""
+    fenced_lines = {n for f in doc.fences for n in range(f.start_line, f.end_line + 1)}
+    return [
+        n
+        for n, line in enumerate(doc.lines, start=1)
+        if n not in fenced_lines and _BROWSER_ACTION.search(line) and _BROWSER_CONTEXT.search(line)
+    ]
 
 
 def same_block(a: str | None, b: str) -> bool:
@@ -151,38 +182,63 @@ def _span_from(doc: Doc, lc: LLMClaim) -> Span | None:
 
 
 def check_claims(doc: Doc, drafts: list[LLMClaim]) -> list[str]:
-    """Return a list of problems. Empty means the draft set passes."""
+    """Return problems in an LLM draft. Empty means all required claims are resolved."""
     problems: list[str] = []
-    spans: list[Span] = []
+    if not drafts:
+        problems.append("compiler returned no claims")
     for i, lc in enumerate(drafts):
         span = _span_from(doc, lc)
         if span is None:
             problems.append(f"claim {i + 1}: span {lc.start_line}-{lc.end_line} is outside the document")
             continue
-        spans.append(span)
-        a, b = _strip_ws(span.text), _strip_ws(lc.text)
-        if a != b and a not in b and b not in a:
+        if _strip_ws(span.text) != _strip_ws(lc.text):
             problems.append(
                 f"claim {i + 1}: text does not match lines {lc.start_line}-{lc.end_line}. Document says: {span.text!r}"
             )
+        if lc.kind == "browser":
+            if not lc.objective or not lc.objective.strip():
+                problems.append(f"claim {i + 1}: browser claim has no objective")
+            if not lc.expects or not lc.expects.strip():
+                problems.append(f"claim {i + 1}: browser claim has no exact expected text")
+            elif not _expectation_in_source(lc.expects, doc):
+                problems.append(f"claim {i + 1}: expected browser text is not present in the source")
+        if lc.kind == "assert" and not (lc.expects and lc.expects.strip()):
+            problems.append(f"claim {i + 1}: assert claim has no expected text")
+        if lc.kind == "shell" and not any(
+            lc.start_line == f.start_line and lc.end_line == f.end_line and lc.command == f.text
+            for f in doc.fences
+            if classify_fence(f) == "shell"
+        ):
+            problems.append(f"claim {i + 1}: shell command is not verbatim from its source fence")
+
     for f in doc.fences:
         want = classify_fence(f)
-        hit = False
-        for lc in drafts:
-            if want == "shell" and lc.kind == "shell" and same_block(lc.command, f.text):
-                hit = True
-            if want == "assert" and lc.kind == "assert" and same_block(lc.expects, f.text):
-                hit = True
-        if not hit:
+        matches = [
+            lc
+            for lc in drafts
+            if lc.kind == want
+            and lc.start_line == f.start_line
+            and lc.end_line == f.end_line
+            and (lc.command == f.text if want == "shell" else lc.expects == f.text)
+        ]
+        if len(matches) != 1:
             problems.append(
-                f"fenced block at lines {f.start_line}-{f.end_line} is missing or not verbatim as a {want} claim. Block text: {f.text!r}"
+                f"fenced block at lines {f.start_line}-{f.end_line} must have exactly one verbatim {want} claim"
             )
+
+    for line in required_browser_lines(doc):
+        if not any(lc.kind == "browser" and lc.start_line <= line <= lc.end_line for lc in drafts):
+            problems.append(f"browser instruction at line {line} is missing a browser claim")
     return problems
 
 
 def _fence_for(doc: Doc, lc: LLMClaim) -> Fence | None:
     for f in doc.fences:
-        if same_block(lc.command or lc.expects, f.text):
+        if (
+            lc.start_line == f.start_line
+            and lc.end_line == f.end_line
+            and (lc.command == f.text if lc.kind == "shell" else lc.expects == f.text)
+        ):
             return f
     return None
 
@@ -253,38 +309,146 @@ def _user_prompt(doc: Doc, problems: list[str] | None = None) -> str:
 
 
 def _cache_path(doc: Doc, cache_dir: Path) -> Path:
+    return cache_dir / f"v{CACHE_SCHEMA_VERSION}-{doc.sha256}.json"
+
+
+def _legacy_cache_path(doc: Doc, cache_dir: Path) -> Path:
     return cache_dir / f"{doc.sha256}.json"
 
 
-def load_cached(doc: Doc, cache_dir: Path = CACHE_DIR) -> list[Claim] | None:
-    p = _cache_path(doc, cache_dir)
-    if not p.exists():
+def _validate_compiled_claims(doc: Doc, claims: list[Claim]) -> list[str]:
+    """Prove that cached/assembled claims still refer to this exact source."""
+    problems: list[str] = []
+    source_text = "\n".join(doc.lines)
+    if doc.sha256 not in {sha256_of(source_text), sha256_of(source_text + "\n")}:
+        problems.append("document hash does not match its current source lines")
+    if not claims:
+        problems.append("compiler returned no claims")
+    ids = [claim.id for claim in claims]
+    if len(ids) != len(set(ids)):
+        problems.append("claim ids are not unique")
+    known_ids: set[str] = set()
+    for claim in claims:
+        if claim.span.end_line > len(doc.lines):
+            problems.append(f"{claim.id}: span extends beyond the source")
+            continue
+        source_text = "\n".join(doc.lines[claim.span.start_line - 1 : claim.span.end_line])
+        if claim.span.text != source_text:
+            problems.append(f"{claim.id}: span text does not match the current source")
+        if any(dep not in known_ids for dep in claim.depends_on):
+            problems.append(f"{claim.id}: dependency is missing or not earlier in the source")
+        known_ids.add(claim.id)
+        if claim.kind == "browser":
+            if not claim.objective or not claim.objective.strip():
+                problems.append(f"{claim.id}: browser claim has no objective")
+            if not claim.expects or not claim.expects.strip():
+                problems.append(f"{claim.id}: browser claim has no exact expected text")
+            elif not _expectation_in_source(claim.expects, doc):
+                problems.append(f"{claim.id}: expected browser text is not present in the source")
+        elif claim.kind == "assert" and not (claim.expects and claim.expects.strip()):
+            problems.append(f"{claim.id}: assert claim has no expected text")
+        elif claim.kind == "shell":
+            if not any(
+                claim.span.start_line == f.start_line
+                and claim.span.end_line == f.end_line
+                and claim.command == f.text
+                and classify_fence(f) == "shell"
+                for f in doc.fences
+            ):
+                problems.append(f"{claim.id}: shell command does not match a source fence")
+
+    for f in doc.fences:
+        want = classify_fence(f)
+        matches = [
+            claim
+            for claim in claims
+            if claim.kind == want
+            and claim.span.start_line == f.start_line
+            and claim.span.end_line == f.end_line
+            and (claim.command == f.text if want == "shell" else claim.expects == f.text)
+        ]
+        if len(matches) != 1:
+            problems.append(f"source fence at lines {f.start_line}-{f.end_line} is not represented exactly once")
+    for line in required_browser_lines(doc):
+        if not any(claim.kind == "browser" and claim.span.start_line <= line <= claim.span.end_line for claim in claims):
+            problems.append(f"browser instruction at line {line} is missing a browser claim")
+    return problems
+
+
+def _read_cache(path: Path, doc: Doc, *, require_version: bool) -> list[Claim] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("sha256") != doc.sha256:
+            return None
+        if require_version and (
+            data.get("cache_version") != CACHE_SCHEMA_VERSION
+            or data.get("cache_key") != f"compiler-v{CACHE_SCHEMA_VERSION}:{doc.sha256}"
+        ):
+            return None
+        raw_claims = data.get("claims")
+        if not isinstance(raw_claims, list):
+            return None
+        claims = [Claim.model_validate(item) for item in raw_claims]
+        if _validate_compiled_claims(doc, claims):
+            return None
+        return claims
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         return None
-    data = json.loads(p.read_text(encoding="utf-8"))
-    return [Claim.model_validate(c) for c in data["claims"]]
+
+
+def load_cached(doc: Doc, cache_dir: Path = CACHE_DIR) -> list[Claim] | None:
+    """Load only source-validated claims under the current compiler cache schema.
+
+    Older hash-only caches remain a read-only migration path, but every claim is
+    revalidated against the current source before it can be reused.
+    """
+    current = _cache_path(doc, cache_dir)
+    if current.exists():
+        return _read_cache(current, doc, require_version=True)
+    legacy = _legacy_cache_path(doc, cache_dir)
+    if legacy.exists():
+        return _read_cache(legacy, doc, require_version=False)
+    return None
 
 
 def save_cache(doc: Doc, claims: list[Claim], cache_dir: Path = CACHE_DIR, meta: dict[str, Any] | None = None) -> None:
+    problems = _validate_compiled_claims(doc, claims)
+    if problems:
+        raise CompileError("refusing to cache incomplete compilation: " + "; ".join(problems))
     cache_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"sha256": doc.sha256, "source": doc.source, "claims": [c.model_dump() for c in claims]}
+    payload = {
+        "cache_version": CACHE_SCHEMA_VERSION,
+        "cache_key": f"compiler-v{CACHE_SCHEMA_VERSION}:{doc.sha256}",
+        "sha256": doc.sha256,
+        "source": doc.source,
+        "claims": [c.model_dump() for c in claims],
+    }
     if meta:
         payload["meta"] = meta
     _cache_path(doc, cache_dir).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def compile_doc(doc: Doc, llm: LLM | None = None, cache_dir: Path = CACHE_DIR, use_cache: bool = True) -> list[Claim]:
-    """Compile a Doc into Claims. Returns the claims and leaves doc untouched."""
+    """Compile a Doc into complete, source-bound claims; never return a partial set."""
     if use_cache:
         cached = load_cached(doc, cache_dir)
         if cached is not None:
             return cached
     if llm is None:
         if not os.environ.get("OPENAI_API_KEY"):
-            # no model and no cache: fenced blocks only, everything else is prose
+            # Without a model, compile only source-verbatim fences. Warn on browser
+            # steps as main does, then fail closed rather than treating them as prose.
             if any(re.search(r"\b(?:open|click|type|browser|page)\b", line, re.I) for line in doc.lines):
                 print(f"warning: {doc.source}: browser steps were not compiled (no OPENAI_API_KEY and no cache)", file=sys.stderr)
-            claims = fences_by_regex(doc)
-            return chain_dependencies(claims)
+            if required_browser_lines(doc):
+                raise CompileError("browser instructions require a compiler; no verified cache or model is available")
+            claims = chain_dependencies(fences_by_regex(doc))
+            problems = _validate_compiled_claims(doc, claims)
+            if problems:
+                raise CompileError("incomplete compilation: " + "; ".join(problems))
+            if use_cache:
+                save_cache(doc, claims, cache_dir, {"mode": "fences-only", "attempts": 0})
+            return claims
         llm = OpenAILLM()
 
     meta: dict[str, Any] = {"mode": "llm", "attempts": 0}
@@ -296,26 +460,12 @@ def compile_doc(doc: Doc, llm: LLM | None = None, cache_dir: Path = CACHE_DIR, u
         meta["attempts"] = 2
         problems = check_claims(doc, drafts)
     if problems:
-        # fallback: regex for fences, the model only for non-fence claims
-        meta["mode"] = "fallback"
-        meta["problems"] = problems
-        keep = [d for d in drafts if d.kind in ("browser", "prose") and _span_from(doc, d) is not None]
-        fence_spans = {(f.start_line, f.end_line) for f in doc.fences}
-        keep = [d for d in keep if not any(s <= d.start_line <= e for s, e in fence_spans)]
-        fence_drafts = [
-            LLMClaim(
-                kind=classify_fence(f),
-                start_line=f.start_line,
-                end_line=f.end_line,
-                text=f.text,
-                command=f.text if classify_fence(f) == "shell" else None,
-                objective=None,
-                expects=f.text if classify_fence(f) == "assert" else None,
-            )
-            for f in doc.fences
-        ]
-        drafts = keep + fence_drafts
+        raise CompileError("incomplete compilation after retry: " + "; ".join(problems))
+
     claims = assemble(doc, drafts)
+    problems = _validate_compiled_claims(doc, claims)
+    if problems:
+        raise CompileError("incomplete compilation: " + "; ".join(problems))
     if use_cache:
         save_cache(doc, claims, cache_dir, meta)
     return claims
