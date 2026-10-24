@@ -80,3 +80,35 @@ def test_reconcile_spec_fixture_json_contract_and_expected_annotations():
     assert any(claim["claim_kind"] == "proposed_change" for claim in weakening["claims"])
     assert weakening["expected"]["repair"] == "refused"
     assert weakening["expected"]["promotion_allowed"] is False
+
+
+def test_bridge_receipt_fixture_matches_attest_receipt_v0_contract():
+    path = ROOT / "tests" / "fixtures" / "syberwork_bridge" / "attest.receipt.v0.example.json"
+    receipt = json.loads(path.read_text(encoding="utf-8"))
+
+    required_keys = {
+        "schema", "case_id", "created_at", "doc", "claim", "authority", "proposal",
+        "approval", "evidence", "handoff", "disposition", "verified",
+    }
+    assert set(receipt) == required_keys | {"ticket", "app"}
+    assert receipt["schema"] == "attest.receipt/v0"
+    assert receipt["case_id"] and receipt["created_at"]
+    assert set(receipt["doc"]) == {"source", "sha256_before", "sha256_after"}
+    assert set(receipt["claim"]) == {
+        "id", "kind", "lines", "text", "expects_before", "expects_after"
+    }
+    assert set(receipt["authority"]) == {"policy", "decision", "rule"}
+    assert receipt["authority"]["decision"] == "implementation_required"
+    assert set(receipt["proposal"]) == {"agent", "patch_sha256", "patch"}
+    assert set(receipt["approval"]) == {"actor", "proposal_sha256"}
+    assert receipt["approval"]["proposal_sha256"] == receipt["proposal"]["patch_sha256"]
+    assert set(receipt["evidence"]) == {"before", "after"}
+    for evidence in receipt["evidence"].values():
+        assert set(evidence) == {"status", "observed", "note", "screenshot"}
+    assert receipt["evidence"]["after"]["status"] == "proven"
+    assert receipt["handoff"] is None
+    assert receipt["disposition"] == "implemented"
+    assert receipt["verified"] is False
+    assert set(receipt["ticket"]) == {"path", "title"}
+    assert set(receipt["app"]) == {"original", "candidate", "patch_sha256"}
+    assert receipt["app"]["patch_sha256"] == receipt["proposal"]["patch_sha256"]

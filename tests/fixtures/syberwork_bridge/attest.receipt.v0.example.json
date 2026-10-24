@@ -1,24 +1,58 @@
 {
-  "type": "attest.receipt/v0",
-  "receipt_id": "fake://receipts/receipt-0001",
-  "source_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  "application": {
-    "app_id": "fake://apps/admin-portal",
-    "build_id": "demo-build-0001"
+  "schema": "attest.receipt/v0",
+  "case_id": "fake-case-counter-0001",
+  "created_at": "2026-10-24T15:30:00-07:00",
+  "doc": {
+    "source": "fake://docs/counter.md",
+    "sha256_before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "sha256_after": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
   },
-  "kane": {
-    "pack_ids": ["fake://kane/packs/kr-8"],
-    "kanehack_run_ids": ["fake://kanehack/runs/run-0001"]
+  "claim": {
+    "id": "fake-counter-claim-0001",
+    "kind": "browser",
+    "lines": [15, 15],
+    "text": "The counter increments by one when the button is clicked.",
+    "expects_before": "The displayed value increases by one.",
+    "expects_after": "The displayed value increases by one."
+  },
+  "authority": {
+    "policy": "fake://policies/attest.policy.yaml",
+    "decision": "implementation_required",
+    "rule": "A protected promise mismatch requires an implementation change, not a weakened promise."
   },
   "proposal": {
-    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    "agent": "fake://workers/syberwork-demo",
+    "patch_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "patch": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-return value + 2\n+return value + 1\n"
   },
   "approval": {
-    "decision": "approved",
-    "proposal_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    "actor": "fake://approvals/demo-operator",
+    "proposal_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
   },
-  "fresh_evidence": [
-    "fake://evidence/kane/run-0001/sealed-pack.json",
-    "fake://evidence/app/build-demo-0001/replay.json"
-  ]
+  "evidence": {
+    "before": {
+      "status": "failed",
+      "observed": {"counter_after_click": "2"},
+      "note": "Fake Kane evidence pack fake://kane/packs/kr-counter-before shows the protected mismatch.",
+      "screenshot": "fake://evidence/counter/before.png"
+    },
+    "after": {
+      "status": "proven",
+      "observed": {"counter_after_click": "1"},
+      "note": "Fake Kane evidence pack fake://kane/packs/kr-counter-after re-checks the candidate app.",
+      "screenshot": "fake://evidence/counter/after.png"
+    }
+  },
+  "handoff": null,
+  "disposition": "implemented",
+  "verified": false,
+  "ticket": {
+    "path": "fake://tickets/fake-case-counter-0001.json",
+    "title": "Implement counter increments by one"
+  },
+  "app": {
+    "original": "fake://apps/counter/original",
+    "candidate": "fake://apps/counter/candidate",
+    "patch_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  }
 }
