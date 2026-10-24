@@ -34,3 +34,7 @@ packs = [json.loads(path.read_text(encoding="utf-8"))
 Gate policy evaluation on `expected_mode`: send `reconcile_spec` packs through the Reconcile Spec diagnosis path, and assert that `maintain_docs` packs are routed away to Maintain Docs. For each applicable pack, compare the diagnosis side and repair against `expected.diagnosis_side` and `expected.repair`. Always assert that a false `promotion_allowed` result does not promote a candidate; in particular, the weakening-attempt pack must be refused.
 
 The schema-only test is `python -m pytest tests/test_reconcile_spec_fixtures_schema.py`. It uses only Python's standard library, validates fixture shape and annotations, and deliberately does not import `reconcile_spec` or any other N2 policy module. Once the policy engine exists, add engine behavior tests separately rather than making this fixture-contract check depend on it.
+
+## Optional SyberWork bridge demo receipt
+
+`tests/fixtures/syberwork_bridge/attest.receipt.v0.example.json` is an illustrative, all-fake example for bridge demos. It shows the values the Kane Factory MVP receipt needs to bind: source digest, application/build identity, Kane pack and kanehack run IDs, proposal digest, approval bound to that proposal, and fresh evidence references. It is not emitted by Attest, does not define a production receipt schema, and must not be treated as evidence of a real run or approval. Keep the eventual receipt contract and producer behavior in their own implementation and tests.
