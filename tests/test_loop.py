@@ -350,3 +350,19 @@ def test_checkout_applies_a_diff_with_miscounted_hunk_header():
     ok, message = co.apply(diff)
     assert ok, message
     assert '"Advanced Security"' in co.doc_path.read_text(encoding="utf-8")
+
+
+def test_openai_agent_is_called_for_the_openai_command(monkeypatch, tmp_path):
+    import attest.loop as loop
+
+    seen = {}
+
+    def fake(text, model=None, timeout_s=0):
+        seen["text"], seen["model"] = text, model
+        return "--- a/x.md\n+++ b/x.md\n@@ -1 +1 @@\n-a\n+b\n"
+
+    monkeypatch.setattr(loop, "call_openai_agent", fake)
+    assert "+b" in loop.call_agent("brief", tmp_path, cmd="openai")
+    assert seen == {"text": "brief", "model": None}
+    loop.call_agent("brief", tmp_path, cmd="openai:gpt-5-mini")
+    assert seen["model"] == "gpt-5-mini"

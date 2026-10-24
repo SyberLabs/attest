@@ -13,8 +13,8 @@ if (Test-Path ".env") {
         }
     }
 }
-# the loop agent: Codex in a read-only sandbox, low reasoning effort for a one-line doc patch
-$env:ATTEST_AGENT_CMD = "codex exec -s read-only --skip-git-repo-check -c model_reasoning_effort=low"
+# the loop agent: the OpenAI API writes the doc patch (attest.loop.call_openai_agent)
+$env:ATTEST_AGENT_CMD = "openai"
 
 function Test-Live {
     try {

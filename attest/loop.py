@@ -36,7 +36,13 @@ from .shell import ShellSession
 from .verdict import Rules, judge, load_rules
 
 # read-only: the brief carries the numbered excerpt, and the agent must return a diff, not edit
-AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "codex exec -s read-only --skip-git-repo-check")
+# "openai" (or "openai:<model>") calls the OpenAI API directly; anything else is a shell command
+AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "openai")
+AGENT_INSTRUCTIONS = (
+    "You repair documentation. You receive a brief about one doc claim that a browser or shell run "
+    "contradicted, with real line numbers. Change the smallest span of the doc so the claim matches what "
+    "was observed. Reply with only a unified diff in git format (paths a/<doc> and b/<doc>), no prose."
+)
 AGENT_TIMEOUT_S = int(os.environ.get("ATTEST_AGENT_TIMEOUT_S", "240"))
 CONTEXT_LINES = 3
 
@@ -106,8 +112,25 @@ def brief_text(brief: Brief, claim: Claim, doc_path: str) -> str:
 # -- agent -------------------------------------------------------------------------
 
 
+def call_openai_agent(text: str, model: str | None = None, timeout_s: int = AGENT_TIMEOUT_S) -> str:
+    """The factory's code writer: one Responses API call that returns the doc diff."""
+    from openai import OpenAI
+
+    from .compiler import DEFAULT_MODEL
+
+    model = model or os.environ.get("ATTEST_AGENT_MODEL") or DEFAULT_MODEL
+    kwargs = {"reasoning": {"effort": "low"}} if model.startswith(("gpt-5", "o")) else {}
+    try:
+        resp = OpenAI(timeout=timeout_s).responses.create(model=model, instructions=AGENT_INSTRUCTIONS, input=text, **kwargs)
+    except Exception as e:  # network, auth or model errors leave the claim for a human
+        return f"openai agent error: {e}"
+    return resp.output_text or ""
+
+
 def call_agent(text: str, cwd: Path, cmd: str | None = None, timeout_s: int = AGENT_TIMEOUT_S) -> str:
     cmd = cmd or AGENT_CMD
+    if cmd.strip() == "openai" or cmd.startswith("openai:"):
+        return call_openai_agent(text, cmd.split(":", 1)[1] if ":" in cmd else None, timeout_s)
     try:
         p = subprocess.run(
             cmd,
