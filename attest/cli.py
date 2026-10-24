@@ -79,6 +79,9 @@ def prove_cmd(
     typer.echo(f"page: {result.page}")
     if open_page and result.page:
         webbrowser.open(result.page.resolve().as_uri())
+    if any(v.status in ("stale", "broken") for v in result.verdicts):
+        # a doc that lies fails the command, so CI can gate on it
+        raise typer.Exit(1)
 
 
 def _strip_line(result, home: Path) -> str:
