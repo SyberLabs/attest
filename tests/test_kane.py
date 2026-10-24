@@ -323,3 +323,13 @@ def test_report_wraps_kane_in_kanehack_report(runner):
     assert cmd[:2] == ["kanehack", "report"] and "--objective" in cmd
     sep = cmd.index("--")
     assert cmd[sep + 1 : sep + 4] == ["kane-cli", "testmd", "run"]  # Kane's own command, untouched
+
+
+def test_browser_error_page_is_unreachable_not_stale():
+    # sfmta.org on the venue network: Kane passed the step but stored Chrome's error page
+    run = KaneRun(steps={1: kane.StepRun(index=1, heading="c03", status="passed", variables={"c03_label": "This site can’t be reached"})})
+    c03 = browser("c03", "Open https://www.sfmta.org and check for the button", "Pay or Contest Parking Tickets")
+    obs = observation_for(c03, 1, run, {})
+    assert obs.status == "unreachable"
+    v = judge(c03, Evidence(claim_id="c03", kind="browser", observation=obs), {})
+    assert v.status == "unverifiable" and "not reachable" in v.reason

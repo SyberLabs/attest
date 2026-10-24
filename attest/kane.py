@@ -45,6 +45,8 @@ STEP_TIMEOUT_S = int(os.environ.get("ATTEST_KANE_STEP_TIMEOUT_S", "180"))
 FILE_MAX_CLAIMS = 14  # keep one test file under about 15 steps
 
 _UNREACHABLE = re.compile(r"ERR_CONNECTION_REFUSED|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE|ERR_CONNECTION_TIMED_OUT|unreachable", re.I)
+# Chrome's own error page: Kane can "pass" a step that stored this, but the doc was never tested
+_ERROR_PAGE = re.compile(r"this site can.t be reached|ERR_NAME_NOT_RESOLVED|ERR_CONNECTION_\w+|DNS_PROBE_\w+|ERR_INTERNET_DISCONNECTED", re.I)
 
 
 class KaneSetupError(RuntimeError):
@@ -359,7 +361,9 @@ def observation_for(claim: Claim, index: int, run: KaneRun, pack_steps: dict[int
         notes.append(failure_text(failure))
     if run.healed:
         notes.append("kane: adaptive heal triggered in this run")
-    if status == "failed" and any(_UNREACHABLE.search(n) for n in notes):
+    if any(_ERROR_PAGE.search(v) for v in observed.values()):
+        status = "unreachable"
+    elif status == "failed" and any(_UNREACHABLE.search(n) for n in notes):
         status = "unreachable"
     return BrowserObservation(status=status, observed=observed, screenshot=str(shot) if shot else None, note=" | ".join(notes))
 
