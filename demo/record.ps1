@@ -23,6 +23,8 @@ Clear-Host
 & "$PSScriptRoot\beat1.ps1"
 Pause-Beat "beat 2: catch and fix the Vite quickstart"
 & "$PSScriptRoot\beat2.ps1"
+Pause-Beat "beat 2b: a refused repair (protected promise)"
+& "$PSScriptRoot\beat2b.ps1"
 Pause-Beat "beat 3: Procedural Truth on GitHub"
 & "$PSScriptRoot\beat3.ps1" -SignedIn
 Pause-Beat "beat 4: Attest's own README"
