@@ -1,5 +1,5 @@
 {
-  "sha256": "7010d1204090865f70b2b689a75a5f5c58a518a95a7cf2d2d5aa022ba1b42572",
+  "sha256": "b6cea0443ed1943c8d10c8d9a4a0e60163d825c2c72c1660a4e5b96cf2001767",
   "source": "demo/vite.md",
   "claims": [
     {
@@ -66,9 +66,9 @@
       "span": {
         "start_line": 32,
         "end_line": 32,
-        "text": "cd my-react-app && npm run dev"
+        "text": "npm run dev"
       },
-      "command": "cd my-react-app && npm run dev",
+      "command": "npm run dev",
       "objective": null,
       "expects": null,
       "store_as": null,
@@ -156,7 +156,8 @@
     }
   ],
   "meta": {
-    "mode": "llm",
-    "attempts": 1
+    "mode": "derived",
+    "from": "7010d1204090865f70b2b689a75a5f5c58a518a95a7cf2d2d5aa022ba1b42572",
+    "why": "c05 fence edited by hand; fenced blocks are shell claims verbatim by construction"
   }
 }

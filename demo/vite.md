@@ -29,7 +29,7 @@ cd my-react-app && npm install
 ```
 
 ```bash
-cd my-react-app && npm run dev
+npm run dev
 ```
 
 The dev server prints a local address such as `Local: http://localhost:5173/`.

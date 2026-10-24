@@ -163,8 +163,8 @@ def _judge_browser(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: page not reachable", evidence=ev)
     if obs.status == "failed":
         return Verdict(claim_id=claim.id, status="broken", reason="broken: browser step failed", evidence=ev)
-    # SATURDAY: healing detection. If the runner's note shows it re-authored the step
-    # to get past a mismatch, the claim is at best stale. Needs the real runner's remark format.
+    # No healing rule: on event day Kane never healed (a drifted page replayed and stored
+    # the new text), so there is no remark pattern to trust. Drift lands in label_match.
     if not claim.expects:
         return Verdict(claim_id=claim.id, status="proven", reason="proven: step completed, nothing promised", evidence=ev)
     seen = observed_text(claim, ev)

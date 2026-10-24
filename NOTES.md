@@ -68,3 +68,17 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - "Check that the page shows X and store ... as 'k'" makes X an assertion. When the page says something else, Kane does not store and report; it waits for the page to change, gets stuck (`stuck.ap_stuck`), and the step fails: broken, never stale. Adding "verify that element is visible" fails the same way; an "if X is absent, store the closest ..." clause makes Kane spawn conditional branches and wait.
 - What works: `Store the exact visible text of the heading, label, button or message on the page that is closest to "X" as 'k'. Verify the page has finished loading.` The step passes and stores what the page says, so the verdict rules decide. Action claims keep their action text in front ("Click the count button once."). The doc's "ends in a check" is honoured by the load check, which cannot fail on a label mismatch.
 - Failures carry a rich record: root `failure.yaml` points at `tests/<id>/steps/<dir>/failure.yaml`, which has `error.message`, `title`, `triage.rca.root_cause` and `triage.suggested_fix.summary`. The brief uses all four. The failure record is not always on the last failed step, so the reader follows the root pointer.
+
+### 10:30 to 12:00 kane.py
+
+- Gate 12:00 met at 10:35 without the fallback: `attest prove demo/flask.md --runner kane` proved all 4 claims with a real screenshot behind c07 (14.3 credits authored, then 0 on replay).
+- One test file per run of consecutive browser claims, at a stable path `.attest/kane/tests/<doc>-<first claim>_test.md`, run with `cwd=.attest/kane` so packs land in `.attest/kane/.testmuai/evidence/` and Kane's replay cache (`output-<stem>/`) survives between proves.
+- Screenshots: the pack path stays in the evidence (briefs name it); render copies it to `.attest/<hash>/shots/<claim>.<ext>` for the page.
+- `kane_max_steps: 15` is in `rules.yaml`; a file holds at most 12 claims (`FILE_MAX_CLAIMS`).
+
+### 12:00 to 13:00 verdicts on Kane input
+
+- Healing rule left out. Reason: Kane never healed today, so there is no remark pattern to trust, and the one drift experiment showed a cached step re-reading the new text for free. A drifted UI already lands as stale through `label_match`. The runner still appends "adaptive heal triggered" to the note if Kane reports it, for the brief.
+- Stale target is Vite, now `role: stale` in targets.yaml. Real Kane run: create-vite 9.3.1's React starter shows "Get started"; the doc (pinned 7e221fc) says "Vite + React". c07 on line 37 is stale, label_match 0.48, screenshot shows the new page. Kane also read c08 as "Count is 0" and c09 as "Count is 1", both of which match the doc once case is folded; Attest marks them skipped because they depend on the stale c07.
+- `demo/vite.md` had an adaptation bug of ours, not upstream: line 32 said `cd my-react-app && npm run dev` after line 28 had already changed into the directory, so the shell runner (which carries `cd` across blocks) failed with exit 1. Fixed to `npm run dev`. With no OpenAI key on this machine yet, the compiler cache entry was derived from the old one by replacing c05's command with the new fence text (fenced blocks are shell claims verbatim by construction); `meta.mode` says `derived`.
+- Credits: Vite authored 3 steps for 48.5. Balance after: about 997.
