@@ -88,18 +88,22 @@ def test_render_page_contains_badges_reasons_drawers_and_strip_numbers():
     c1 = Claim(id="c01", kind="shell", span=Span(start_line=f.start_line, end_line=f.end_line, text=f.text), command=f.text)
     c2 = Claim(id="c02", kind="browser", span=Span(start_line=35, end_line=35, text=doc.lines[34]), objective="Open it", expects="Hello, World!", store_as="c02_label", depends_on=["c01"])
     ev1 = Evidence(claim_id="c01", kind="shell", command=f.text, exit_code=0, stdout_tail="Running on http://127.0.0.1:5000", detected_url="http://127.0.0.1:5000")
-    ev2 = Evidence(claim_id="c02", kind="browser", observation=BrowserObservation(status="passed", observed={"c02_label": "Hello, Flask!"}, screenshot="shot.png"))
+    pack_path = r"C:\Users\MATEO\AppData\Local\Temp\session-long\X.evidence"
+    ev2 = Evidence(claim_id="c02", kind="browser", observation=BrowserObservation(status="passed", observed={"c02_label": "Hello, Flask!"}, screenshot="shot.png", note=f"passed check | pack: {pack_path}"))
     v1 = Verdict(claim_id="c01", status="proven", reason="proven: exit 0", evidence=ev1)
     v2 = Verdict(claim_id="c02", status="stale", reason="stale: label_match 0.67", evidence=ev2, label_match=0.67)
     strip = {"claims": 2, "proven": 1, "stale": 1, "broken": 0, "unverifiable": 0, "skipped": 0, "turn": 7, "loops_attempted": 1, "loops_closed": 0}
-    brief = Brief(claim_id="c02", verdict=v2, doc_excerpt="35  Head over...", grounding=["[docs] says Hello"], patch="--- a/x\n+++ b/x\n-old\n+new", attempts=1)
+    brief = Brief(claim_id="c02", verdict=v2, doc_excerpt="35  Head over...", grounding=["[docs] says Hello", "[githits search] unavailable: AUTH_REQUIRED: login"], patch="--- a/x\n+++ b/x\n-old\n+new", attempts=1)
     html = render_page(doc, [c1, c2], [v1, v2], strip, briefs={"c02": brief}, prior_verdicts={"c02": v2}, runner_name="fake")
     assert 'id="ledger-strip"' in html and ">Ledger<" in html
     assert 'class="badge proven"' in html and 'class="badge stale"' in html
     assert "proven: exit 0" in html and "stale: label_match 0.67" in html
     assert 'id="drawer-c01"' in html and 'id="drawer-c02"' in html
     assert "Running on http://127.0.0.1:5000" in html  # stdout tail
-    assert 'src="shot.png"' in html  # screenshot slot
+    assert '<a href="shot.png" target="_blank" rel="noopener"><img src="shot.png"' in html
+    assert "passed check | pack X" in html
+    assert f"kane-cli evidence serve {pack_path}" in html
+    assert "AUTH_REQUIRED" not in html
     assert "Hello, Flask!" in html and "Hello, World!" in html  # observed vs expects
     assert "[docs] says Hello" in html and "+new" in html  # brief and diff
     assert "turn 7" in html and "runner fake" in html
@@ -111,6 +115,18 @@ def test_render_page_contains_badges_reasons_drawers_and_strip_numbers():
     pos = [html.index(s) for s in ('<span class="n">2</span> claims', '<span class="n">1</span> proven', '<span class="n">1</span> stale', '<span class="n">0</span> broken')]
     assert pos == sorted(pos)
     assert "<script>alert" not in html
+
+
+def test_render_hides_grounding_heading_when_all_lines_are_unavailable():
+    doc = ingest(str(FLASK))
+    f = doc.fences[2]
+    claim = Claim(id="c01", kind="shell", span=Span(start_line=f.start_line, end_line=f.end_line, text=f.text), command=f.text)
+    evidence = Evidence(claim_id="c01", kind="shell", command=f.text, exit_code=1)
+    verdict = Verdict(claim_id="c01", status="broken", reason="failed", evidence=evidence)
+    brief = Brief(claim_id="c01", verdict=verdict, doc_excerpt="excerpt", grounding=["[githits search] unavailable: AUTH_REQUIRED: login"])
+    html = render_page(doc, [claim], [verdict], {"claims": 1, "proven": 0, "stale": 0, "broken": 1, "unverifiable": 0, "skipped": 0, "turn": 1, "loops_attempted": 0, "loops_closed": 0}, briefs={"c01": brief})
+    assert "AUTH_REQUIRED" not in html
+    assert "Grounding" not in html
 
 
 def test_badge_svg_and_proof_md():

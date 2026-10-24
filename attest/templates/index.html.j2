@@ -105,14 +105,14 @@
             <div>
               {% if c.kind == 'browser' %}
                 <div class="shot">
-                  {% if ev and ev.screenshot %}<img src="{{ ev.screenshot }}" alt="screenshot for {{ c.id }}">{% else %}screenshot slot: no screenshot from runner "{{ runner_name }}"{% endif %}
+                  {% if ev and ev.screenshot %}<a href="{{ ev.screenshot }}" target="_blank" rel="noopener"><img src="{{ ev.screenshot }}" alt="screenshot for {{ c.id }}"></a>{% else %}screenshot slot: no screenshot from runner "{{ runner_name }}"{% endif %}
                 </div>
                 <dl class="kv">
                   <dt>Objective</dt><dd>{{ c.objective }}</dd>
                   <dt>Doc expects</dt><dd><code>{{ c.expects or '' }}</code></dd>
                   <dt>Page observed</dt><dd>{% if ev and ev.observation %}{% for k, val in ev.observation.observed.items() %}<code>{{ k }}</code> = <code>{{ val }}</code><br>{% else %}nothing stored{% endfor %}{% else %}no observation{% endif %}</dd>
                   {% if v and v.label_match is not none %}<dt>Label match</dt><dd>{{ '%.2f'|format(v.label_match) }}</dd>{% endif %}
-                  {% if ev and ev.observation and ev.observation.note %}<dt>Runner note</dt><dd>{{ ev.observation.note }}</dd>{% endif %}
+                  {% if ev and ev.observation and ev.observation.note %}{% set runner_note = runner_notes.get(c.id) %}<dt>Runner note</dt><dd>{% if runner_note.text %}{{ runner_note.text }}{% endif %}{% if runner_note.pack %}{% if runner_note.text %} | {% endif %}pack {{ runner_note.pack }} <small><code>kane-cli evidence serve {{ runner_note.path }}</code></small>{% endif %}</dd>{% endif %}
                 </dl>
               {% else %}
                 <dl class="kv">
@@ -136,7 +136,7 @@
                     </div>
                   </dd>
                   <dt>Brief ({{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }})</dt><dd><pre><code>{{ brief.doc_excerpt }}</code></pre></dd>
-                  {% if brief.grounding %}<dt>Grounding</dt><dd><ul>{% for g in brief.grounding %}<li>{{ g }}</li>{% endfor %}</ul></dd>{% endif %}
+                  {% set grounding = grounding_lines.get(c.id, []) %}{% if grounding %}<dt>Grounding</dt><dd><ul>{% for g in grounding %}<li>{{ g }}</li>{% endfor %}</ul></dd>{% endif %}
                   <dt>Diff</dt><dd><pre class="diff">{% if brief.patch %}{% for line in brief.patch.splitlines() %}<span class="{{ 'add' if line.startswith('+') and not line.startswith('+++') else ('del' if line.startswith('-') and not line.startswith('---') else '') }}">{{ line }}</span>
 {% endfor %}{% else %}no patch{% endif %}</pre></dd>
                 </dl>

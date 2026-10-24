@@ -15,7 +15,7 @@ import html
 import re
 from urllib.parse import urlsplit
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -195,6 +195,25 @@ def render_page(
     blks = attach_claims(blocks(doc.lines), claims)
     briefs = briefs or {}
     prior_verdicts = prior_verdicts or {}
+    grounding_lines = {
+        claim_id: [line for line in brief.grounding if "] unavailable:" not in line]
+        for claim_id, brief in briefs.items()
+    }
+    runner_notes = {}
+    pack_suffix = re.compile(r"(?:\s*\|\s*)pack:\s*(.+\.evidence)\s*$", re.IGNORECASE)
+    for claim in claims:
+        verdict = by_id.get(claim.id)
+        note = verdict.evidence.observation.note if verdict and verdict.evidence and verdict.evidence.observation else None
+        match = pack_suffix.search(note or "")
+        if match:
+            path = match.group(1)
+            runner_notes[claim.id] = {
+                "text": (note[:match.start()].rstrip(" |") if note[:match.start()].strip() else ""),
+                "pack": PureWindowsPath(path).stem,
+                "path": path,
+            }
+        else:
+            runner_notes[claim.id] = {"text": note or "", "pack": None, "path": None}
     tmpl = _env().get_template("index.html.j2")
     return tmpl.render(
         title=title or _title_of(doc),
@@ -207,6 +226,8 @@ def render_page(
         strip=strip,
         colors=BADGE_COLORS,
         runner_name=runner_name,
+        grounding_lines=grounding_lines,
+        runner_notes=runner_notes,
     )
 
 
