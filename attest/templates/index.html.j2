@@ -184,6 +184,12 @@
   .diff .del { background: #ffebe9; color: #82071e; } .diff .del mark { background: #ffcecb; color: inherit; border-radius: 3px; padding: 0 1px; }
   .diff .hunk { color: #0550ae; background: #ddf4ff; } .diff .meta { color: var(--faint); }
   .nopatch { padding: 10px 12px; color: var(--muted); }
+  .impl { border: 1px solid var(--proven-line); background: #effcf2; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+  .impl.open { border-color: var(--broken-line); background: var(--broken-bg); }
+  .impl-k { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--agent); margin-bottom: 4px; }
+  .impl.open .impl-k { color: var(--broken); }
+  .impl-t { font-size: 15px; font-weight: 650; line-height: 1.3; word-break: break-word; }
+  .impl-n { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
   footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 26px; }
 
   @media (max-width: 560px) {
@@ -265,15 +271,40 @@
             {% set closed = v and v.status == 'proven' %}
             <div class="fix-head">
               {% set refused = authority.get(c.id, {}).get('decision') == 'doc_repair_denied' %}
-              <span class="tag{% if not closed %} failed{% endif %}">{% if closed %}Caught and fixed{% elif refused %}Repair refused{% else %}Fix attempted{% endif %}</span>
+              {% set implementing = authority.get(c.id, {}).get('decision') == 'implementation_required' %}
+              <span class="tag{% if not closed %} failed{% endif %}">{% if implementing %}{% if closed %}Implemented{% else %}Ticket open{% endif %}{% elif closed %}Caught and fixed{% elif refused %}Repair refused{% else %}Fix attempted{% endif %}</span>
               <span class="line">Line {{ c.span.start_line }} <span>&middot; {{ c.kind }} claim &middot; {{ c.id }}</span></span>
               <button type="button" class="x" data-close="drawer-{{ c.id }}">close</button>
             </div>
             {% set auth = authority.get(c.id, {}) %}
             {% set receipt = receipts.get(c.id, {}) %}
-            <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}</p>
+            <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% elif auth.get('decision') == 'implementation_required' %}implementation required{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}{% if receipt.get('ticket') %} &middot; <a href="{{ receipt.get('ticket') }}">Ticket</a>{% endif %}</p>
             {% if auth.get('decision') == 'doc_repair_denied' %}
               <div class="nopatch"><b>DOC REPAIR REFUSED: implementation handoff</b><br>The application must change, not the doc.</div>
+            {% elif auth.get('decision') == 'implementation_required' %}
+            <div class="impl{% if not closed %} open{% endif %}">
+              <div class="impl-k">Missing capability: {% if closed %}implemented by {{ auth.get('agent') or 'OpenAI' }}{% else %}ticket open{% endif %}</div>
+              <div class="impl-t">{% if receipt.get('ticket') %}<a href="{{ receipt.get('ticket') }}">{{ receipt.get('ticket_title') }}</a>{% else %}{{ receipt.get('ticket_title') }}{% endif %}</div>
+              <div class="impl-n">The spec is the contract: the doc stays as written and the app changed in a candidate copy.</div>
+            </div>
+            <div class="ba">
+              <div class="ba-card {{ before.status if before else 'unverifiable' }}">
+                <div class="ba-k">Before {% if before %}<span class="st {{ before.status }}">{{ icon(before.status) }}{{ before.status }}</span>{% endif %}</div>
+                {% if c.expects %}<div class="ba-row"><span class="k">Spec expects</span><span class="v">{{ c.expects }}</span></div>{% endif %}
+                {% if saw_before.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw_before.get(c.id) }}</span></div>{% endif %}
+                {% if before %}<div class="ba-why">{{ before.reason }}</div>{% endif %}
+              </div>
+              <div class="ba-arrow" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 8h11M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div class="ba-card {{ v.status if v else 'unverifiable' }}">
+                <div class="ba-k">After {% if v %}<span class="st {{ v.status }}">{{ icon(v.status) }}{{ v.status }}</span>{% endif %}</div>
+                {% if saw.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw.get(c.id) }}</span></div>{% endif %}
+                {% if v %}<div class="ba-why">{{ v.reason }}</div>{% endif %}
+              </div>
+            </div>
+            <div class="diffbox">
+              <div class="diffbox-h"><span><b>App change</b> from {{ auth.get('agent') or 'OpenAI' }} &middot; applied to the candidate app, never the doc</span><span>{{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }}</span></div>
+              {% if brief.patch %}<pre class="diff">{% for r in dv.rows %}<span class="{{ r.kind }}">{{ r.html }}</span>{% endfor %}</pre>{% else %}<div class="nopatch">no patch</div>{% endif %}
+            </div>
             {% else %}
             <div class="ba">
               <div class="ba-card {{ before.status if before else 'unverifiable' }}">
@@ -338,7 +369,7 @@
             {% endif %}
           </div>
           {% if brief %}
-            <details><summary>Brief sent to the agent ({{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }})</summary><pre><code>{{ brief.doc_excerpt }}</code></pre></details>
+            <details><summary>{% if authority.get(c.id, {}).get('decision') == 'implementation_required' %}Ticket sent to the implementation agent{% else %}Brief sent to the agent{% endif %} ({{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }})</summary><pre><code>{{ brief.doc_excerpt }}</code></pre></details>
             {% set grounding = grounding_lines.get(c.id, []) %}{% if grounding %}<details open><summary>Grounding</summary><ul class="ground">{% for g in grounding %}<li>{{ g }}</li>{% endfor %}</ul></details>{% endif %}
           {% endif %}
         </div>

@@ -69,7 +69,8 @@ function kind(line){
   if(t.startsWith("STALE"))return "warn";
   if(t.startsWith("BROKEN"))return "bad";
   if(t.startsWith("SKIPPED")||t.startsWith("UNVERIFIABLE")||t.startsWith("PARTIAL"))return "grey";
-  if(t.startsWith("AGENT")||t.startsWith("THE LOOP"))return "agent";
+  if(t.startsWith("AGENT")||t.startsWith("WORKER")||t.startsWith("THE LOOP"))return "agent";
+  if(t.startsWith("TICKET"))return "warn";
   if(t.startsWith("ATTEST"))return "head";
   if(t.startsWith("..."))return "grey";
   return "";
@@ -236,9 +237,12 @@ def prove_cmd(
     keep_scratch: bool = typer.Option(False, "--keep-scratch", help="Leave the scratch directory in place."),
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
     live: bool = typer.Option(False, "--live", help="Update a live page while claims run."),
+    app_dir: Path | None = typer.Option(None, "--app", help="Spec mode: the doc is the contract for this app directory; failing claims become tickets the implementation agent closes in a copy of the app (implies --loop)."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
     tee = None
+    if app_dir is not None:
+        loop = True
     if live:
         # the live page shows this terminal beside the document
         tee = _Tee(sys.stdout, home / "live.log", f"$ attest prove {_ascii(source)}")
@@ -252,14 +256,18 @@ def prove_cmd(
                 _log(c, v)
             def before(c):
                 _step(c)
-            result = prove(source, runner=br, home=home, log=narrate, keep_servers=loop, stop_before=stop_before, skip=skip_ids, live=live, on_start=before)
+            result = prove(source, runner=br, home=home, log=narrate, keep_servers=loop, stop_before=stop_before, skip=skip_ids, live=live, on_start=before, app_dir=app_dir)
         except ValueError as e:
             raise typer.BadParameter(str(e)) from e
         if loop and result.failing():
             from .loop import run_loop
 
             n_failing = len(result.failing())
-            _section(f"THE LOOP   {n_failing} claim{'' if n_failing == 1 else 's'} to fix: the coding agent patches the doc, Kane re-checks")
+            if app_dir is not None:
+                _section(f"THE LOOP   {n_failing} capabilit{'y' if n_failing == 1 else 'ies'} missing: tickets go to the worker, Kane re-checks")
+                typer.echo(typer.style(f"   app copy  {getattr(result, 'candidate').posix}", dim=True))
+            else:
+                _section(f"THE LOOP   {n_failing} claim{'' if n_failing == 1 else 's'} to fix: the coding agent patches the doc, Kane re-checks")
             def loop_update(message):
                 if live:
                     from .pipeline import _write_live_page
@@ -281,7 +289,7 @@ def prove_cmd(
             # the loop left the live state at "Proof updated"; mark the run done
             from .pipeline import _write_live_page
             _write_live_page(result, home, br.name, "Proof complete", False)
-        for line in _summary_lines(result, home):
+        for line in _summary_lines(result, home, spec=app_dir is not None):
             typer.echo(line)
         typer.echo(f"   {typer.style('page', dim=True)}      {result.page}")
         typer.echo("")
@@ -303,7 +311,7 @@ def _header(source: str, runner_name: str) -> None:
     typer.echo(typer.style(f"   {RULE}", dim=True))
 
 
-def _summary_lines(result, home: Path) -> list[str]:
+def _summary_lines(result, home: Path, spec: bool = False) -> list[str]:
     from .ledger import Ledger
 
     s = Ledger(home / "ledger.jsonl").summary(result.doc.sha256, result.turn)
@@ -329,7 +337,8 @@ def _summary_lines(result, home: Path) -> list[str]:
     ])
     lines = ["", typer.style(f"   {RULE}", dim=True), f"   {typer.style(f'{word:<8}', fg=color, bold=True)}  {counts}"]
     if s.get("loops_attempted"):
-        lines.append(f"   {typer.style('loop', dim=True)}      {s['loops_closed']}/{s['loops_attempted']} fixed by the agent and re-proven")
+        done = "implemented in the app and re-proven" if spec else "fixed by the agent and re-proven"
+        lines.append(f"   {typer.style('loop', dim=True)}      {s['loops_closed']}/{s['loops_attempted']} {done}")
     extra = f"{s['claims']} claims | turn {s['turn']}"
     if s.get("kane_steps"):
         extra += f" | {s['kane_steps']} Kane steps ({s['authored']} authored, {s['replayed']} replayed)"

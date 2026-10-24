@@ -300,6 +300,24 @@ def rerun_claim(
 # -- the loop -------------------------------------------------------------------------
 
 
+def print_diff(diff: str) -> None:
+    """Echo a diff in the terminal: + green, - red, hunks cyan."""
+    from .cli import _ascii  # terminal stays ASCII on PowerShell 5.1
+
+    for line in diff.rstrip("\n").splitlines():
+        shown = "             | " + _ascii(line)
+        if line.startswith(("+++", "---", "diff ", "index ")):
+            typer.echo(typer.style(shown, dim=True))
+        elif line.startswith("@@"):
+            typer.echo(typer.style(shown, fg=typer.colors.CYAN))
+        elif line.startswith("+"):
+            typer.echo(typer.style(shown, fg=typer.colors.GREEN, bold=True))
+        elif line.startswith("-"):
+            typer.echo(typer.style(shown, fg=typer.colors.RED, bold=True))
+        else:
+            typer.echo(shown)
+
+
 def run_loop(
     result: ProveResult,
     runner: BrowserRunner,
@@ -323,6 +341,17 @@ def run_loop(
     result.authority = {}
     result.receipts = {}
     verdict_map = result.by_id
+    candidate = getattr(result, "candidate", None)
+    if candidate is not None:
+        # spec mode: every failing claim is a protected contract; the app changes, never the doc
+        from .implement import implement_claim
+
+        env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
+        for claim in result.failing():
+            implement_claim(result, claim, candidate, runner, rules, ledger, policy, shell_env=env, log=log, on_update=on_update)
+        for s in getattr(result, "_rerun_sessions", []):
+            s.close()
+        return result
     for claim in result.failing():
         authority = policy.decide(claim)
         result.authority[claim.id] = {"decision": authority.decision, "rule": authority.rule, "policy": str(policy.path) if policy.path else None}
@@ -367,20 +396,7 @@ def run_loop(
                 continue
             brief = brief.model_copy(update={"patch": diff})
             if diff:
-                from .cli import _ascii  # terminal stays ASCII on PowerShell 5.1
-
-                for line in diff.splitlines():
-                    shown = "             | " + _ascii(line)
-                    if line.startswith(("+++", "---", "diff ", "index ")):
-                        typer.echo(typer.style(shown, dim=True))
-                    elif line.startswith("@@"):
-                        typer.echo(typer.style(shown, fg=typer.colors.CYAN))
-                    elif line.startswith("+"):
-                        typer.echo(typer.style(shown, fg=typer.colors.GREEN, bold=True))
-                    elif line.startswith("-"):
-                        typer.echo(typer.style(shown, fg=typer.colors.RED, bold=True))
-                    else:
-                        typer.echo(shown)
+                print_diff(diff)
             ok, message = co.apply(diff)
             if ok:
                 text = co.doc_path.read_text(encoding="utf-8")

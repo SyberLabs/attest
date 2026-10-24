@@ -369,7 +369,7 @@ def runner_saw(v: Verdict | None) -> str:
 
 def _now_actor(now: str) -> str:
     low = now.lower()
-    if "agent" in low or "codex" in low:
+    if "agent" in low or "codex" in low or "openai" in low or "implementing" in low:
         return "agent"
     if "kane" in low:
         return "kane"
