@@ -1,12 +1,21 @@
-# Runs the four demo beats in order for a recording. Press Enter between beats;
-# the pause is the time to click a badge on the page the beat just opened.
-# Run from anywhere: powershell -File C:\Users\MATEO\attest\demo\record.ps1
+# Runs the four demo beats in order for a recording. Everything shows in the one live
+# browser tab (terminal panel plus document), so this window can stay behind the browser.
+# Between beats it waits $PauseSeconds for badge clicks, or press Enter to go on now.
+# Run from anywhere: powershell -File C:\Users\MATEO\attest\demo\record.ps1 [-PauseSeconds 25]
+param([int]$PauseSeconds = 25)
 
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
 function Pause-Beat($next) {
     Write-Host ""
-    Read-Host "Press Enter for $next" | Out-Null
+    Write-Host "Next: $next in $PauseSeconds s (Enter to go now)"
+    $deadline = (Get-Date).AddSeconds($PauseSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ([Console]::KeyAvailable) {
+            if ([Console]::ReadKey($true).Key -eq "Enter") { break }
+        }
+        Start-Sleep -Milliseconds 200
+    }
     Clear-Host
 }
 
