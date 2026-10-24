@@ -61,6 +61,7 @@ def execute(
     prior: dict[str, Verdict] | None = None,
     log=None,
     stop_before: str | None = None,
+    skip: set[str] | None = None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
     """Run claims in doc order and judge each as soon as its evidence exists.
 
@@ -71,9 +72,22 @@ def execute(
     evidence: dict[str, Evidence] = {}
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
+    skip = skip or set()
     session = ShellSession(workdir=scratch, timeout_s=rules.shell_timeout_s, env=shell_env or {})
     stop_index = next((i for i, claim in enumerate(claims) if claim.id == stop_before), None)
     for i, c in enumerate(claims):
+        if c.id in skip:
+            v = Verdict(
+                claim_id=c.id,
+                status="unverifiable",
+                reason="unverifiable: not applicable on this run (skipped with --skip)",
+                evidence=None,
+            )
+            reached[c.id] = v
+            verdicts.append(v)
+            if log:
+                log(c, v)
+            continue
         if stop_index is not None and i >= stop_index:
             v = Verdict(
                 claim_id=c.id,
@@ -93,7 +107,10 @@ def execute(
             verdicts.append(v)
             continue
         ev: Evidence | None = None
-        deps_ok = all(reached.get(d) is None or reached[d].status == "proven" for d in c.depends_on)
+        deps_ok = all(
+            reached.get(d) is None or reached[d].status == "proven" or reached[d].evidence is None
+            for d in c.depends_on
+        )
         if deps_ok:
             if c.kind == "shell":
                 ev = session.run(c)
@@ -124,6 +141,7 @@ def prove(
     shell_env: dict[str, str] | None = None,
     log=None,
     stop_before: str | None = None,
+    skip: set[str] | None = None,
 ) -> ProveResult:
     rules = rules or load_rules()
     runner = runner or FakeBrowserRunner()
@@ -133,18 +151,21 @@ def prove(
     if stop_before is not None and stop_before not in {claim.id for claim in claims}:
         valid_ids = ", ".join(claim.id for claim in claims) or "(none)"
         raise ValueError(f"unknown claim id {stop_before!r}; valid ids: {valid_ids}")
+    skip = skip or set()
+    unknown_skip = skip - {claim.id for claim in claims}
+    if unknown_skip:
+        valid_ids = ", ".join(claim.id for claim in claims) or "(none)"
+        unknown_ids = ", ".join(sorted(unknown_skip))
+        raise ValueError(f"unknown claim id(s) {unknown_ids!r}; valid ids: {valid_ids}")
     prepare = getattr(runner, "prepare", None)
     if prepare is not None:
         # a batching runner plans its test files from the claims that will run
-        if stop_before is None:
-            run_claims = claims
-        else:
-            stop_index = next(i for i, c in enumerate(claims) if c.id == stop_before)
-            run_claims = claims[:stop_index]
+        stop_index = next((i for i, c in enumerate(claims) if c.id == stop_before), len(claims))
+        run_claims = [c for i, c in enumerate(claims) if i < stop_index and c.id not in skip]
         prepare(run_claims, doc.source)
     scratch = new_scratch()
     evidence, verdicts, session = execute(
-        claims, runner, rules, scratch, shell_env=shell_env, log=log, stop_before=stop_before
+        claims, runner, rules, scratch, shell_env=shell_env, log=log, stop_before=stop_before, skip=skip
     )
     if not keep_servers:
         session.close()
