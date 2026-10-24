@@ -38,13 +38,25 @@ def _unresolved(store: SQLiteWorkflowStore, record: WorkflowRecord, reason: str)
     )
 
 
+def _claim_fingerprint(claim: Claim) -> str:
+    payload = claim.model_dump(mode="json")
+    payload["span"] = {"text": claim.span.text}  # line shifts do not change claim meaning
+    return canonical_json(payload)
+
+
 def _compile_complete(original: list[Claim], compiled: list[Claim], target_id: str) -> tuple[bool, str]:
-    old_other = Counter((c.kind, c.span.text) for c in original if c.id != target_id)
-    new_other = Counter((c.kind, c.span.text) for c in compiled if c.id != target_id)
-    if not old_other <= new_other:
-        return False, "whole-document compilation omitted or changed an unrelated claim"
-    if not any(c.id == target_id for c in compiled):
+    old_target = next((claim for claim in original if claim.id == target_id), None)
+    new_target = next((claim for claim in compiled if claim.id == target_id), None)
+    if old_target is None:
+        return False, "approved target claim is missing from its baseline"
+    if new_target is None:
         return False, "whole-document compilation did not produce the approved target claim"
+    if new_target.kind != old_target.kind:
+        return False, "whole-document compilation changed the target claim kind"
+    old_other = Counter(_claim_fingerprint(c) for c in original if c.id != target_id)
+    new_other = Counter(_claim_fingerprint(c) for c in compiled if c.id != target_id)
+    if old_other != new_other:
+        return False, "whole-document compilation omitted, added, or changed an unrelated claim"
     if len(compiled) < len(original):
         return False, "whole-document compilation is incomplete"
     return True, "complete"
@@ -129,6 +141,9 @@ def resume_workflow(
                 event={"reason": detail},
             )
         doc = doc.model_copy(update={"claims": claims})
+        prepare = getattr(runner, "prepare", None)
+        if prepare is not None:
+            prepare(claims, str(source_path))
         scratch = new_scratch("attest-validate-")
         session = None
         try:

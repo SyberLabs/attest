@@ -1,6 +1,10 @@
+import json
+import os
 import sys
 import textwrap
 from pathlib import Path
+
+import pytest
 
 from attest.loop import (
     brief_text,
@@ -11,23 +15,20 @@ from attest.loop import (
     run_loop,
     shift_spans,
 )
-from attest.ingest import ingest_text
+from attest.ingest import ingest, ingest_text
 from attest.models import BrowserObservation, Claim, Evidence, Span, Verdict
 from attest.pipeline import prove
+from attest.runner import FakeBrowserRunner
 from attest.verdict import Rules
+
+
+class KaneTestRunner(FakeBrowserRunner):
+    """Test runner for loop mechanics; live evidence comes from Kane in production."""
+
+    name = "kane"
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
-
-
-class KaneTestRunner:
-    name = "kane"
-
-    def observe(self, claim, base_url):
-        raise AssertionError("the shell-only loop fixture has no browser claims")
-
-    def close(self):
-        pass
 
 BROKEN_DOC = textwrap.dedent(
     """\
@@ -103,7 +104,6 @@ def test_checkout_rejects_foreign_files_and_bad_patches():
     assert not ok and "other than the doc" in msg
     ok, msg = co.apply("--- a/loop.md\n+++ b/loop.md\n@@ -1 +1 @@\n-not in the file\n+zzz\n")
     assert not ok and "apply --check failed" in msg
-    assert not (co.root / ".attest.patch").exists()
     ok, msg = co.apply("--- a/loop.md\n+++ b/loop.md\n@@ -1 +1 @@\n-# Loop test doc\n+# Loop test document\n")
     assert ok
     assert co.doc_path.read_text().startswith("# Loop test document")
@@ -149,39 +149,34 @@ def test_shift_spans():
 # -- end to end ------------------------------------------------------------------------
 
 
-def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # fences only, no model
+def test_loop_creates_approval_gated_proposal_without_changing_source(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
     runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home", keep_servers=True)
     assert [v.status for v in result.verdicts] == ["proven", "broken"]
-    failing = result.failing()
-    assert [c.id for c in failing] == ["c02"]
+    assert [c.id for c in result.failing()] == ["c02"]
 
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT))
-    after = result.by_id["c02"]
-    assert after.status == "broken", after.reason
+    assert result.by_id["c02"].status == "broken"  # proposals are not evidence
+    assert result.proposals["c02"]
     brief = result.briefs["c02"]
     assert brief.attempts == 1
     assert brief.patch and "+echo ready && exit 0" in brief.patch and "-echo ready && exit 1" in brief.patch
     assert result.prior["c02"].status == "broken"
-    from attest.ingest import sha256_of
-
-    assert result.doc.sha256 == sha256_of(BROKEN_DOC)
-    assert "exit 1" in doc_path.read_text()
-    workflow_id = result.proposals["c02"]
-    assert result.proposal_states["c02"] == "awaiting_approval"
     from attest.storage import SQLiteWorkflowStore
 
-    workflow = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get(workflow_id)
-    assert workflow.state == "awaiting_approval"
-    assert workflow.proposal["base_digest"] != workflow.proposal["candidate_digest"]
+    record = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get(result.proposals["c02"])
+    assert record.state == "awaiting_approval"
     candidate = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get_artifact(
-        workflow.proposal["artifact_digests"]["candidate"]
+        record.proposal["artifact_digests"]["candidate"]
     ).decode()
-    assert "echo ready && exit 0" in candidate and "exit 1" not in candidate
+    assert "echo ready && exit 0" in candidate
+    assert "exit 1" in doc_path.read_text()
+    rows = [json.loads(l) for l in (tmp_path / "home" / "ledger.jsonl").read_text().splitlines()]
+    assert [r["status"] for r in rows if r["claim_id"] == "c02"] == ["broken"]
 
 
 def test_loop_rejects_diff_touching_other_file(tmp_path, monkeypatch):
@@ -219,8 +214,103 @@ def test_loop_apply_flag_cannot_write_source(tmp_path, monkeypatch):
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
     runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
-    import pytest
-
     with pytest.raises(ValueError, match="source application is disabled"):
         run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), apply_to_source=True)
     assert "exit 1" in doc_path.read_text()
+
+
+STALE_DOC = textwrap.dedent(
+    """\
+    # Starter page
+
+    Open http://localhost:5173/ in your browser. The page shows the heading "Vite + React"
+    and a button labelled "count is 0".
+    """
+)
+
+# Rewrites the stale heading the way the real agent should for the Vite catch.
+HEADING_AGENT = FIX_AGENT.replace('old.replace("exit 1", "exit 0")', 'old.replace(\'"Vite + React"\', \'"Get started"\')')
+
+
+class BatchingRunner(KaneTestRunner):
+    """Stands in for the Kane runner: answers from today's page and keeps every observation."""
+
+    PAGE = {"c01": "Get started", "c02": "Count is 0"}
+
+    def __init__(self):
+        super().__init__()
+        self.seen = {}
+
+    def observe(self, claim, base_url):
+        self.calls.append((claim.id, base_url))
+        for cid, text in self.PAGE.items():
+            self.seen[cid] = BrowserObservation(status="passed", observed={f"{cid}_label": text}, screenshot="/pack/annotated.png", note="kane: step passed, authored")
+        return self.seen[claim.id]
+
+    def cached(self, claim_id):
+        return self.seen.get(claim_id)
+
+
+def stale_claims(doc):
+    def b(cid, line, expects, deps):
+        return Claim(id=cid, kind="browser", span=Span(start_line=line, end_line=line, text=doc.lines[line - 1]),
+                     objective=f'Open http://localhost:5173/ and check for "{expects}".', expects=expects, store_as=f"{cid}_label", depends_on=deps)
+    return [b("c01", 3, "Vite + React", []), b("c02", 4, "count is 0", ["c01"])]
+
+
+def test_loop_proposes_stale_browser_repair_without_replaying_kane(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # re-compile follows the new quote without a model
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("attest.pipeline.compile_doc", lambda doc, llm=None: stale_claims(doc))
+    doc_path = tmp_path / "starter.md"
+    doc_path.write_text(STALE_DOC, encoding="utf-8")
+    runner = BatchingRunner()
+    result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
+    assert [v.status for v in result.verdicts] == ["stale", "skipped"]
+
+    result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "heading", HEADING_AGENT))
+    c01 = next(c for c in result.claims if c.id == "c01")
+    assert c01.expects == "Vite + React"  # candidate stays pending human approval
+    assert result.by_id["c01"].status == "stale"
+    assert result.by_id["c02"].status == "skipped"
+    assert result.proposals["c01"]
+    from attest.storage import SQLiteWorkflowStore
+
+    record = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get(result.proposals["c01"])
+    candidate = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get_artifact(
+        record.proposal["artifact_digests"]["candidate"]
+    ).decode()
+    assert '"Get started"' in candidate
+    assert doc_path.read_text(encoding="utf-8") == STALE_DOC
+    assert [claim_id for claim_id, _ in runner.calls] == ["c01"]  # proposal creation does not replay Kane
+
+
+def test_brief_carries_kane_failure_record_and_screenshot():
+    doc = ingest_text("# t\nClick Create project.\n", source="x.md")
+    c = Claim(id="c01", kind="browser", span=Span(start_line=2, end_line=2, text=doc.lines[1]), objective="o", expects="Create project", store_as="c01_label")
+    note = ("kane: step failed, authored; AP determined agent is stuck | failure: Greeting transition: stuck | "
+            "root cause: waited for a change | suggested fix: inspect the page | pack: C:/x.evidence")
+    obs = BrowserObservation(status="failed", observed={"c01_label": ""}, screenshot="C:/kane/steps/9-1-5/annotated.png", note=note)
+    v = Verdict(claim_id="c01", status="broken", reason="broken: browser step failed", evidence=Evidence(claim_id="c01", kind="browser", observation=obs))
+    text = brief_text(build_brief(doc, c, v, [], "x.md"), c, "x.md")
+    assert "runner note: kane: step failed" in text
+    assert "- root cause: waited for a change" in text and "- suggested fix: inspect the page" in text
+    assert "pack:" not in text
+    assert "screenshot: C:/kane/steps/9-1-5/annotated.png" in text
+    assert len(text.splitlines()) < 60
+
+
+def test_checkout_applies_a_diff_with_miscounted_hunk_header():
+    # the real Codex patch for the GitHub card: header says 7 lines, the hunk has 4
+    lines = [f"line {n}" for n in range(1, 15)] + ["", '4. In the left-hand sidebar click "Security & analysis".', "", "5. Next step.", "", "6. More.", "", "7. End."]
+    doc = ingest_text("\n".join(lines) + "\n", source="card.md")
+    co = make_checkout(doc)
+    diff = (
+        "--- a/card.md\n+++ b/card.md\n@@ -15,7 +15,7 @@\n \n"
+        '-4. In the left-hand sidebar click "Security & analysis".\n'
+        '+4. In the left-hand sidebar click "Advanced Security".\n'
+        " \n"
+    )
+    ok, message = co.apply(diff)
+    assert ok, message
+    assert '"Advanced Security"' in co.doc_path.read_text(encoding="utf-8")

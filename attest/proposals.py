@@ -77,8 +77,8 @@ def _patch_matches_candidate(base_text: str, candidate_text: str, diff: str, doc
         patch = root / ".attest.patch"
         patch.write_text(diff, encoding="utf-8", newline="\n")
         for args in (
-            ["git", "apply", "--check", "--unidiff-zero", "--whitespace=nowarn", str(patch)],
-            ["git", "apply", "--unidiff-zero", "--whitespace=nowarn", str(patch)],
+            ["git", "apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch)],
+            ["git", "apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch)],
         ):
             try:
                 proc = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=10)

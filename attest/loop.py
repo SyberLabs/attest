@@ -1,11 +1,12 @@
-"""Propose one scoped documentation repair and pause for a human approval.
+"""The closed loop: brief, one agent call, doc-only diff, re-prove one claim.
 
-The agent (``codex exec`` or ``claude -p``, from ``ATTEST_AGENT_CMD``) receives
-one failing claim and returns a patch in an isolated scratch checkout. The host
-checks the patch against the source snapshot and Maintain Docs policy, then stores
-the candidate and digests in SQLite. No source write or post-patch proof happens
-until a human approves the bound proposal and ``attest resume`` performs a fresh
-whole-document validation.
+Trigger: any stale or broken verdict on a shell or browser claim.
+The agent (``codex exec`` or ``claude -p``, from ``ATTEST_AGENT_CMD``) gets the
+brief on stdin and works in a scratch checkout that holds only the doc. Its diff
+must pass ``git apply --check`` and touch nothing but the doc. Then only the
+changed span is re-compiled and only that claim re-runs, through the same kind
+of runner that produced the original evidence. Both verdicts land in the ledger
+under one turn. One attempt, then a human.
 """
 
 from __future__ import annotations
@@ -19,19 +20,20 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+import typer
 
-from .compiler import recompile_claim
 from .grounding import ground
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
 from .pipeline import ProveResult
 from .proposals import create_repair_proposal
-from .storage import SQLiteWorkflowStore
 from .runner import BrowserRunner
 from .shell import ShellSession
+from .storage import SQLiteWorkflowStore
 from .verdict import Rules, judge, load_rules
 
-AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "claude -p")
+# read-only: the brief carries the numbered excerpt, and the agent must return a diff, not edit
+AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "codex exec -s read-only --skip-git-repo-check")
 AGENT_TIMEOUT_S = int(os.environ.get("ATTEST_AGENT_TIMEOUT_S", "240"))
 CONTEXT_LINES = 3
 
@@ -79,7 +81,11 @@ def brief_text(brief: Brief, claim: Claim, doc_path: str) -> str:
         for k, val in (obs.observed if obs else {}).items():
             lines.append(f"observed {k} = {val!r}")
         if obs and obs.note:
-            lines.append(f"runner note: {obs.note}")
+            # the Kane runner joins remark, failure record, root cause and fix with " | "
+            parts = [p.strip() for p in obs.note.split(" | ") if p.strip() and not p.startswith("pack: ")]
+            if parts:
+                lines.append(f"runner note: {parts[0][:300]}")
+                lines += [f"- {p[:300]}" for p in parts[1:6]]
         if obs and obs.screenshot:
             lines.append(f"screenshot: {obs.screenshot}")
     lines += ["", "## Grounding"]
@@ -172,9 +178,7 @@ class Checkout:
         return subprocess.run(["git", *args], cwd=str(self.root), capture_output=True, text=True, encoding="utf-8", errors="replace")
 
     def apply(self, diff: str) -> tuple[bool, str]:
-        """Check and apply a doc-only patch in scratch; always remove its patch file."""
-        if Path(self.doc_name).name != self.doc_name or Path(self.doc_name).is_absolute():
-            return False, "unsafe scratch document path"
+        """Check and apply a doc-only candidate in scratch; always remove its patch file."""
         touched = diff_paths(diff)
         if not touched:
             return False, "diff names no files"
@@ -183,10 +187,10 @@ class Checkout:
         patch = self.root / ".attest.patch"
         try:
             patch.write_text(diff, encoding="utf-8", newline="\n")
-            check = self.git("apply", "--check", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+            check = self.git("apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
             if check.returncode != 0:
                 return False, f"git apply --check failed: {check.stderr.strip()[:300]}"
-            done = self.git("apply", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+            done = self.git("apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
             if done.returncode != 0:
                 return False, f"git apply failed: {done.stderr.strip()[:300]}"
             return True, "applied"
@@ -279,15 +283,21 @@ def run_loop(
     shell_env: dict[str, str] | None = None,
     log=None,
     apply_to_source: bool = False,
+    on_update=None,
 ) -> ProveResult:
-    """Create one host-checked, approval-gated proposal for the first failing claim."""
+    """Create one scoped proposal and pause for human approval; never re-prove or write source here."""
     if apply_to_source:
-        raise ValueError("source application is disabled; approve the proposal and use the workflow resume --apply gate")
+        raise ValueError("source application is disabled; approve the proposal and use workflow resume --apply")
     rules = rules or load_rules()
+    attempts_allowed = max(1, rules.loop_attempts)
     ledger = Ledger(home / "ledger.jsonl")
     doc = result.doc
     verdict_map = result.by_id
     for claim in result.failing():
+        if on_update:
+            on_update(f"Asking the agent for a scoped proposal at line {claim.span.start_line}")
+        typer.echo("")
+        typer.echo(f"   {typer.style('AGENT', fg=typer.colors.MAGENTA, bold=True)}     {typer.style(f'line {claim.span.start_line}', dim=True)}  asking the coding agent for a repair proposal...")
         before = verdict_map[claim.id]
         grounding = ground(doc, claim)
         doc_path = Path(doc.source).name if not doc.source.startswith("http") else "doc.md"
@@ -296,17 +306,32 @@ def run_loop(
         candidate_text: str | None = None
         message = ""
         try:
-            # One agent attempt per claim. Its diff is data until host checks pass.
-            brief = brief.model_copy(update={"attempts": 1})
-            output = call_agent(brief_text(brief, claim, co.doc_name), co.root, cmd=agent_cmd)
-            diff = extract_diff(output)
-            if diff is None:
-                message = "agent returned no unified diff"
-            else:
+            for _ in range(attempts_allowed):
+                brief = brief.model_copy(update={"attempts": brief.attempts + 1})
+                output = call_agent(brief_text(brief, claim, co.doc_name), co.root, cmd=agent_cmd)
+                diff = extract_diff(output)
+                if diff is None:
+                    message = "agent returned no unified diff"
+                    continue
                 brief = brief.model_copy(update={"patch": diff})
+                for line in diff.splitlines():
+                    from .cli import _ascii  # terminal stays ASCII on PowerShell 5.1
+
+                    shown = "             | " + _ascii(line)
+                    if line.startswith(("+++", "---", "diff ", "index ")):
+                        typer.echo(typer.style(shown, dim=True))
+                    elif line.startswith("@@"):
+                        typer.echo(typer.style(shown, fg=typer.colors.CYAN))
+                    elif line.startswith("+"):
+                        typer.echo(typer.style(shown, fg=typer.colors.GREEN, bold=True))
+                    elif line.startswith("-"):
+                        typer.echo(typer.style(shown, fg=typer.colors.RED, bold=True))
+                    else:
+                        typer.echo(shown)
                 ok, message = co.apply(diff)
                 if ok:
                     candidate_text = co.doc_path.read_text(encoding="utf-8")
+                    break
         finally:
             shutil.rmtree(co.root, ignore_errors=True)
         result.briefs[claim.id] = brief
@@ -346,11 +371,44 @@ def run_loop(
         result.proposal_states[claim.id] = record.state
         if log:
             log(claim, before)
-        # Proposals are persisted, but neither validation nor source promotion runs here.
+        # The proposal is durable, but neither validation nor source promotion runs here.
         return result
     for session in getattr(result, "_rerun_sessions", []):
         session.close()
     return result
+
+
+def _rejudge_dependents(result: ProveResult, fixed: Claim, runner: BrowserRunner, rules: Rules, ledger: Ledger, log=None) -> None:
+    """Later browser claims skipped behind the fixed one get judged from the runner's fresh observations.
+
+    A batching runner re-runs the whole test file when one claim changes, so it
+    already holds new observations for the claims after it; nothing runs again.
+    """
+    cached = getattr(runner, "cached", None)
+    if cached is None:
+        return
+    after_fixed = False
+    for c in result.claims:
+        if c.id == fixed.id:
+            after_fixed = True
+            continue
+        if not after_fixed or c.kind != "browser" or result.by_id[c.id].status != "skipped":
+            continue
+        obs = cached(c.id)
+        if obs is None:
+            continue
+        ev = Evidence(claim_id=c.id, kind="browser", observation=obs)
+        before = result.by_id[c.id]
+        v = judge(c, ev, {k: x for k, x in result.by_id.items() if k != c.id}, rules)
+        if v.status == "skipped":
+            continue
+        v = v.model_copy(update={"reason": f"{v.reason} (after loop on {fixed.id})"})
+        result.evidence[c.id] = ev
+        result.prior[c.id] = before
+        _replace_verdict(result, v)
+        ledger.record(result.doc.sha256, result.turn, [c], [v], looped=True)
+        if log:
+            log(c, v)
 
 
 def _replace_verdict(result: ProveResult, v: Verdict) -> None:

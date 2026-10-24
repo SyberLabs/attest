@@ -93,16 +93,24 @@ class MaintainDocsPolicy:
             numbers = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?(?:\s*%)?")
             if numbers.findall(old_target) != numbers.findall(new_target):
                 problems.append("quantified protected contract changed")
+        reason = "authorized for Maintain Docs" if not problems else "; ".join(dict.fromkeys(problems))
+        handoff = None if not problems else {
+            "kind": "implementation_handoff",
+            "target_claim_id": target_claim_id,
+            "reason": reason,
+            "next_step": "Change the implementation or obtain an explicit contract decision; do not weaken this protected documentation promise.",
+        }
         return AuthorityDecision(
             policy_id=self.policy_id,
             policy_digest=self.digest,
             target_claim_id=target_claim_id,
             allowed=not problems,
-            reason="authorized for Maintain Docs" if not problems else "; ".join(dict.fromkeys(problems)),
+            reason=reason,
             base_digest=base_digest,
             candidate_digest=candidate_digest,
             protected_contracts=list(self.protected_contracts),
             violations=list(dict.fromkeys(problems)),
+            implementation_handoff=handoff,
         )
 
 
@@ -117,6 +125,7 @@ class AuthorityDecision:
     candidate_digest: str
     protected_contracts: list[str]
     violations: list[str]
+    implementation_handoff: dict[str, str] | None
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)

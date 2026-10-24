@@ -15,6 +15,12 @@ from attest.workflow import WorkflowError, promote_workflow, resume_workflow
 class KaneTestRunner:
     name = "kane"
 
+    def __init__(self):
+        self.prepared = None
+
+    def prepare(self, claims, source="doc"):
+        self.prepared = ([claim.id for claim in claims], source)
+
     def observe(self, claim, base_url):
         raise AssertionError("fixture has no browser claims")
 
@@ -94,8 +100,10 @@ def test_maintain_docs_approval_binds_digests_then_promotes_after_fresh_validati
         assert approved.approval[field] == approved.proposal[field]
     assert source.read_text(encoding="utf-8") == base
 
-    validated = resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner())
+    runner = KaneTestRunner()
+    validated = resume_workflow(store, proposal.workflow_id, runner=runner)
     assert validated.state == "validated"
+    assert runner.prepared == ([claim["id"] for claim in validated.validation["validated_claims"]], str(source))
     assert validated.validation["successful"] is True
     assert validated.validation["runner"] == "kane"
     assert validated.validation["statuses"] == {"c01": "proven"}
@@ -194,6 +202,10 @@ def test_policy_refuses_promise_weakening_repair(tmp_path):
     )
     assert proposal.state == "rejected"
     assert "weakens protected promise" in proposal.proposal["authority"]["reason"]
+    handoff = proposal.proposal["authority"]["implementation_handoff"]
+    assert handoff["kind"] == "implementation_handoff"
+    assert handoff["target_claim_id"] == "c01"
+    assert "Change the implementation" in handoff["next_step"]
     with pytest.raises(ApprovalError, match="awaiting_approval"):
         approve_workflow(store, proposal.workflow_id, "reviewer")
     assert source.read_text(encoding="utf-8") == base
@@ -296,3 +308,27 @@ def test_scope_checker_rejects_unrelated_obligation_in_same_file():
     diff = "--- a/guide.md\n+++ b/guide.md\n@@ -1,2 +1,2 @@\n-The service must never expose private data.\n-echo ready && exit 1\n+The service may expose private data.\n+echo ready && exit 0\n"
     problems = validate_diff_scope(diff, "guide.md", 2, 2)
     assert any("outside claim lines" in problem for problem in problems)
+
+
+def test_whole_document_compile_rejects_added_or_reinterpreted_unrelated_claims():
+    from attest.workflow import _compile_complete
+
+    target = Claim(id="c01", kind="shell", span=Span(start_line=1, end_line=1, text="Run command"), command="echo ok")
+    other = Claim(
+        id="c02",
+        kind="browser",
+        span=Span(start_line=2, end_line=2, text="The page shows Ready"),
+        objective="Check the Ready label",
+        expects="Ready",
+    )
+    extra = Claim(id="c03", kind="prose", span=Span(start_line=3, end_line=3, text="New obligation"))
+    ok, reason = _compile_complete([target, other], [target, other, extra], "c01")
+    assert not ok and "added" in reason
+
+    changed_other = other.model_copy(update={"expects": "Not ready"})
+    ok, reason = _compile_complete([target, other], [target, changed_other], "c01")
+    assert not ok and "changed an unrelated claim" in reason
+
+    changed_target = target.model_copy(update={"kind": "prose"})
+    ok, reason = _compile_complete([target, other], [changed_target, other], "c01")
+    assert not ok and "target claim kind" in reason
