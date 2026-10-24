@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import re
+from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,9 +52,30 @@ def inline(text: str) -> str:
         if part.startswith("`") and part.endswith("`") and len(part) > 1:
             out.append(f"<code>{html.escape(part[1:-1])}</code>")
             continue
-        s = html.escape(part, quote=False)
-        s = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)", r'<img alt="\1" src="\2">', s)
-        s = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r'<a href="\2">\1</a>', s)
+        markup: list[str] = []
+
+        def safe_url(url: str) -> bool:
+            scheme = urlsplit(url).scheme.casefold()
+            return scheme in {"", "http", "https", "mailto"}
+
+        def image(match):
+            alt, url = match.groups()
+            if not safe_url(url):
+                return html.escape(alt)
+            markup.append(f'<img alt="{html.escape(alt, quote=True)}" src="{html.escape(url, quote=True)}">')
+            return f"\x00{len(markup) - 1}\x00"
+
+        def link(match):
+            label, url = match.groups()
+            if not safe_url(url):
+                return html.escape(label)
+            markup.append(f'<a href="{html.escape(url, quote=True)}">{html.escape(label)}</a>')
+            return f"\x00{len(markup) - 1}\x00"
+
+        s = re.sub(r"!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+?)\)", image, part)
+        s = re.sub(r"\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+?)\)", link, s)
+        s = html.escape(s, quote=False)
+        s = re.sub(r"\x00(\d+)\x00", lambda m: markup[int(m.group(1))], s)
         s = re.sub(r"(?<![\"'=>])(https?://[^\s<)]+)", r'<a href="\1">\1</a>', s)
         s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
         s = re.sub(r"(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*)", r"<em>\1</em>", s)

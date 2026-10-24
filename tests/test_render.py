@@ -33,6 +33,14 @@ def test_inline_markdown():
     assert "<script>" not in inline("<script>alert(1)</script>")
 
 
+def test_inline_rejects_unsafe_urls_and_escapes_attribute_quotes():
+    assert inline("[run](javascript:alert(1))") == "run"
+    assert inline('[site](https://example.com/"x)') == (
+        '<a href="https://example.com/&quot;x">site</a>'
+    )
+    assert inline("![pixel](data:image/png;base64,AAAA)") == "pixel"
+
+
 def test_blocks_keep_line_ranges():
     doc = ingest(str(FLASK))
     blks = blocks(doc.lines)

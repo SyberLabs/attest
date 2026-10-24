@@ -63,7 +63,11 @@ def label_match(expects: str, observed: str) -> float:
         return 1.0
     if not a or not b:
         return 0.0
-    return fuzz.token_set_ratio(a, b) / 100.0
+    score = fuzz.token_set_ratio(a, b) / 100.0
+    negations = {"not", "no", "never", "without", "cannot", "cant", "disabled", "disable", "off", "isnt", "arent", "wont", "dont", "doesnt"}
+    if bool(set(a.split()) & negations) != bool(set(b.split()) & negations):
+        return min(score, 0.5)
+    return score
 
 
 def _norm_text(s: str) -> str:

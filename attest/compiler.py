@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -280,6 +281,8 @@ def compile_doc(doc: Doc, llm: LLM | None = None, cache_dir: Path = CACHE_DIR, u
     if llm is None:
         if not os.environ.get("OPENAI_API_KEY"):
             # no model and no cache: fenced blocks only, everything else is prose
+            if any(re.search(r"\b(?:open|click|type|browser|page)\b", line, re.I) for line in doc.lines):
+                print(f"warning: {doc.source}: browser steps were not compiled (no OPENAI_API_KEY and no cache)", file=sys.stderr)
             claims = fences_by_regex(doc)
             return chain_dependencies(claims)
         llm = OpenAILLM()

@@ -57,6 +57,17 @@ def unpacked(name: str, tmp_path: Path) -> dict:
     return read_pack(unpack(FIX / f"{name}.pack.zip", tmp_path / name))
 
 
+def test_unpack_skips_zip_slip_and_sibling_prefix(tmp_path):
+    pack = tmp_path / "crafted.zip"
+    dest = tmp_path / "dest"
+    with __import__("zipfile").ZipFile(pack, "w") as z:
+        z.writestr("../x", "outside")
+        z.writestr("../dest-evil/x", "sibling")
+    unpack(pack, dest)
+    assert not (tmp_path / "x").exists()
+    assert not (tmp_path / "dest-evil" / "x").exists()
+
+
 C07 = browser("c07", "Open http://127.0.0.1:5000/ in your browser and check that the page shows Hello, World!", "Hello, World!")
 C08 = browser("c08", 'Check that the page shows the text "Goodbye, World!".', "Goodbye, World!", ["c07"])
 

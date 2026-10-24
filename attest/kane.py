@@ -272,7 +272,7 @@ def unpack(pack: Path, dest: Path) -> Path:
             if name.endswith(".har") or name.endswith("/"):
                 continue
             target = (dest / name).resolve()
-            if not str(target).startswith(str(dest.resolve())):
+            if not target.is_relative_to(dest.resolve()):
                 continue  # zip-slip guard
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(z.read(name))

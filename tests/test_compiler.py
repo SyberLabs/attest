@@ -149,12 +149,16 @@ def test_compile_falls_back_to_regex_for_fences(tmp_path):
     assert cached["meta"]["mode"] == "fallback"
 
 
-def test_compile_without_key_or_model_uses_fences_only(tmp_path, monkeypatch):
+def test_compile_without_key_or_model_uses_fences_only(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     doc = ingest(str(FLASK))
     claims = compile_doc(doc, llm=None, cache_dir=tmp_path, use_cache=False)
     assert [c.kind for c in claims] == ["shell", "shell", "shell"]
     assert claims[1].depends_on == ["c01"]
+    warning = capsys.readouterr().err
+    assert str(doc.source) in warning
+    assert "browser steps were not compiled" in warning
+    assert "no OPENAI_API_KEY and no cache" in warning
 
 
 def test_invented_shell_claim_without_fence_becomes_prose():
