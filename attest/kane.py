@@ -108,7 +108,14 @@ def step_body(claim: Claim, base_url: str | None = None) -> str:
     if action:
         parts.append(action + ".")
     key = store_key(claim)
-    if claim.expects:
+    if claim.expects and claim.expects.startswith(("http://", "https://")):
+        parts.append(f"Store the URL of the current page as '{key}'.")
+    elif claim.expects and re.search(r"\b(?:click|clicks|select|choose|tap|press|toggle|check the box)\b", action, re.I):
+        if re.search(r"changes? to", claim.objective or "", re.I):
+            parts.append(f"Store the exact visible text of that control after the click as '{key}'.")
+        else:
+            parts.append(f"Store the exact visible text of the control you clicked or selected as '{key}'.")
+    elif claim.expects:
         parts.append(f"Store the exact visible text of the heading, label, button or message on the page that is closest to \"{claim.expects}\" as '{key}'.")
     else:
         parts.append(f"Store the exact visible text of the main heading or message on the page as '{key}'.")

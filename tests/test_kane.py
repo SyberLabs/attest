@@ -101,6 +101,35 @@ def test_step_body_is_a_witness_not_a_judge():
     assert step_body(C07).startswith("Open http://127.0.0.1:5000/ in your browser. Store the exact visible text")
 
 
+@pytest.mark.parametrize(
+    "claim, expected",
+    [
+        (
+            browser("c90", 'Open https://data.census.gov and check that the browser address bar shows "https://data.census.gov".', "https://data.census.gov"),
+            "Open https://data.census.gov. Store the URL of the current page as 'c90_label'. Verify the page has finished loading.",
+        ),
+        (
+            browser("c91", 'Click the link labeled "Advanced Search" and confirm the page shows the link labeled "Advanced Search".', "Advanced Search"),
+            'Click the link labeled "Advanced Search". Store the exact visible text of the control you clicked or selected as \'c91_label\'. Verify the page has finished loading.',
+        ),
+        (
+            browser("c92", 'Click the "count is 0" button once and check that its label changes to "count is 1".', "count is 1"),
+            'Click the "count is 0" button once. Store the exact visible text of that control after the click as \'c92_label\'. Verify the page has finished loading.',
+        ),
+        (
+            browser("c93", "Open http://127.0.0.1:5000/ and check the heading", "Hello, World!"),
+            'Open http://127.0.0.1:5000/. Store the exact visible text of the heading, label, button or message on the page that is closest to "Hello, World!" as \'c93_label\'. Verify the page has finished loading.',
+        ),
+        (
+            browser("c94", "Open http://localhost:5173/ and check the heading", "Vite + React"),
+            'Open http://localhost:5173/. Store the exact visible text of the heading, label, button or message on the page that is closest to "Vite + React" as \'c94_label\'. Verify the page has finished loading.',
+        ),
+    ],
+)
+def test_step_body_stores_the_right_witness(claim, expected):
+    assert step_body(claim) == expected
+
+
 def test_test_file_has_frontmatter_and_one_step_per_claim():
     text = make_test_file([C07, C08], "http://127.0.0.1:5000", "flask c07-c08")
     front = yaml.safe_load(text.split("---")[1])
