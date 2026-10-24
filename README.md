@@ -19,7 +19,7 @@ Clone the repository:
 git clone https://github.com/SyberLabs/attest.git
 ```
 
-Install it. Python 3.11 or newer is required. `pipx install .` works too if you have pipx.
+Install it from inside the clone; the steps below run from there too. Python 3.11 or newer is required. `pipx install .` works too if you have pipx.
 
 ```bash
 cd attest && python -m pip install .
@@ -34,7 +34,7 @@ with `kane-cli login`. Use `--runner fake` for offline runs. `--headless` runs C
 a window. Procedural Truth cards can stop before a claim with `--stop-before <claim>`.
 
 ```bash
-cd attest && attest prove demo/flask.md
+attest prove demo/flask.md
 ```
 
 The command ends by printing a line that starts with `page:` giving the path of the rendered page.
@@ -44,7 +44,7 @@ The command ends by printing a line that starts with `page:` giving the path of 
 Serve the most recent page on localhost:
 
 ```bash
-cd attest && attest serve
+attest serve
 ```
 
 Open http://localhost:4848/ in your browser. The dark strip fixed across the top of the page

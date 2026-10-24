@@ -1,5 +1,5 @@
 {
-  "sha256": "5f53defd28c8263038d7358dbc9c7d7d7c50d522df661c7cfdbd5338e6e1e838",
+  "sha256": "3068226432650f375771824d44a8ea0d2c319bb61d2c32747221e3d1334fadc4",
   "source": "README.md",
   "claims": [
     {
@@ -38,9 +38,9 @@
       "span": {
         "start_line": 37,
         "end_line": 37,
-        "text": "cd attest && attest prove demo/flask.md"
+        "text": "attest prove demo/flask.md"
       },
-      "command": "cd attest && attest prove demo/flask.md",
+      "command": "attest prove demo/flask.md",
       "objective": null,
       "expects": null,
       "store_as": null,
@@ -54,9 +54,9 @@
       "span": {
         "start_line": 47,
         "end_line": 47,
-        "text": "cd attest && attest serve"
+        "text": "attest serve"
       },
-      "command": "cd attest && attest serve",
+      "command": "attest serve",
       "objective": null,
       "expects": null,
       "store_as": null,
@@ -73,11 +73,28 @@
         "text": "Open http://localhost:4848/ in your browser. The dark strip fixed across the top of the page\nis headed \"Ledger\" and shows the claim counts for this document."
       },
       "command": null,
-      "objective": "Open http://localhost:4848/ in a browser and check that the page shows the label \"Ledger\".",
+      "objective": "Open http://localhost:4848/ and check for the text Ledger",
       "expects": "Ledger",
       "store_as": "c05_label",
       "depends_on": [
         "c04"
+      ]
+    },
+    {
+      "id": "c06",
+      "kind": "browser",
+      "span": {
+        "start_line": 53,
+        "end_line": 56,
+        "text": "Each claim has a badge in the left gutter next to the lines it came from. Hover a badge to read\nthe reason sentence. Click a badge to open the evidence drawer: the command and output tail for a\nshell step, the expected label next to the observed label for a browser step, and the brief and\ndiff for a step the loop repaired."
+      },
+      "command": null,
+      "objective": "Click a badge in the left gutter and open the evidence drawer",
+      "expects": null,
+      "store_as": "c06_label",
+      "depends_on": [
+        "c04",
+        "c05"
       ]
     }
   ],
