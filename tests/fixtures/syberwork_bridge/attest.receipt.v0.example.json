@@ -1,0 +1,24 @@
+{
+  "type": "attest.receipt/v0",
+  "receipt_id": "fake://receipts/receipt-0001",
+  "source_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "application": {
+    "app_id": "fake://apps/admin-portal",
+    "build_id": "demo-build-0001"
+  },
+  "kane": {
+    "pack_ids": ["fake://kane/packs/kr-8"],
+    "kanehack_run_ids": ["fake://kanehack/runs/run-0001"]
+  },
+  "proposal": {
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "approval": {
+    "decision": "approved",
+    "proposal_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "fresh_evidence": [
+    "fake://evidence/kane/run-0001/sealed-pack.json",
+    "fake://evidence/app/build-demo-0001/replay.json"
+  ]
+}
