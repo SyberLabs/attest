@@ -13,7 +13,7 @@ from attest.loop import (
     run_loop,
     shift_spans,
 )
-from attest.ingest import ingest, ingest_text
+from attest.ingest import ingest, ingest_text, sha256_of
 from attest.models import BrowserObservation, Claim, Evidence, Span, Verdict
 from attest.pipeline import prove
 from attest.runner import FakeBrowserRunner
@@ -151,6 +151,7 @@ def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
     assert [v.status for v in result.verdicts] == ["proven", "broken"]
     failing = result.failing()
     assert [c.id for c in failing] == ["c02"]
+    base_sha256 = result.doc.sha256
 
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT))
     after = result.by_id["c02"]
@@ -164,6 +165,8 @@ def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
     c02 = next(c for c in result.claims if c.id == "c02")
     assert c02.command == "echo ready && exit 0"
     assert result.doc.lines[c02.span.start_line - 1] == "echo ready && exit 0"
+    assert result.doc.sha256 != base_sha256
+    assert result.doc.sha256 == sha256_of("\n".join(result.doc.lines) + "\n")
     # the source file was not modified (apply_to_source defaults to False)
     assert "exit 1" in doc_path.read_text()
     # both verdicts under one turn in the ledger
@@ -171,12 +174,14 @@ def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
     c02_rows = [r for r in rows if r["claim_id"] == "c02"]
     assert [r["status"] for r in c02_rows] == ["broken", "proven"]
     assert {r["turn"] for r in c02_rows} == {result.turn}
+    assert c02_rows[0]["doc_sha256"] == base_sha256
+    assert c02_rows[1]["doc_sha256"] == result.doc.sha256
     assert c02_rows[1]["looped"] is True
-    # the ledger strip now counts the claim as proven and the loop as closed
+    # the repaired-content ledger strip counts the repaired claim and closed loop
     from attest.ledger import Ledger
 
     s = Ledger(tmp_path / "home" / "ledger.jsonl").summary(result.doc.sha256, result.turn)
-    assert (s["proven"], s["broken"], s["loops_closed"]) == (2, 0, 1)
+    assert (s["proven"], s["broken"], s["loops_closed"]) == (1, 0, 1)
 
 
 def test_loop_rejects_diff_touching_other_file(tmp_path, monkeypatch):

@@ -325,7 +325,7 @@ def run_loop(
         result.claims = new_claims
         _replace_verdict(result, after)
         verdict_map = result.by_id
-        doc = patched_doc.model_copy(update={"claims": new_claims, "sha256": result.doc.sha256})
+        doc = patched_doc.model_copy(update={"claims": new_claims})
         result.doc = doc
         ledger.record(result.doc.sha256, result.turn, [fresh], [after], looped=True)
         if apply_to_source and not result.doc.source.startswith("http"):
