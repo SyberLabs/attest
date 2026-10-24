@@ -125,6 +125,11 @@ def test_step_body_is_a_witness_not_a_judge():
             'Store the exact visible text of the link or button on the page that is closest to "Advanced Search" as \'c91_label\'. Click the link labeled "Advanced Search". Verify the page has finished loading.',
         ),
         (
+            # a menu item that only exists after the first click: read it last (make-public card, 13:55)
+            browser("c94", 'Click your profile photo (top-right) and select "Your repositories" and check for the on-page label "Your repositories".', "Your repositories"),
+            'Click your profile photo (top-right) and select "Your repositories". Store the exact visible text of the last menu item, link or button you clicked as \'c94_label\'. Verify the page has finished loading.',
+        ),
+        (
             browser("c93", 'In the left-hand sidebar click "Security & analysis" and check for the "Security & analysis" label.', "Security & analysis"),
             'Store the exact visible text of the link or button on the page that is closest to "Security & analysis" as \'c93_label\'. In the left-hand sidebar click "Security & analysis". Verify the page has finished loading.',
         ),

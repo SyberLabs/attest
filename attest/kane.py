@@ -101,6 +101,14 @@ def retarget(text: str, base_url: str | None) -> str:
     return _LOCAL.sub(lambda m: base if m.group(0).endswith("/") else base.rstrip("/"), text)
 
 
+_CLICKS = re.compile(r"\b(?:click|clicks|select|choose|tap|press|open)\b", re.I)
+
+
+def _compound(action: str) -> bool:
+    """Two or more clicks in one step, e.g. 'click your profile photo and select "Your repositories"'."""
+    return len(_CLICKS.findall(action)) >= 2
+
+
 def step_body(claim: Claim, base_url: str | None = None) -> str:
     """Witness phrasing: act, store the text closest to what the doc promised, check the page loaded."""
     parts = []
@@ -113,6 +121,9 @@ def step_body(claim: Claim, base_url: str | None = None) -> str:
     elif claim.expects and re.search(r"\b(?:click|clicks|select|choose|tap|press|toggle|check the box)\b", action, re.I):
         if re.search(r"changes? to", claim.objective or "", re.I):
             parts.append(f"Store the exact visible text of that control after the click as '{key}'.")
+        elif _compound(action):
+            # the target only exists after an earlier click (a menu item): read it last
+            parts.append(f"Store the exact visible text of the last menu item, link or button you clicked as '{key}'.")
         else:
             # read the control before clicking: after the click the page has changed and
             # Kane stored whatever sat nearby ("General" for the Settings tab)
