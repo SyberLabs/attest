@@ -93,3 +93,20 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 
 - Ran the event installer as published (`install.ps1 -Yes`, 0.1.20): Codex CLI installed, Kane CLI upgraded to 0.10.0-rc.3 with its skill, `kanehack` 0.1.20, hack-os and hack-gtm skills, Codex connected to the `kane-hack-event` MCP server (config.toml backed up). Flask re-proved on rc.3 by replay, 0 credits, unchanged output.
 - Account steps (password, register or sign in, team, claim, pair, Codex login) are Mateo's, in his own terminal.
+
+### 11:10 to 13:00 Codex does the coding, cards, self-check
+
+- Activation finished on the event side at about 11:50 (`kanehack claim`: "Plan activated."); the Kane balance went from about 890 to 100,885 credits. `kanehack login` (TestMu key) still rejects the key; help ticket H-0008. Reporting works without it: `attest prove ... --report` wraps each Kane run in `kanehack report` (KR-7 Flask, KR-8 Vite stale catch, KR-9 Vite re-prove after the loop, all VERIFIED on https://kaneclihack.sh/t/attest/proof).
+- Codex CLI runs on Mateo's ChatGPT sign-in. Its Windows sandbox is disabled in this build (`windows_sandbox_service`: under development), so `-s workspace-write` silently becomes read-only and every shell command is blocked. With Mateo's OK, coding tasks run with `--dangerously-bypass-approvals-and-sandbox` and narrow briefs; every diff is reviewed, tested and committed by hand. Codex wrote: ledger Kane accounting, `--stop-before`, the click/URL step phrasing, the README update and kane default, the four review fixes, the demo beat scripts and `serve --doc`. Codex is also the loop's default agent, in the read-only sandbox (it returns a diff, it cannot edit).
+- `codex exec` waits for more input on an open stdin, like `testrun run`: always end it with `< /dev/null`.
+- A GPT-6 Astra review (Mateo, via the API credits) found three real bugs, each confirmed before fixing: `label_match("Enabled", "Not enabled")` was 1.0 (now a negation guard caps it at 0.5; corpus still clean at 0.80), unsafe link schemes and unescaped quotes in the report, and a prefix-based zip-slip check. Its other findings are known limitations (below).
+- Self-check: `attest prove README.md --runner kane` is 6 of 6 proven. It first caught a real README bug: the repeated `cd attest &&` sent the third block into the package directory. Fixed the README, not the code. Run with a throwaway venv first on PATH so the README's `pip install .` does not touch `.venv` or Anaconda base.
+- Cards: SF parking dropped (venue network has no IPv6 route; sfmta.org is IPv6-only here). Census ran 14 steps and failed at c15 ("type and select B01003"); too long for the demo. GitHub cards wait on the throwaway Chrome profile.
+
+### Known limitations
+
+- Shell claims run on the host with the user's environment, files and network. The scratch directory is not a sandbox; only prove docs you would run by hand.
+- Kane runs a whole test file before Attest judges the first claim, so a later step's side effect can happen even when an earlier claim ends stale. Cards use `--stop-before` for irreversible or real-form steps.
+- The negation guard is token-based; contractions lose their apostrophe in normalization ("can't" becomes "can t") and are not caught.
+- Kane keeps one recording per test file; Attest snapshots `output-<stem>/` per file version to replay both a doc and its patch. If Kane changes its cache layout, the first run after re-authors.
+- `git remote` still points at the pre-transfer `sykosyber/attest` URL, which redirects to `SyberLabs/attest`.
