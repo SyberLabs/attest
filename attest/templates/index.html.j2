@@ -268,6 +268,12 @@
               <span class="line">Line {{ c.span.start_line }} <span>&middot; {{ c.kind }} claim &middot; {{ c.id }}</span></span>
               <button type="button" class="x" data-close="drawer-{{ c.id }}">close</button>
             </div>
+            {% set auth = authority.get(c.id, {}) %}
+            {% set receipt = receipts.get(c.id, {}) %}
+            <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}</p>
+            {% if auth.get('decision') == 'doc_repair_denied' %}
+              <div class="nopatch"><b>DOC REPAIR REFUSED: implementation handoff</b><br>The application must change, not the doc.</div>
+            {% else %}
             <div class="ba">
               <div class="ba-card {{ before.status if before else 'unverifiable' }}">
                 <div class="ba-k">Before {% if before %}<span class="st {{ before.status }}">{{ icon(before.status) }}{{ before.status }}</span>{% endif %}</div>
@@ -287,6 +293,7 @@
               <div class="diffbox-h"><span><b>Doc patch</b> from the coding agent &middot; touches only the doc</span><span>{{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }}</span></div>
               {% if brief.patch %}<pre class="diff">{% for r in dv.rows %}<span class="{{ r.kind }}">{{ r.html }}</span>{% endfor %}</pre>{% else %}<div class="nopatch">no patch</div>{% endif %}
             </div>
+            {% endif %}
           {% else %}
             <div class="dr-head">
               {% if v %}<span class="st {{ v.status }}">{{ icon(v.status) }}{{ v.status }}</span>{% else %}<span class="st unverifiable">waiting</span>{% endif %}

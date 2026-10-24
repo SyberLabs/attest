@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Counter</title>
+<h1>Counter</h1>
+<button id="counter">count is 0</button>
+<script>
+  let count = 0;
+  document.querySelector("#counter").addEventListener("click", () => {
+    count += 2;
+    document.querySelector("#counter").textContent = `count is ${count}`;
+  });
+</script>
+</html>

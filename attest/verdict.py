@@ -67,6 +67,11 @@ def label_match(expects: str, observed: str) -> float:
     negations = {"not", "no", "never", "without", "cannot", "cant", "disabled", "disable", "off", "isnt", "arent", "wont", "dont", "doesnt"}
     if bool(set(a.split()) & negations) != bool(set(b.split()) & negations):
         return min(score, 0.5)
+    # a different number is a different promise: "count is 1" vs "count is 2" scored 0.90
+    nums_a = sorted(t for t in a.split() if t.isdigit())
+    nums_b = sorted(t for t in b.split() if t.isdigit())
+    if nums_a and nums_b and nums_a != nums_b:
+        return min(score, 0.5)
     return score
 
 

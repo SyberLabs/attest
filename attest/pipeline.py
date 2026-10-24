@@ -260,7 +260,8 @@ def _write_live_page_unsafe(result: ProveResult, home: Path, runner_name: str, n
     }
     verdicts, prior = localize_screenshots(result)
     html_text = render_page(result.doc, result.claims, verdicts, strip, briefs=result.briefs,
-                            prior_verdicts=prior, runner_name=runner_name, live=running, now=now)
+                            prior_verdicts=prior, runner_name=runner_name, live=running, now=now,
+                            authority=getattr(result, "authority", {}), receipts=getattr(result, "receipts", {}))
     page = result.out_dir / "index.html"
     tmp = page.with_suffix(".html.tmp")
     tmp.write_text(html_text, encoding="utf-8")
@@ -310,6 +311,8 @@ def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
         strip,
         briefs=result.briefs,
         prior_verdicts=prior,
+        authority=getattr(result, "authority", {}),
+        receipts=getattr(result, "receipts", {}),
         runner_name=runner_name,
     )
     page = write_page(result.out_dir, html_text)
