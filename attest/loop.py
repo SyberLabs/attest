@@ -24,15 +24,15 @@ from dataclasses import dataclass
 from pathlib import Path
 import typer
 
-from .compiler import recompile_claim
 from .grounding import ground
-from .ingest import ingest_text
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
 from .pipeline import ProveResult
 from .policy import load_policy
+from .proposals import create_repair_proposal
 from .runner import BrowserRunner
 from .shell import ShellSession
+from .storage import SQLiteWorkflowStore
 from .verdict import Rules, judge, load_rules
 
 # read-only: the brief carries the numbered excerpt, and the agent must return a diff, not edit
@@ -206,23 +206,24 @@ class Checkout:
         return subprocess.run(["git", *args], cwd=str(self.root), capture_output=True, text=True, encoding="utf-8", errors="replace")
 
     def apply(self, diff: str) -> tuple[bool, str]:
-        """git apply --check, then apply. Returns (ok, message)."""
+        """Check and apply a doc-only candidate in scratch; always remove its patch file."""
         touched = diff_paths(diff)
         if not touched:
             return False, "diff names no files"
         if touched != {self.doc_name}:
             return False, f"diff touches files other than the doc: {sorted(touched - {self.doc_name})}"
         patch = self.root / ".attest.patch"
-        patch.write_text(diff, encoding="utf-8", newline="\n")
-        # --recount: agents often get hunk line counts wrong while the hunk body is right
-        check = self.git("apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
-        if check.returncode != 0:
-            return False, f"git apply --check failed: {check.stderr.strip()[:300]}"
-        done = self.git("apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
-        patch.unlink(missing_ok=True)
-        if done.returncode != 0:
-            return False, f"git apply failed: {done.stderr.strip()[:300]}"
-        return True, "applied"
+        try:
+            patch.write_text(diff, encoding="utf-8", newline="\n")
+            check = self.git("apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+            if check.returncode != 0:
+                return False, f"git apply --check failed: {check.stderr.strip()[:300]}"
+            done = self.git("apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+            if done.returncode != 0:
+                return False, f"git apply failed: {done.stderr.strip()[:300]}"
+            return True, "applied"
+        finally:
+            patch.unlink(missing_ok=True)
 
 
 def make_checkout(doc: Doc) -> Checkout:
@@ -313,11 +314,12 @@ def run_loop(
     on_update=None,
     policy_path: Path | None = None,
 ) -> ProveResult:
-    """Fix the doc for every failing claim, one attempt each, and re-prove those claims."""
+    """Create one scoped proposal and pause for human approval; never re-prove or write source here."""
+    if apply_to_source:
+        raise ValueError("source application is disabled; approve the proposal and use workflow resume --apply")
     rules = rules or load_rules()
     attempts_allowed = max(1, rules.loop_attempts)
     ledger = Ledger(home / "ledger.jsonl")
-    recorded_runs = getattr(result, "_kane_runs_count", 0)
     doc = result.doc
     policy = load_policy(doc.source, policy_path)
     result.authority = {}
@@ -349,27 +351,27 @@ def run_loop(
             continue
         typer.echo(typer.style(f"AUTHORITY line {claim.span.start_line}  descriptive: the agent may fix the doc", fg=typer.colors.CYAN))
         if on_update:
-            on_update(f"Asking the agent to fix line {claim.span.start_line}")
+            on_update(f"Asking the agent for a scoped proposal at line {claim.span.start_line}")
         typer.echo("")
-        typer.echo(f"   {typer.style('AGENT', fg=typer.colors.MAGENTA, bold=True)}     {typer.style(f'line {claim.span.start_line}', dim=True)}  asking the coding agent to fix the doc...")
+        typer.echo(f"   {typer.style('AGENT', fg=typer.colors.MAGENTA, bold=True)}     {typer.style(f'line {claim.span.start_line}', dim=True)}  asking the coding agent for a repair proposal...")
         grounding = ground(doc, claim)
         doc_path = Path(doc.source).name if not doc.source.startswith("http") else "doc.md"
         brief = build_brief(doc, claim, before, grounding, doc_path)
         co = make_checkout(doc)
-        patched_doc: Doc | None = None
+        candidate_text: str | None = None
         message = ""
-        for _ in range(attempts_allowed):
-            brief = brief.model_copy(update={"attempts": brief.attempts + 1})
-            output = call_agent(brief_text(brief, claim, co.doc_name), co.root, cmd=agent_cmd)
-            diff = extract_diff(output)
-            if diff is None:
-                message = "agent returned no unified diff"
-                continue
-            brief = brief.model_copy(update={"patch": diff})
-            if diff:
-                from .cli import _ascii  # terminal stays ASCII on PowerShell 5.1
-
+        try:
+            for _ in range(attempts_allowed):
+                brief = brief.model_copy(update={"attempts": brief.attempts + 1})
+                output = call_agent(brief_text(brief, claim, co.doc_name), co.root, cmd=agent_cmd)
+                diff = extract_diff(output)
+                if diff is None:
+                    message = "agent returned no unified diff"
+                    continue
+                brief = brief.model_copy(update={"patch": diff})
                 for line in diff.splitlines():
+                    from .cli import _ascii  # terminal stays ASCII on PowerShell 5.1
+
                     shown = "             | " + _ascii(line)
                     if line.startswith(("+++", "---", "diff ", "index ")):
                         typer.echo(typer.style(shown, dim=True))
@@ -381,16 +383,16 @@ def run_loop(
                         typer.echo(typer.style(shown, fg=typer.colors.RED, bold=True))
                     else:
                         typer.echo(shown)
-            ok, message = co.apply(diff)
-            if ok:
-                text = co.doc_path.read_text(encoding="utf-8")
-                patched_doc = ingest_text(text, source=doc.source, commit=doc.commit)
-                break
-        shutil.rmtree(co.root, ignore_errors=True)
+                ok, message = co.apply(diff)
+                if ok:
+                    candidate_text = co.doc_path.read_text(encoding="utf-8")
+                    break
+        finally:
+            shutil.rmtree(co.root, ignore_errors=True)
         result.briefs[claim.id] = brief
         result.prior[claim.id] = before
-        if patched_doc is None:
-            after = before.model_copy(update={"reason": f"{before.reason} (loop: {message})"})
+        if candidate_text is None:
+            after = before.model_copy(update={"reason": f"{before.reason} (proposal: {message})"})
             _replace_verdict(result, after)
             ledger.record(doc.sha256, result.turn, [claim], [after], looped=True)
             receipt = _receipt(result, claim, before, after, policy, authority, agent_cmd or AGENT_CMD, brief.patch, "unresolved", None, doc_before, None)
@@ -399,41 +401,55 @@ def run_loop(
             if log:
                 log(claim, after)
             continue
-        # re-compile only the changed span, keep every other claim where it now sits
-        new_claims = shift_spans(result.claims, doc.lines, patched_doc.lines, claim.id)
-        fresh = recompile_claim(patched_doc, claim, llm=llm)
-        new_claims = [fresh if c.id == claim.id else c for c in new_claims]
-        if on_update:
-            on_update(f"Kane is re-checking line {claim.span.start_line}")
-        typer.echo(typer.style(f"   ...       {'Kane' if fresh.kind == 'browser' else 'Attest'} is re-checking line {claim.span.start_line}", fg=typer.colors.BRIGHT_BLACK))
-        ev = rerun_claim(fresh, result, runner, rules, shell_env=shell_env)
-        runs = getattr(runner, "runs", None)
-        if runs is not None and len(runs) > recorded_runs:
-            recorded_runs = ledger.record_new_kane_runs(result.doc.sha256, result.turn, runs, recorded_runs)
-            result._kane_runs_count = recorded_runs  # type: ignore[attr-defined]
-        if ev is not None:
-            result.evidence[claim.id] = ev
-        after = judge(fresh, ev, {k: v for k, v in result.by_id.items() if k != claim.id}, rules)
-        after = after.model_copy(update={"reason": f"{after.reason} (after loop)"})
-        result.claims = new_claims
-        _replace_verdict(result, after)
-        verdict_map = result.by_id
-        doc = patched_doc.model_copy(update={"claims": new_claims, "sha256": result.doc.sha256})
-        result.doc = doc
-        ledger.record(result.doc.sha256, result.turn, [fresh], [after], looped=True)
-        disposition = "repaired" if after.status == "proven" else "unresolved"
-        receipt = _receipt(result, claim, before, after, policy, authority, agent_cmd or AGENT_CMD, brief.patch, disposition, None, doc_before, patched_doc.sha256)
-        path = _write_receipt(home, receipt); result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
+        try:
+            source_path = Path(doc.source)
+            base_text = source_path.read_text(encoding="utf-8")
+            plan = (
+                f"Maintain Docs: repair only claim {claim.id} at lines "
+                f"{claim.span.start_line}-{claim.span.end_line}; preserve every protected promise."
+            )
+            record = create_repair_proposal(
+                SQLiteWorkflowStore(home / "workflow.sqlite3"),
+                source_path=source_path,
+                base_text=base_text,
+                candidate_text=candidate_text,
+                diff=brief.patch or "",
+                target_claim=claim,
+                baseline_claims=result.claims,
+                plan=plan,
+            )
+        except Exception as exc:
+            after = before.model_copy(update={"reason": f"{before.reason} (proposal rejected: {exc})"})
+            _replace_verdict(result, after)
+            ledger.record(doc.sha256, result.turn, [claim], [after], looped=True)
+            receipt = _receipt(result, claim, before, after, policy, authority, agent_cmd or AGENT_CMD, brief.patch, "unresolved", None, doc_before, None)
+            path = _write_receipt(home, receipt)
+            result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
+            typer.echo(f"RECEIPT   {path}")
+            if log:
+                log(claim, after)
+            return result
+        result.proposals[claim.id] = record.workflow_id
+        result.proposal_states[claim.id] = record.state
+        disposition = record.state if record.state in {"awaiting_approval", "rejected"} else "unresolved"
+        handoff = None
+        authority_payload = (record.proposal.get("authority") or {}) if isinstance(record.proposal, dict) else {}
+        if authority_payload.get("implementation_handoff"):
+            handoff = authority_payload["implementation_handoff"]
+            disposition = "handoff_implementation"
+        receipt = _receipt(
+            result, claim, before, before, policy, authority, agent_cmd or AGENT_CMD, brief.patch,
+            disposition, handoff, doc_before, None,
+        )
+        path = _write_receipt(home, receipt)
+        result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
         typer.echo(f"RECEIPT   {path}")
-        if fresh.kind == "browser":
-            _rejudge_dependents(result, fresh, runner, rules, ledger, log)
-            verdict_map = result.by_id
-        if apply_to_source and not result.doc.source.startswith("http"):
-            Path(result.doc.source).write_text("\n".join(patched_doc.lines) + "\n", encoding="utf-8")
         if log:
-            log(fresh, after)
-    for s in getattr(result, "_rerun_sessions", []):
-        s.close()
+            log(claim, before)
+        # The proposal is durable, but neither validation nor source promotion runs here.
+        return result
+    for session in getattr(result, "_rerun_sessions", []):
+        session.close()
     return result
 
 

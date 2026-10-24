@@ -227,10 +227,11 @@ def prove_cmd(
     report: bool = typer.Option(False, "--report", help="File each Kane run with the event's `kanehack report`."),
     cdp_endpoint: str | None = typer.Option(None, "--cdp-endpoint", help="Attach Kane to an existing Chrome debugging endpoint."),
     fake_observations: Path | None = typer.Option(None, "--fake-observations", help="JSON of scripted observations for the fake runner."),
+    simulation: bool = typer.Option(False, "--simulation", help="Fake observations are simulation only and never verification evidence."),
     stop_before: str | None = typer.Option(None, "--stop-before", help="Stop before this claim id (for irreversible or real-form steps)."),
     skip: list[str] = typer.Option([], "--skip", help="Skip a claim id (repeat or use comma-separated ids) when it does not apply."),
-    loop: bool = typer.Option(False, "--loop/--no-loop", help="Send stale or broken steps to the coding agent and re-prove them."),
-    apply: bool = typer.Option(False, "--apply", help="With --loop: write the agent's doc patch back to the source file."),
+    loop: bool = typer.Option(False, "--loop/--no-loop", help="Ask the agent for one scoped repair proposal; approval and validation are separate."),
+    apply: bool = typer.Option(False, "--apply", help="Deprecated and rejected; promotion requires approved fresh validation via `resume <id> --apply`."),
     policy: Path | None = typer.Option(None, "--policy", help="Authority policy YAML for the loop."),
     open_page: bool = typer.Option(False, "--open", help="Open the rendered page in a browser."),
     keep_scratch: bool = typer.Option(False, "--keep-scratch", help="Leave the scratch directory in place."),
@@ -238,6 +239,15 @@ def prove_cmd(
     live: bool = typer.Option(False, "--live", help="Update a live page while claims run."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
+    if apply:
+        typer.echo("--apply is disabled here; use `attest approve` then `attest resume <id> --apply`.", err=True)
+        raise typer.Exit(2)
+    if runner == "fake" and not simulation:
+        typer.echo("fake observations require --simulation and cannot verify claims.", err=True)
+        raise typer.Exit(2)
+    if simulation and runner != "fake":
+        typer.echo("--simulation is only valid with --runner fake.", err=True)
+        raise typer.Exit(2)
     tee = None
     if live:
         # the live page shows this terminal beside the document
@@ -252,14 +262,22 @@ def prove_cmd(
                 _log(c, v)
             def before(c):
                 _step(c)
-            result = prove(source, runner=br, home=home, log=narrate, keep_servers=loop, stop_before=stop_before, skip=skip_ids, live=live, on_start=before)
+            result = prove(
+                source, runner=br, home=home, log=narrate, keep_servers=loop,
+                stop_before=stop_before, skip=skip_ids, live=live, on_start=before, simulation=simulation,
+            )
         except ValueError as e:
+            br.close()
             raise typer.BadParameter(str(e)) from e
+        except Exception as e:
+            br.close()
+            typer.echo(f"proof failed closed: {e}", err=True)
+            raise typer.Exit(1) from e
         if loop and result.failing():
             from .loop import run_loop
 
             n_failing = len(result.failing())
-            _section(f"THE LOOP   {n_failing} claim{'' if n_failing == 1 else 's'} to fix: the coding agent patches the doc, Kane re-checks")
+            _section(f"THE LOOP   {n_failing} claim{'' if n_failing == 1 else 's'} to repair: the coding agent proposes; approval and Kane validation follow")
             def loop_update(message):
                 if live:
                     from .pipeline import _write_live_page
@@ -269,7 +287,12 @@ def prove_cmd(
                 if live:
                     from .pipeline import _write_live_page
                     _write_live_page(result, home, br.name, "Proof updated", True)
-            result = run_loop(result, br, home=home, log=loop_log, apply_to_source=apply, on_update=loop_update, policy_path=policy)
+            try:
+                result = run_loop(result, br, home=home, log=loop_log, on_update=loop_update, policy_path=policy)
+            except Exception as e:
+                br.close()
+                typer.echo(f"repair proposal failed closed: {e}", err=True)
+                raise typer.Exit(1) from e
         br.close()
         session = getattr(result, "_session", None)
         if session is not None:
@@ -285,10 +308,29 @@ def prove_cmd(
             typer.echo(line)
         typer.echo(f"   {typer.style('page', dim=True)}      {result.page}")
         typer.echo("")
+        if result.proposals:
+            from .storage import SQLiteWorkflowStore
+
+            store = SQLiteWorkflowStore(home / "workflow.sqlite3")
+            for claim_id, workflow_id in result.proposals.items():
+                record = store.get(workflow_id)
+                authority = record.proposal.get("authority") or {}
+                handoff = authority.get("implementation_handoff") or {}
+                if record.state == "rejected" and handoff:
+                    detail = f"; implementation handoff required for {handoff.get('target_claim_id', claim_id)}: {handoff.get('next_step')}"
+                elif record.state == "rejected":
+                    detail = f"; refused: {authority.get('reason', 'authority policy denied the proposal')}"
+                else:
+                    detail = ""
+                typer.echo(f"{claim_id}: proposal {workflow_id} state={record.state}{detail}; source unchanged")
+            raise typer.Exit(3)
         if open_page and result.page:
             webbrowser.open(result.page.resolve().as_uri())
-        if any(v.status in ("stale", "broken") for v in result.verdicts):
-            # a doc that lies fails the command, so CI can gate on it
+        if not simulation and any(
+            result.by_id[claim.id].status != "proven"
+            for claim in result.claims
+            if claim.kind in {"shell", "browser", "assert"}
+        ):
             raise typer.Exit(1)
     finally:
         if tee is not None:
@@ -343,6 +385,62 @@ def _latest_dir(home: Path) -> Path:
         typer.echo("nothing rendered yet; run `attest prove <doc>` first", err=True)
         raise typer.Exit(1)
     return Path(pointer.read_text(encoding="utf-8").strip())
+
+
+@app.command()
+def approve(
+    workflow_id: str = typer.Argument(..., help="Workflow ID printed by `attest prove --loop`."),
+    by: str = typer.Option(..., "--by", help="Human approver identity to record."),
+    home: Path = typer.Option(ATTEST_DIR, "--home", help="Where workflow state is stored."),
+) -> None:
+    """Approve the exact proposal, plan, source, build, and policy digests."""
+    from .approvals import ApprovalError, approve_workflow
+    from .storage import SQLiteWorkflowStore, WorkflowStorageError
+
+    try:
+        record = approve_workflow(SQLiteWorkflowStore(home / "workflow.sqlite3"), workflow_id, by)
+    except (ApprovalError, WorkflowStorageError, ValueError) as exc:
+        typer.echo(f"approval failed closed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"approved by {record.approval['actor']}; state: {record.state}; no source was changed")
+
+
+@app.command()
+def resume(
+    workflow_id: str = typer.Argument(..., help="Approved workflow ID."),
+    runner: str = typer.Option("kane", "--runner", help="Fresh validation runner; must be Kane."),
+    headless: bool = typer.Option(False, "--headless"),
+    report: bool = typer.Option(False, "--report"),
+    cdp_endpoint: str | None = typer.Option(None, "--cdp-endpoint"),
+    apply: bool = typer.Option(False, "--apply", help="Promote only after successful fresh validation."),
+    simulation: bool = typer.Option(False, "--simulation", help="Simulation cannot validate or promote."),
+    home: Path = typer.Option(ATTEST_DIR, "--home"),
+) -> None:
+    """Resume an approved workflow with fresh whole-document evidence."""
+    from .storage import SQLiteWorkflowStore, WorkflowStorageError
+    from .workflow import WorkflowError, resume_workflow
+
+    if simulation or runner != "kane":
+        typer.echo("resume requires fresh Kane evidence; fake/simulation evidence cannot validate or promote.", err=True)
+        raise typer.Exit(2)
+    try:
+        br = _runner(runner, None, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
+    except Exception as exc:
+        typer.echo(f"resume failed closed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    try:
+        record = resume_workflow(
+            SQLiteWorkflowStore(home / "workflow.sqlite3"), workflow_id, runner=br, apply=apply,
+            simulation=simulation,
+        )
+    except (WorkflowError, WorkflowStorageError, ValueError, NotImplementedError) as exc:
+        typer.echo(f"resume failed closed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    finally:
+        br.close()
+    typer.echo(f"workflow {workflow_id}: {record.state}")
+    if record.state in {"rejected", "unresolved"}:
+        raise typer.Exit(1)
 
 
 @app.command()
