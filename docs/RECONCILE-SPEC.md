@@ -10,8 +10,9 @@ Reconcile Spec is Attest's diagnosis and handoff mode for a reported disagreemen
 - Missing or conflicting authority, missing evidence pointers, or an ambiguous candidate stops automatic repair and routes the conflict to an owner.
 - Proposed protected text that differs from the protected text is recorded as refused. Reconcile Spec has no protected-text apply or promotion capability, even when authority and evidence pointers are present.
 - Evidence pointers are recorded as supplied. Attest does not fetch, verify, or treat their contents as instructions.
+- A Kane/Attest receipt may be recorded as an observation pointer; it is not authority and cannot mint a `reconciled` outcome.
 
-The handoff records the orthogonal execution, comparison, authority, evidence, and repair states. Execution is `not_run` unless the input identifies an external runtime observation; the latter still does not change authority. Repair is only `handoff` or `refused`, never applied or promoted.
+The handoff records the orthogonal execution, comparison, authority, evidence, and repair states. Execution is `not_run` unless the input identifies an external runtime observation or receipt; either remains evidence and does not change authority. Repair is only `handoff` or `refused`, never applied, promoted, or `reconciled`.
 
 ## CLI
 

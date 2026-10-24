@@ -70,6 +70,31 @@ def test_missing_or_conflicting_authority_stops_at_handoff():
     assert ReconcileSpec.can_promote_protected_text is False
 
 
+def test_kane_receipt_is_observation_not_reconciliation_authority():
+    request = ReconcileRequest.model_validate(
+        _request(
+            conflict={
+                "evidence": [
+                    {
+                        "kind": "receipt",
+                        "pointer": "artifacts/kane/run-17/receipt.json",
+                        "description": "Attest run receipt",
+                    }
+                ]
+            }
+        )
+    )
+
+    result = ReconcileSpec().diagnose(request)
+    serialized = result.model_dump()
+
+    assert result.execution_state == "external_observation"
+    assert result.authority_state == "present"
+    assert result.repair_state == "handoff"
+    assert serialized["conflicts"][0]["evidence"][0]["kind"] == "receipt"
+    assert "reconciled" not in serialized
+
+
 def test_reconcile_spec_refuses_apply_of_weakened_protected_requirement(tmp_path):
     contract = tmp_path / "security-contract.md"
     original = "The application must require multi-factor authentication.\n"

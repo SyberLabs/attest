@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 CandidateSide = Literal["doc_wrong", "app_wrong", "both", "ambiguous"]
 AuthorityStatus = Literal["present", "missing", "conflicting"]
-EvidenceKind = Literal["runtime", "source", "document", "other"]
+EvidenceKind = Literal["runtime", "receipt", "source", "document", "other"]
 
 
 class EvidencePointer(BaseModel):
@@ -141,15 +141,17 @@ class ReconcileSpec:
                 )
             )
 
-        has_runtime_observation = any(
-            pointer.kind == "runtime" for conflict in request.conflicts for pointer in conflict.evidence
+        has_external_observation = any(
+            pointer.kind in {"runtime", "receipt"}
+            for conflict in request.conflicts
+            for pointer in conflict.evidence
         )
         must_refuse = apply_requested or any(item.protected_edit_refused for item in diagnoses)
         repair_state: Literal["refused", "handoff"] = "refused" if must_refuse else "handoff"
 
         return ReconcileHandoff(
             source_doc=request.source_doc,
-            execution_state="external_observation" if has_runtime_observation else "not_run",
+            execution_state="external_observation" if has_external_observation else "not_run",
             authority_state=authority_state,
             evidence_state=evidence_state,
             repair_state=repair_state,
