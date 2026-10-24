@@ -1,8 +1,8 @@
-# Runs the four demo beats in order for a recording. Everything shows in the one live
+# Runs the demo beats in order for a recording. Everything shows in the one live
 # browser tab (terminal panel plus document), so this window can stay behind the browser.
 # Between beats it waits $PauseSeconds for badge clicks, or press Enter to go on now.
-# Run from anywhere: powershell -File C:\Users\MATEO\attest\demo\record.ps1 [-PauseSeconds 25]
-param([int]$PauseSeconds = 25)
+# Run from anywhere: powershell -File C:\Users\MATEO\attest\demo\record.ps1 [-PauseSeconds 25] [-WithGitHub]
+param([int]$PauseSeconds = 25, [switch]$WithGitHub)
 
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
@@ -21,11 +21,15 @@ function Pause-Beat($next) {
 
 Clear-Host
 & "$PSScriptRoot\beat1.ps1"
-Pause-Beat "beat 2: catch and fix the Vite quickstart"
+Pause-Beat "the Kane Factory: Acme CRM spec, missing capability, worker, Kane re-check"
+& "$PSScriptRoot\beat_factory.ps1"
+Pause-Beat "doc drift repaired (Vite)"
 & "$PSScriptRoot\beat2.ps1"
-Pause-Beat "beat 2b: a refused repair (protected promise)"
+Pause-Beat "protected promise refused (counter)"
 & "$PSScriptRoot\beat2b.ps1"
-Pause-Beat "beat 3: Procedural Truth on GitHub"
-& "$PSScriptRoot\beat3.ps1" -SignedIn
-Pause-Beat "beat 4: Attest's own README"
+if ($WithGitHub) {
+    Pause-Beat "Procedural Truth on GitHub"
+    & "$PSScriptRoot\beat3.ps1" -SignedIn
+}
+Pause-Beat "Attest's own README, proven by Kane"
 & "$PSScriptRoot\beat4.ps1"
