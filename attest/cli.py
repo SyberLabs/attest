@@ -53,6 +53,7 @@ def prove_cmd(
     headless: bool = typer.Option(False, "--headless", help="Kane runs Chrome without a window (automated runs only)."),
     report: bool = typer.Option(False, "--report", help="File each Kane run with the event's `kanehack report`."),
     fake_observations: Path | None = typer.Option(None, "--fake-observations", help="JSON of scripted observations for the fake runner."),
+    stop_before: str | None = typer.Option(None, "--stop-before", help="Stop before this claim id (for irreversible or real-form steps)."),
     loop: bool = typer.Option(False, "--loop/--no-loop", help="Send stale or broken steps to the coding agent and re-prove them."),
     apply: bool = typer.Option(False, "--apply", help="With --loop: write the agent's doc patch back to the source file."),
     open_page: bool = typer.Option(False, "--open", help="Open the rendered page in a browser."),
@@ -62,7 +63,10 @@ def prove_cmd(
     """Execute every claim in a document and render it with badges."""
     br = _runner(runner, fake_observations, headless=headless, report=report)
     typer.echo(f"attest prove {source}  (runner: {br.name})")
-    result = prove(source, runner=br, home=home, log=_log, keep_servers=loop)
+    try:
+        result = prove(source, runner=br, home=home, log=_log, keep_servers=loop, stop_before=stop_before)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
     if loop and result.failing():
         from .loop import run_loop
 

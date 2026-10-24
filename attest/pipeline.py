@@ -60,6 +60,7 @@ def execute(
     only: set[str] | None = None,
     prior: dict[str, Verdict] | None = None,
     log=None,
+    stop_before: str | None = None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
     """Run claims in doc order and judge each as soon as its evidence exists.
 
@@ -71,7 +72,20 @@ def execute(
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
     session = ShellSession(workdir=scratch, timeout_s=rules.shell_timeout_s, env=shell_env or {})
-    for c in claims:
+    stop_index = next((i for i, claim in enumerate(claims) if claim.id == stop_before), None)
+    for i, c in enumerate(claims):
+        if stop_index is not None and i >= stop_index:
+            v = Verdict(
+                claim_id=c.id,
+                status="unverifiable",
+                reason=f"unverifiable: stopped before {stop_before} (card stops before irreversible or real-form steps)",
+                evidence=None,
+            )
+            reached[c.id] = v
+            verdicts.append(v)
+            if log:
+                log(c, v)
+            continue
         if only is not None and c.id not in only and c.id in reached:
             v = reached[c.id]
             if v.evidence is not None:
@@ -109,18 +123,29 @@ def prove(
     keep_servers: bool = False,
     shell_env: dict[str, str] | None = None,
     log=None,
+    stop_before: str | None = None,
 ) -> ProveResult:
     rules = rules or load_rules()
     runner = runner or FakeBrowserRunner()
     doc = ingest(source)
     claims = compile_doc(doc, llm=llm)
     doc = doc.model_copy(update={"claims": claims})
+    if stop_before is not None and stop_before not in {claim.id for claim in claims}:
+        valid_ids = ", ".join(claim.id for claim in claims) or "(none)"
+        raise ValueError(f"unknown claim id {stop_before!r}; valid ids: {valid_ids}")
     prepare = getattr(runner, "prepare", None)
     if prepare is not None:
-        # a batching runner plans its test files from the whole claim list
-        prepare(claims, doc.source)
+        # a batching runner plans its test files from the claims that will run
+        if stop_before is None:
+            run_claims = claims
+        else:
+            stop_index = next(i for i, c in enumerate(claims) if c.id == stop_before)
+            run_claims = claims[:stop_index]
+        prepare(run_claims, doc.source)
     scratch = new_scratch()
-    evidence, verdicts, session = execute(claims, runner, rules, scratch, shell_env=shell_env, log=log)
+    evidence, verdicts, session = execute(
+        claims, runner, rules, scratch, shell_env=shell_env, log=log, stop_before=stop_before
+    )
     if not keep_servers:
         session.close()
     ledger = Ledger(home / "ledger.jsonl")
