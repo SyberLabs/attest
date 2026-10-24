@@ -8,3 +8,6 @@ Run these from the repository root, in order:
 4. `.\demo\beat4.ps1` - serve Attest's proven README.
 
 GitHub cards run with `-SignedIn`; the kane-user GitHub session lives in that profile folder. Sign in once by hand.
+
+To record all four beats in one go, with a pause between beats for clicking badges:
+`powershell -File C:\Users\MATEO\attest\demo\record.ps1` (works from any folder).
