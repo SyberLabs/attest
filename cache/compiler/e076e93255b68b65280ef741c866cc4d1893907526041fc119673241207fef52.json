@@ -1,0 +1,158 @@
+{
+  "sha256": "e076e93255b68b65280ef741c866cc4d1893907526041fc119673241207fef52",
+  "source": "demo/counter.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "prose",
+      "span": {
+        "start_line": 1,
+        "end_line": 1,
+        "text": "# Counter"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "prose",
+      "span": {
+        "start_line": 2,
+        "end_line": 2,
+        "text": ""
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c03",
+      "kind": "prose",
+      "span": {
+        "start_line": 3,
+        "end_line": 3,
+        "text": "Create a minimal counter page and start a local server:"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c04",
+      "kind": "prose",
+      "span": {
+        "start_line": 4,
+        "end_line": 4,
+        "text": ""
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c05",
+      "kind": "shell",
+      "span": {
+        "start_line": 6,
+        "end_line": 22,
+        "text": "cat > index.html <<'EOF'\n<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<title>Counter</title>\n<h1>Counter</h1>\n<button id=\"counter\">count is 0</button>\n<script>\nlet count = 0;\ndocument.querySelector(\"#counter\").addEventListener(\"click\", () => {\n  count += 2;\n  document.querySelector(\"#counter\").textContent = `count is ${count}`;\n});\n</script>\n</html>\nEOF\npython -m http.server 8765 --bind 127.0.0.1"
+      },
+      "command": "cat > index.html <<'EOF'\n<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<title>Counter</title>\n<h1>Counter</h1>\n<button id=\"counter\">count is 0</button>\n<script>\nlet count = 0;\ndocument.querySelector(\"#counter\").addEventListener(\"click\", () => {\n  count += 2;\n  document.querySelector(\"#counter\").textContent = `count is ${count}`;\n});\n</script>\n</html>\nEOF\npython -m http.server 8765 --bind 127.0.0.1",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c06",
+      "kind": "prose",
+      "span": {
+        "start_line": 24,
+        "end_line": 24,
+        "text": ""
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c07",
+      "kind": "browser",
+      "span": {
+        "start_line": 25,
+        "end_line": 25,
+        "text": "Open http://127.0.0.1:8765/ in your browser. The page shows the heading \"Counter\" and a button labelled \"count is 0\"."
+      },
+      "command": null,
+      "objective": "Open http://127.0.0.1:8765/ in your browser and check that the page shows the heading \"Counter\".",
+      "expects": "Counter",
+      "store_as": "c07_label",
+      "depends_on": [
+        "c05"
+      ]
+    },
+    {
+      "id": "c08",
+      "kind": "browser",
+      "span": {
+        "start_line": 25,
+        "end_line": 25,
+        "text": "Open http://127.0.0.1:8765/ in your browser. The page shows the heading \"Counter\" and a button labelled \"count is 0\"."
+      },
+      "command": null,
+      "objective": "Open http://127.0.0.1:8765/ in your browser and check that the page shows a button labelled \"count is 0\".",
+      "expects": "count is 0",
+      "store_as": "c08_label",
+      "depends_on": [
+        "c05",
+        "c07"
+      ]
+    },
+    {
+      "id": "c09",
+      "kind": "prose",
+      "span": {
+        "start_line": 26,
+        "end_line": 26,
+        "text": ""
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c10",
+      "kind": "browser",
+      "span": {
+        "start_line": 27,
+        "end_line": 27,
+        "text": "Click the \"count is 0\" button once. The counter increments by one: its label changes to \"count is 1\"."
+      },
+      "command": null,
+      "objective": "Click the \"count is 0\" button once and check that its label changes to \"count is 1\".",
+      "expects": "count is 1",
+      "store_as": "c10_label",
+      "depends_on": [
+        "c05",
+        "c08"
+      ]
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}

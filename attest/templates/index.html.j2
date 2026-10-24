@@ -264,7 +264,8 @@
             {% set dv = diffs.get(c.id) %}
             {% set closed = v and v.status == 'proven' %}
             <div class="fix-head">
-              <span class="tag{% if not closed %} failed{% endif %}">{% if closed %}Caught and fixed{% else %}Fix attempted{% endif %}</span>
+              {% set refused = authority.get(c.id, {}).get('decision') == 'doc_repair_denied' %}
+              <span class="tag{% if not closed %} failed{% endif %}">{% if closed %}Caught and fixed{% elif refused %}Repair refused{% else %}Fix attempted{% endif %}</span>
               <span class="line">Line {{ c.span.start_line }} <span>&middot; {{ c.kind }} claim &middot; {{ c.id }}</span></span>
               <button type="button" class="x" data-close="drawer-{{ c.id }}">close</button>
             </div>
