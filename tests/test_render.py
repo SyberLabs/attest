@@ -95,6 +95,10 @@ def test_render_page_contains_badges_reasons_drawers_and_strip_numbers():
     assert "Hello, Flask!" in html and "Hello, World!" in html  # observed vs expects
     assert "[docs] says Hello" in html and "+new" in html  # brief and diff
     assert "turn 7" in html and "runner fake" in html
+    html_with_kane = render_page(doc, [c1, c2], [v1, v2], {**strip, "kane_steps": 5, "authored": 2, "replayed": 3}, runner_name="fake")
+    assert "5 Kane steps · 2 authored, 3 replayed" in html_with_kane
+    html_without_kane = render_page(doc, [c1, c2], [v1, v2], {**strip, "kane_steps": 0, "authored": 0, "replayed": 0}, runner_name="fake")
+    assert "Kane steps" not in html_without_kane
     # strip numbers are the ones passed in, in order
     pos = [html.index(s) for s in ('<span class="n">2</span> claims', '<span class="n">1</span> proven', '<span class="n">1</span> stale', '<span class="n">0</span> broken')]
     assert pos == sorted(pos)

@@ -284,6 +284,7 @@ def run_loop(
     rules = rules or load_rules()
     attempts_allowed = max(1, rules.loop_attempts)
     ledger = Ledger(home / "ledger.jsonl")
+    recorded_runs = getattr(result, "_kane_runs_count", 0)
     doc = result.doc
     verdict_map = result.by_id
     for claim in result.failing():
@@ -322,6 +323,10 @@ def run_loop(
         fresh = recompile_claim(patched_doc, claim, llm=llm)
         new_claims = [fresh if c.id == claim.id else c for c in new_claims]
         ev = rerun_claim(fresh, result, runner, rules, shell_env=shell_env)
+        runs = getattr(runner, "runs", None)
+        if runs is not None and len(runs) > recorded_runs:
+            recorded_runs = ledger.record_new_kane_runs(result.doc.sha256, result.turn, runs, recorded_runs)
+            result._kane_runs_count = recorded_runs  # type: ignore[attr-defined]
         if ev is not None:
             result.evidence[claim.id] = ev
         after = judge(fresh, ev, {k: v for k, v in result.by_id.items() if k != claim.id}, rules)

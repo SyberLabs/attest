@@ -126,8 +126,14 @@ def prove(
     ledger = Ledger(home / "ledger.jsonl")
     turn = ledger.next_turn()
     ledger.record(doc.sha256, turn, claims, verdicts)
+    runs = getattr(runner, "runs", None)
+    if runs is not None:
+        run_count = ledger.record_new_kane_runs(doc.sha256, turn, runs)
+    else:
+        run_count = 0
     out_dir = out_dir_for(doc, home)
     result = ProveResult(doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch)
+    result._kane_runs_count = run_count  # type: ignore[attr-defined]
     result._session = session  # type: ignore[attr-defined]
     render_result(result, home, runner.name)
     return result
