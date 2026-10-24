@@ -135,7 +135,7 @@ def test_step_body_is_a_witness_not_a_judge():
         ),
         (
             browser("c92", 'Click the "count is 0" button once and check that its label changes to "count is 1".', "count is 1"),
-            'Click the "count is 0" button once. Store the exact visible text of that control after the click as \'c92_label\'. Verify the page has finished loading.',
+            'Click the "count is 0" button once. Store the exact visible text on the page that is closest to "count is 1" after the click as \'c92_label\'. Verify the page has finished loading.',
         ),
         (
             browser("c93", "Open http://127.0.0.1:5000/ and check the heading", "Hello, World!"),
