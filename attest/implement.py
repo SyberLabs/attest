@@ -106,7 +106,8 @@ def make_candidate(app_dir: Path, doc_sha: str, home: Path) -> Candidate:
         n += 1
     root = base / f"{doc_sha[:12]}-{n}" / "app"
     shutil.copytree(app_dir, root, ignore=shutil.ignore_patterns(".git"))
-    cand = Candidate(app_dir.resolve(), root)
+    # absolute: git runs with cwd=root, so a relative root would point the patch path nowhere
+    cand = Candidate(app_dir.resolve(), root.resolve())
     for f in cand.files():
         # agent diffs are always LF; a CRLF copy would make every hunk miss
         data = f.read_bytes()

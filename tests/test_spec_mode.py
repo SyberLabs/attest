@@ -240,3 +240,15 @@ def test_cli_app_flag_runs_spec_mode(tmp_path, monkeypatch):
     assert "WORKER    line 12  sending ticket to " in out.output and "app change:" in out.output
     assert "implemented in the app and re-proven" in out.output
     assert (app / "app.js").read_text() == APP_JS and spec.read_text() == SPEC
+
+
+def test_candidate_root_is_absolute_even_with_a_relative_home(tmp_path, monkeypatch):
+    # live demo: --home .attest is relative and git apply runs with cwd=candidate root
+    from attest.implement import make_candidate
+
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "index.html").write_text("<h1>Deals</h1>\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    cand = make_candidate(app, "ab" * 32, Path(".attest"))
+    assert cand.root.is_absolute()
