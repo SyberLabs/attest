@@ -6,7 +6,7 @@
 
 The factory path under review has four boundaries: Attest Maintain Docs, Attest Reconcile Spec, the Kane browser-runner boundary, and the SyberWork admit/observe/reconcile bridge. For **each component and each release**, require at least **two distinct adversarial scenarios in every applicable category** below. The pair must vary the attack or failure condition, not just repeat the same fixture with another label. Each scenario must assert the security-relevant outcome (reject, refuse, mark invalid/unverified, or stop); logging the input or returning a generic success is not a pass. A scenario may satisfy only one quota cell unless its assertions independently exercise both conditions.
 
-Release sequencing follows the Kane Factory MVP order recorded in issue #10: (1) separate repair/case identity from content digests; (2) fail closed on simulated execution and incomplete compilation; (3) authority-gated repair; (4) bound receipts; (5) execution isolation; (6) SyberWork bridge; (7) Reconcile Spec diagnosis and handoff. Later stages do not waive earlier controls.
+Release sequencing follows the Kane Factory MVP order recorded in issue #10: (1) separate repair/case identity from content digests; (2) fail closed on simulated execution and incomplete compilation; (3) gate repair with an explicit `AuthorityDecision` and `Approval` bound to the proposal digest; (4) issue a `RunReceipt` bound to source digest, app/build identity, Kane pack and run ids, proposal, approval, and fresh evidence; (5) isolate execution; (6) let SyberWork consume the live receipt while every observation remains `verified: false` until destination reconciliation verifies the exact case/effect/version; (7) keep Reconcile Spec diagnosis and handoff only. Later stages do not waive earlier controls.
 
 | Required category | Maintain Docs | Reconcile Spec | Kane runner | SyberWork bridge |
 | --- | ---: | ---: | ---: | ---: |
@@ -31,8 +31,8 @@ Each numbered pair is a minimum shape, not a claim that the tests already exist.
 The current checkout has `attest/compiler.py`, `attest/pipeline.py`, and `attest/loop.py`; it does not have a Maintain Docs authority/approval/receipt module. Existing `Claim`, `Evidence`, and `Verdict` are in `attest/models.py`. Keep new release tests at the real public boundary when that workflow lands.
 
 - **Prompt injection:** (1) put instructions to alter the application or reveal credentials inside a source brief; (2) put a conflicting instruction in retrieved/grounding text. Both remain untrusted proposal content and cannot widen the doc-only patch scope.
-- **Authority / weakening:** (1) propose deleting or weakening a protected requirement; (2) present runtime behavior or an unapproved change as authority to rewrite it. Refuse automatic application in both cases.
-- **Digest / version:** (1) pair evidence for one source digest with a patched document digest; (2) replay a valid-looking receipt/evidence record from an earlier commit. Reject the mismatch and require fresh validation of the exact candidate.
+- **Authority / weakening:** (1) propose deleting or weakening a protected requirement; (2) present runtime behavior or an unapproved change as authority to rewrite it. Refuse automatic application in both cases; require an explicit `AuthorityDecision` and an `Approval` bound to the exact proposal digest before any permitted repair.
+- **Digest / version:** (1) pair evidence for one source digest with a patched document digest; (2) replay a valid-looking receipt/evidence record from an earlier commit. Reject the mismatch and require fresh validation of the exact candidate. A `RunReceipt` must bind the repair/case identity separately from content digests and bind the source, app/build, Kane pack/run, proposal, approval, and fresh evidence identities.
 - **Cost:** (1) feed a document whose claim count/size drives unbounded compile or execution work; (2) force retries/repair attempts to exhaust configured budgets. Stop at explicit limits; never convert a budget stop to proven.
 - **Schema:** (1) omit a required claim/span/evidence field; (2) provide a wrong-typed or unexpected field in serialized claims/evidence. Reject malformed input; no partial promotion. The existing Pydantic models use `extra="forbid"`, but `LLMClaim`/`ClaimSet` do not set that policy explicitly, so test the actual structured-output boundary rather than infer strictness from downstream models.
 - **Auth:** (1) make a brief request a credential or environment dump; (2) supply a credential for the wrong service/account/scope. No credential is returned to content or used to authorize a write outside configured scope.
@@ -64,15 +64,15 @@ No Reconcile Spec implementation or policy type is present in this checkout. Its
 
 ### SyberWork admit/observe/reconcile bridge
 
-The SyberWork repository and bridge are not attached to this checkout, so these are required first-release contract tests, not observations about SyberWork behavior.
+The SyberWork repository and bridge are not attached to this checkout, so these are required first-release contract tests, not observations about SyberWork behavior. The bridge consumes an Attest `RunReceipt` as evidence input; an observation must carry `verified: false` until destination reconciliation verifies the exact case, effect, and version. Attest evidence alone cannot promote that flag.
 
 - **Prompt injection:** (1) put a write instruction inside an Attest observation; (2) put one in an external-effect response. Neither observation is an admission or authorization command.
-- **Authority / weakening:** (1) submit an Attest handoff as approval to execute; (2) submit an observation as authority to weaken a SyberWork contract. Reject both; require the bridge's own authorized approval path.
-- **Digest / version:** (1) reconcile an effect against evidence for the wrong destination/version; (2) swap the case/contract/evidence digest between admission and reconciliation. Keep outcome `unknown` until destination verification is bound to the exact case and effect.
+- **Authority / weakening:** (1) submit an Attest handoff or receipt as approval to execute; (2) submit an observation as authority to weaken a SyberWork contract. Reject both; require the bridge's own explicit authority decision and approval path, scoped to the proposal.
+- **Digest / version:** (1) reconcile an effect against evidence for the wrong destination/version; (2) swap the case/contract/evidence digest between admission and reconciliation. Keep `verified: false` and outcome `unknown` until destination verification is bound to the exact case and effect.
 - **Cost:** (1) replay duplicate admission/observation events; (2) fan one case into an unbounded number of Kane steps or reconciliation retries. Deduplicate and enforce limits; exhaustion remains unresolved.
 - **Schema:** (1) send a missing/ill-typed event envelope; (2) send unknown status/evidence fields or a truncated event. Reject without advancing the case state.
 - **Auth:** (1) use a valid identity with the wrong tenant/case scope; (2) replay an expired or wrong-audience approval. Reject without creating an external effect.
-- **Fail closed:** (1) destination verification times out or is unavailable; (2) the receipt is partial or cannot be bound to the case/effect. Keep outcome `unknown`; never mark reconciled.
+- **Fail closed:** (1) destination verification times out or is unavailable; (2) the receipt is partial or cannot be bound to the case/effect. Keep `verified: false` and outcome `unknown`; never mark reconciled.
 
 ## Evidence to record per release
 

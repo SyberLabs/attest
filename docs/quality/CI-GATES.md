@@ -35,11 +35,11 @@ For each component being released, require the minimum per-category adversarial 
 
 ### Gate D — exact version and evidence integrity
 
-For any release that emits verified evidence or reconciles an external effect, require deterministic tests that tamper independently with source digest, app/spec version, execution/run identifier, claim/step mapping, and destination/case binding. Each mismatch must fail closed, and a fresh valid evidence set must be required before success. Until the corresponding identity fields exist and are enforced in code, this gate is blocked for verified/reconciled releases.
+For any release that emits verified evidence or reconciles an external effect, require deterministic tests that tamper independently with repair/case identity, source digest, app/build version, Kane pack/run identifiers, proposal/approval binding, claim/step mapping, and destination/case binding. Each mismatch must fail closed, and a fresh valid evidence set must be required before success. Until a `RunReceipt` binds those fields and code enforces them, this gate is blocked for verified/reconciled releases.
 
 ### Gate E — simulation and incomplete work
 
-Require tests showing that fake/echo, dry-run, cached-only and partial/incomplete executions cannot mint a verified receipt or advance an external effect to reconciled. Require incomplete compilation, missing terminal events, invalid evidence, ambiguous authority and budget exhaustion to remain non-success. Do not infer this gate from a passing CLI exit code alone.
+Require tests showing that fake/echo, dry-run, cached-only and partial/incomplete executions cannot mint a verified receipt or advance an external effect to reconciled. Require incomplete compilation, missing terminal events, invalid evidence, ambiguous authority and budget exhaustion to remain non-success. The SyberWork observation bridge must initialize `verified: false`; only successful destination reconciliation for the exact case/effect/version may promote it. Do not infer this gate from a passing CLI exit code alone.
 
 ### Gate F — static and integration checks
 
@@ -51,10 +51,10 @@ Apply gates in the Kane Factory MVP order from issue #10; a later capability can
 
 1. **Identity:** distinguish repair/case identity from content digests; a patched document must not reuse the original content identity.
 2. **Fail closed:** incomplete compilation and simulated execution cannot issue a proven receipt.
-3. **Authority-gated repair:** refuse to weaken a protected promise without a scoped `AuthorityDecision` and approval bound to the proposal digest.
-4. **Receipts:** bind source digest, app/build identity, Kane pack and run ids, proposal, approval and fresh evidence.
+3. **Authority-gated repair:** require an explicit, scoped `AuthorityDecision` and an `Approval` bound to the exact proposal digest; refuse to weaken a protected promise and emit an implementation handoff.
+4. **Receipts:** issue a `RunReceipt` binding repair/case identity separately from source digest, app/build identity, Kane pack and run ids, proposal, approval and fresh evidence.
 5. **Execution isolation:** constrain shell recipes to an isolated workspace and prevent Kane from running past a failed prerequisite.
-6. **SyberWork bridge:** consume a live Attest receipt, but remain unverified until destination verification.
+6. **SyberWork observation bridge:** consume a live Attest receipt as evidence input; set `verified: false` and keep the effect unknown until destination reconciliation verifies the exact case/effect/version.
 7. **Reconcile Spec:** diagnosis and handoff only; no repair authority.
 
 This PR specifies gates for that sequence; it does not implement these capabilities.
