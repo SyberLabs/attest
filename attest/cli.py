@@ -52,7 +52,7 @@ iframe{display:block;border:0;width:100%;height:100%;background:#fff}
 <section class="doc"><iframe id="page"></iframe></section>
 </div>
 <script>
-let seen="";async function poll(){try{let j=await fetch("latest.json",{cache:"no-store"}).then(r=>r.json());document.getElementById("strip").className="strip"+(j.running?" on":"");document.getElementById("state").textContent=j.running?"live":"done";document.getElementById("now").textContent=j.now||"";if(j.page&&j.page!==seen){seen=j.page;document.querySelector("iframe").src=j.page;}}catch(e){}}poll();setInterval(poll,1500);
+let seen="";async function poll(){try{let j=await fetch("latest.json",{cache:"no-store"}).then(r=>r.json());document.getElementById("strip").className="strip"+(j.running?" on":"");document.getElementById("state").textContent=j.running?"live":"done";document.getElementById("now").textContent=j.now||"";if(j.page&&j.page!==seen){seen=j.page;document.querySelector("iframe").src=j.page+"?v="+Date.now();}}catch(e){}}poll();setInterval(poll,1500);
 function kind(line){
   const t=line.trim(), d=line.replace(/^\s*\| ?/,"");
   const piped=d!==line;
@@ -231,6 +231,7 @@ def prove_cmd(
     skip: list[str] = typer.Option([], "--skip", help="Skip a claim id (repeat or use comma-separated ids) when it does not apply."),
     loop: bool = typer.Option(False, "--loop/--no-loop", help="Send stale or broken steps to the coding agent and re-prove them."),
     apply: bool = typer.Option(False, "--apply", help="With --loop: write the agent's doc patch back to the source file."),
+    policy: Path | None = typer.Option(None, "--policy", help="Authority policy YAML for the loop."),
     open_page: bool = typer.Option(False, "--open", help="Open the rendered page in a browser."),
     keep_scratch: bool = typer.Option(False, "--keep-scratch", help="Leave the scratch directory in place."),
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
@@ -268,7 +269,7 @@ def prove_cmd(
                 if live:
                     from .pipeline import _write_live_page
                     _write_live_page(result, home, br.name, "Proof updated", True)
-            result = run_loop(result, br, home=home, log=loop_log, apply_to_source=apply, on_update=loop_update)
+            result = run_loop(result, br, home=home, log=loop_log, apply_to_source=apply, on_update=loop_update, policy_path=policy)
         br.close()
         session = getattr(result, "_session", None)
         if session is not None:
@@ -389,6 +390,11 @@ def serve(
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):  # noqa: D401
         return
+
+    def end_headers(self):
+        # pages are rewritten in place during a live run; the browser must never reuse an old copy
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
 
 @app.command()

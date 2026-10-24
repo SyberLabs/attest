@@ -12,6 +12,8 @@ under one turn. One attempt, then a human.
 from __future__ import annotations
 
 import difflib
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -28,6 +30,7 @@ from .ingest import ingest_text
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
 from .pipeline import ProveResult
+from .policy import load_policy
 from .runner import BrowserRunner
 from .shell import ShellSession
 from .verdict import Rules, judge, load_rules
@@ -283,6 +286,7 @@ def run_loop(
     log=None,
     apply_to_source: bool = False,
     on_update=None,
+    policy_path: Path | None = None,
 ) -> ProveResult:
     """Fix the doc for every failing claim, one attempt each, and re-prove those claims."""
     rules = rules or load_rules()
@@ -290,13 +294,39 @@ def run_loop(
     ledger = Ledger(home / "ledger.jsonl")
     recorded_runs = getattr(result, "_kane_runs_count", 0)
     doc = result.doc
+    policy = load_policy(doc.source, policy_path)
+    result.authority = {}
+    result.receipts = {}
     verdict_map = result.by_id
     for claim in result.failing():
+        authority = policy.decide(claim)
+        result.authority[claim.id] = {"decision": authority.decision, "rule": authority.rule, "policy": str(policy.path) if policy.path else None}
+        before = verdict_map[claim.id]
+        before_ev = before.evidence
+        doc_before = doc.sha256
+        if not authority.allowed:
+            suffix = "(loop: doc repair refused: protected promise; implementation handoff issued)"
+            after = before.model_copy(update={"reason": f"{before.reason} {suffix}"})
+            result.briefs[claim.id] = Brief(claim_id=claim.id, verdict=before, doc_excerpt="", attempts=0)
+            result.prior[claim.id] = before
+            _replace_verdict(result, after)
+            ledger.record(doc.sha256, result.turn, [claim], [after], looped=True)
+            receipt = _receipt(result, claim, before, after, policy, authority, None, None, "handoff_implementation", {
+                "claim": claim.id, "doc_text": claim.span.text, "observed": _observed(before_ev),
+                "instruction": "the application must change, not the doc",
+            }, doc_before, None)
+            path = _write_receipt(home, receipt)
+            result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
+            typer.echo(typer.style(f"AUTHORITY line {claim.span.start_line}  protected promise: doc repair refused, implementation handoff", fg=typer.colors.RED))
+            typer.echo(f"RECEIPT   {path}")
+            if log:
+                log(claim, after)
+            continue
+        typer.echo(typer.style(f"AUTHORITY line {claim.span.start_line}  descriptive: the agent may fix the doc", fg=typer.colors.CYAN))
         if on_update:
             on_update(f"Asking the agent to fix line {claim.span.start_line}")
         typer.echo("")
         typer.echo(f"   {typer.style('AGENT', fg=typer.colors.MAGENTA, bold=True)}     {typer.style(f'line {claim.span.start_line}', dim=True)}  asking the coding agent to fix the doc...")
-        before = verdict_map[claim.id]
         grounding = ground(doc, claim)
         doc_path = Path(doc.source).name if not doc.source.startswith("http") else "doc.md"
         brief = build_brief(doc, claim, before, grounding, doc_path)
@@ -338,6 +368,9 @@ def run_loop(
             after = before.model_copy(update={"reason": f"{before.reason} (loop: {message})"})
             _replace_verdict(result, after)
             ledger.record(doc.sha256, result.turn, [claim], [after], looped=True)
+            receipt = _receipt(result, claim, before, after, policy, authority, agent_cmd or AGENT_CMD, brief.patch, "unresolved", None, doc_before, None)
+            path = _write_receipt(home, receipt); result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
+            typer.echo(f"RECEIPT   {path}")
             if log:
                 log(claim, after)
             continue
@@ -363,6 +396,10 @@ def run_loop(
         doc = patched_doc.model_copy(update={"claims": new_claims, "sha256": result.doc.sha256})
         result.doc = doc
         ledger.record(result.doc.sha256, result.turn, [fresh], [after], looped=True)
+        disposition = "repaired" if after.status == "proven" else "unresolved"
+        receipt = _receipt(result, claim, before, after, policy, authority, agent_cmd or AGENT_CMD, brief.patch, disposition, None, doc_before, patched_doc.sha256)
+        path = _write_receipt(home, receipt); result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
+        typer.echo(f"RECEIPT   {path}")
         if fresh.kind == "browser":
             _rejudge_dependents(result, fresh, runner, rules, ledger, log)
             verdict_map = result.by_id
@@ -373,6 +410,41 @@ def run_loop(
     for s in getattr(result, "_rerun_sessions", []):
         s.close()
     return result
+
+
+def _observed(ev, verdict_status=None):
+    if ev is None:
+        return {"status": verdict_status, "observed": {}, "note": None, "screenshot": None}
+    obs = ev.observation
+    return {"status": verdict_status or (obs.status if obs else ("timed_out" if ev.timed_out else str(ev.exit_code))),
+            "observed": obs.observed if obs else {"stdout_tail": ev.stdout_tail or ""},
+            "note": obs.note if obs else ev.command, "screenshot": obs.screenshot if obs else None}
+
+
+def _receipt(result, claim, before, after, policy, authority, agent, patch, disposition, handoff, sha_before, sha_after):
+    ev_before = before.evidence
+    ev_after = after.evidence if after is not before else None
+    patch_hash = hashlib.sha256(patch.encode("utf-8")).hexdigest() if patch else None
+    case_id = f"{sha_before[:12]}-{claim.id}-{result.turn}"
+    return {"schema": "attest.receipt/v0", "case_id": case_id,
+            "created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            "doc": {"source": result.doc.source, "sha256_before": sha_before, "sha256_after": sha_after},
+            "claim": {"id": claim.id, "kind": claim.kind, "lines": [claim.span.start_line, claim.span.end_line],
+                      "text": claim.span.text, "expects_before": claim.expects, "expects_after": claim.expects if sha_after is None else next((c.expects for c in result.claims if c.id == claim.id), claim.expects)},
+            "authority": {"policy": str(policy.path) if policy.path else None, "decision": authority.decision, "rule": authority.rule},
+            "proposal": {"agent": agent, "patch_sha256": patch_hash, "patch": patch},
+            "approval": {"actor": f"policy:{policy.path}" if policy.path else "policy:default", "proposal_sha256": patch_hash},
+            "evidence": {"before": _observed(ev_before, before.status), "after": _observed(ev_after, after.status) if ev_after else None},
+            "handoff": handoff, "disposition": disposition, "verified": False}
+
+
+def _write_receipt(home: Path, receipt: dict) -> Path:
+    target = home / "receipts" / f"{receipt['case_id']}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(receipt, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(target)
+    return target
 
 
 def _rejudge_dependents(result: ProveResult, fixed: Claim, runner: BrowserRunner, rules: Rules, ledger: Ledger, log=None) -> None:

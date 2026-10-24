@@ -197,7 +197,15 @@ def test_exact_numeric_predicate_does_not_fuzzy_match():
     claim = browser_claim(expects="count is 1")
     verdict = judge(claim, browser_ev(observed={"c02_label": "count is 10"}))
     assert verdict.status == "stale"
-    assert verdict.label_match is not None and verdict.label_match > 0.8
+    assert verdict.label_match is not None and verdict.label_match <= 0.5
+
+
+def test_high_similarity_nonexact_label_stays_stale():
+    claim = browser_claim(expects="Create a new repository")
+    verdict = judge(claim, browser_ev(observed={"c02_label": "Create repository"}))
+    assert label_match(claim.expects, "Create repository") > 0.8
+    assert verdict.status == "stale"
+    assert "suggestion-only" in verdict.reason
 
 
 def test_fake_runner_observation_is_simulation_not_verification():
@@ -293,3 +301,11 @@ def test_similarity_score_cannot_change_corpus_verdicts():
         if claim.kind == "browser" and ev.observation.status == "passed":
             assert judge(claim, ev, rules=Rules(label_match=0.1)).status == label
             assert judge(claim, ev, rules=Rules(label_match=1.0)).status == label
+
+
+
+def test_a_different_number_is_a_different_label():
+    assert label_match("count is 1", "count is 2") <= 0.5
+    assert label_match("3 items", "30 items") <= 0.5
+    assert label_match("count is 0", "Count is 0") == 1.0
+    assert label_match("Vite + React", "Vite + React 7") >= 0.8

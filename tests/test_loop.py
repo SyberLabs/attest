@@ -177,6 +177,49 @@ def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
 
     s = Ledger(tmp_path / "home" / "ledger.jsonl").summary(result.doc.sha256, result.turn)
     assert (s["proven"], s["broken"], s["loops_closed"]) == (2, 0, 1)
+    receipt = json.loads(next((tmp_path / "home" / "receipts").glob("*.json")).read_text())
+    assert receipt["schema"] == "attest.receipt/v0"
+    assert receipt["disposition"] == "repaired"
+    assert receipt["proposal"]["patch_sha256"]
+    assert set(receipt) == {"schema", "case_id", "created_at", "doc", "claim", "authority", "proposal", "approval", "evidence", "handoff", "disposition", "verified"}
+
+
+def test_protected_claim_hands_off_without_calling_agent(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    doc_path = tmp_path / "loop.md"
+    doc_path.write_text(BROKEN_DOC, encoding="utf-8")
+    policy = tmp_path / "attest.policy.yaml"
+    policy.write_text('protected:\n  - claim: c02\n', encoding="utf-8")
+    result = prove(str(doc_path), runner=FakeBrowserRunner(), home=tmp_path / "home")
+    result = run_loop(result, FakeBrowserRunner(), home=tmp_path / "home", rules=Rules(), agent_cmd='raise "agent must not be called"')
+    assert "doc repair refused" in result.by_id["c02"].reason
+    receipt = json.loads(next((tmp_path / "home" / "receipts").glob("*.json")).read_text())
+    assert receipt["disposition"] == "handoff_implementation"
+    assert receipt["authority"]["decision"] == "doc_repair_denied"
+    assert receipt["handoff"]["instruction"] == "the application must change, not the doc"
+    assert result.briefs["c02"].attempts == 0
+
+
+def test_policy_text_match_and_claim_id(tmp_path):
+    from attest.policy import load_policy
+    from attest.models import Claim, Span
+
+    claim = Claim(id="c07", kind="prose", span=Span(start_line=1, end_line=1, text="It increments by one."))
+    path = tmp_path / "policy.yaml"
+    path.write_text('protected:\n  - match: "INCREMENTS BY ONE"\n', encoding="utf-8")
+    assert load_policy("doc.md", path).decide(claim).decision == "doc_repair_denied"
+    path.write_text('protected:\n  - claim: c07\n', encoding="utf-8")
+    assert load_policy("doc.md", path).decide(claim).decision == "doc_repair_denied"
+
+
+def test_missing_policy_is_descriptive(tmp_path):
+    from attest.policy import load_policy
+    from attest.models import Claim, Span
+
+    claim = Claim(id="c07", kind="prose", span=Span(start_line=1, end_line=1, text="increments by one"))
+    decision = load_policy(str(tmp_path / "doc.md")).decide(claim)
+    assert decision.allowed and decision.rule is None
 
 
 def test_loop_rejects_diff_touching_other_file(tmp_path, monkeypatch):

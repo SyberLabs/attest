@@ -193,6 +193,8 @@ def render_page(
     runner_name: str = "none",
     live: bool = False,
     now: str = "",
+    authority: dict | None = None,
+    receipts: dict | None = None,
 ) -> str:
     """Return the HTML. ``strip`` is the ledger summary dict, already counted."""
     by_id = {v.claim_id: v for v in verdicts}
@@ -236,6 +238,8 @@ def render_page(
         runner_notes=runner_notes,
         live=live,
         now=now,
+        authority=authority or {},
+        receipts=receipts or {},
     )
 
 
