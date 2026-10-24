@@ -398,3 +398,12 @@ def test_browser_error_page_is_unreachable_not_stale():
     assert obs.status == "unreachable"
     v = judge(c03, Evidence(claim_id="c03", kind="browser", observation=obs), {})
     assert v.status == "unverifiable" and "not reachable" in v.reason
+
+
+def test_typed_text_is_not_a_control_label():
+    # Acme CRM spec: "Globex renewal" is typed, "Add deal" is clicked; the table row is the outcome
+    c = browser("c04", 'Type "Globex renewal" into the "Deal name" box, type "12000" into the "Amount" box and click "Add deal", then check that the table shows "Globex renewal".', "Globex renewal")
+    body = step_body(c)
+    assert body.startswith('Type "Globex renewal"') and 'closest to "Globex renewal" after the click' in body
+    won = browser("c05", 'On the "Globex renewal" row, click the "Mark as won" button and check that the status reads "Won".', "Won")
+    assert 'closest to "Won" after the click' in step_body(won)

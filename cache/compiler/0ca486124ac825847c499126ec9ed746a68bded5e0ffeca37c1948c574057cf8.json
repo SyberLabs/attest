@@ -1,0 +1,88 @@
+{
+  "sha256": "0ca486124ac825847c499126ec9ed746a68bded5e0ffeca37c1948c574057cf8",
+  "source": "demo/spec.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "prose",
+      "span": {
+        "start_line": 1,
+        "end_line": 6,
+        "text": "# Acme CRM: deal workflow spec\n\nThis spec is the contract for the Deals page of Acme CRM. The app must do what it says.\n\nServe the app:\n"
+      },
+      "command": null,
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "shell",
+      "span": {
+        "start_line": 8,
+        "end_line": 8,
+        "text": "python -m http.server 8766 --bind 127.0.0.1 --directory \"$ATTEST_APP_DIR\""
+      },
+      "command": "python -m http.server 8766 --bind 127.0.0.1 --directory \"$ATTEST_APP_DIR\"",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c03",
+      "kind": "browser",
+      "span": {
+        "start_line": 11,
+        "end_line": 11,
+        "text": "Open http://127.0.0.1:8766/ in your browser. The page shows the heading \"Deals\"."
+      },
+      "command": null,
+      "objective": "Open http://127.0.0.1:8766/ and check that the page shows the heading \"Deals\".",
+      "expects": "Deals",
+      "store_as": "c03_label",
+      "depends_on": [
+        "c02"
+      ]
+    },
+    {
+      "id": "c04",
+      "kind": "browser",
+      "span": {
+        "start_line": 13,
+        "end_line": 13,
+        "text": "Type \"Globex renewal\" into the \"Deal name\" box, type \"12000\" into the \"Amount\" box and click \"Add deal\". The pipeline table shows \"Globex renewal\"."
+      },
+      "command": null,
+      "objective": "Type \"Globex renewal\" into the \"Deal name\" box, type \"12000\" into the \"Amount\" box and click \"Add deal\", then check that the pipeline table shows \"Globex renewal\".",
+      "expects": "Globex renewal",
+      "store_as": "c04_label",
+      "depends_on": [
+        "c02",
+        "c03"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "browser",
+      "span": {
+        "start_line": 15,
+        "end_line": 15,
+        "text": "On the \"Globex renewal\" row, click the \"Mark as won\" button. The deal's status changes to \"Won\"."
+      },
+      "command": null,
+      "objective": "On the \"Globex renewal\" row, click the \"Mark as won\" button and check that the deal's status reads \"Won\".",
+      "expects": "Won",
+      "store_as": "c05_label",
+      "depends_on": [
+        "c02",
+        "c04"
+      ]
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}

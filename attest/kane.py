@@ -102,6 +102,7 @@ def retarget(text: str, base_url: str | None) -> str:
 
 
 _CLICKS = re.compile(r"\b(?:click|clicks|select|choose|tap|press|open)\b", re.I)
+_CLICKED = re.compile(r"\b(?:click|clicks|select|choose|tap|press)\s+(?:on\s+)?(?:the\s+)?(?:[\w-]+\s+){0,3}?\"([^\"]+)\"", re.I)
 
 
 def _compound(action: str) -> bool:
@@ -119,7 +120,8 @@ def step_body(claim: Claim, base_url: str | None = None) -> str:
     if claim.expects and claim.expects.startswith(("http://", "https://")):
         parts.append(f"Store the URL of the current page as '{key}'.")
     elif claim.expects and re.search(r"\b(?:click|clicks|select|choose|tap|press|toggle|check the box)\b", action, re.I):
-        labels = [q.casefold() for q in re.findall(r'"([^"]+)"', action)]
+        # only labels right after a click verb are controls; other quotes are text to type
+        labels = [q.casefold() for q in _CLICKED.findall(action)]
         if claim.expects.casefold() not in labels:
             # the doc promises an outcome of the click ("count is 1", a status "Won"), not the
             # control's own label ("Mark as won"): read the page after acting
