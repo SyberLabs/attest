@@ -30,6 +30,7 @@ class Rules:
     label_match: float = 0.8
     shell_timeout_s: float = 180.0
     loop_attempts: int = 1
+    kane_max_steps: int = 15
 
 
 def load_rules(path: Path | str | None = None) -> Rules:
@@ -41,6 +42,7 @@ def load_rules(path: Path | str | None = None) -> Rules:
         label_match=float(data.get("label_match", 0.8)),
         shell_timeout_s=float(data.get("shell_timeout_s", 180)),
         loop_attempts=int(data.get("loop_attempts", 1)),
+        kane_max_steps=int(data.get("kane_max_steps", 15)),
     )
 
 

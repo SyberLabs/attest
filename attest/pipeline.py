@@ -115,6 +115,10 @@ def prove(
     doc = ingest(source)
     claims = compile_doc(doc, llm=llm)
     doc = doc.model_copy(update={"claims": claims})
+    prepare = getattr(runner, "prepare", None)
+    if prepare is not None:
+        # a batching runner plans its test files from the whole claim list
+        prepare(claims, doc.source)
     scratch = new_scratch()
     evidence, verdicts, session = execute(claims, runner, rules, scratch, shell_env=shell_env, log=log)
     if not keep_servers:
@@ -129,16 +133,42 @@ def prove(
     return result
 
 
+def localize_screenshots(result: ProveResult) -> tuple[list[Verdict], dict[str, Verdict]]:
+    """Copy each browser screenshot to <out_dir>/shots/<claim>.<ext> for the page.
+
+    Returns verdicts whose evidence points at the copies; ``result`` keeps the
+    original pack paths so briefs can name them.
+    """
+    shots = result.out_dir / "shots"
+
+    def local(ev: Evidence | None) -> Evidence | None:
+        if ev is None or ev.observation is None or not ev.observation.screenshot:
+            return ev
+        src = Path(ev.observation.screenshot)
+        if not src.is_absolute() or not src.is_file():
+            return ev
+        shots.mkdir(parents=True, exist_ok=True)
+        dest = shots / f"{ev.claim_id}{src.suffix}"
+        shutil.copyfile(src, dest)
+        obs = ev.observation.model_copy(update={"screenshot": f"shots/{dest.name}"})
+        return ev.model_copy(update={"observation": obs})
+
+    verdicts = [v.model_copy(update={"evidence": local(v.evidence)}) for v in result.verdicts]
+    prior = {k: v.model_copy(update={"evidence": local(v.evidence)}) for k, v in result.prior.items()}
+    return verdicts, prior
+
+
 def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
     ledger = Ledger(home / "ledger.jsonl")
     strip = ledger.summary(result.doc.sha256, result.turn)
+    verdicts, prior = localize_screenshots(result)
     html_text = render_page(
         result.doc,
         result.claims,
-        result.verdicts,
+        verdicts,
         strip,
         briefs=result.briefs,
-        prior_verdicts=result.prior,
+        prior_verdicts=prior,
         runner_name=runner_name,
     )
     page = write_page(result.out_dir, html_text)
