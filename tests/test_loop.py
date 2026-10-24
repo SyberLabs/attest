@@ -291,3 +291,19 @@ def test_brief_carries_kane_failure_record_and_screenshot():
     assert "pack:" not in text
     assert "screenshot: C:/kane/steps/9-1-5/annotated.png" in text
     assert len(text.splitlines()) < 60
+
+
+def test_checkout_applies_a_diff_with_miscounted_hunk_header():
+    # the real Codex patch for the GitHub card: header says 7 lines, the hunk has 4
+    lines = [f"line {n}" for n in range(1, 15)] + ["", '4. In the left-hand sidebar click "Security & analysis".', "", "5. Next step.", "", "6. More.", "", "7. End."]
+    doc = ingest_text("\n".join(lines) + "\n", source="card.md")
+    co = make_checkout(doc)
+    diff = (
+        "--- a/card.md\n+++ b/card.md\n@@ -15,7 +15,7 @@\n \n"
+        '-4. In the left-hand sidebar click "Security & analysis".\n'
+        '+4. In the left-hand sidebar click "Advanced Security".\n'
+        " \n"
+    )
+    ok, message = co.apply(diff)
+    assert ok, message
+    assert '"Advanced Security"' in co.doc_path.read_text(encoding="utf-8")

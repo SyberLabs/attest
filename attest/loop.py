@@ -185,10 +185,11 @@ class Checkout:
             return False, f"diff touches files other than the doc: {sorted(touched - {self.doc_name})}"
         patch = self.root / ".attest.patch"
         patch.write_text(diff, encoding="utf-8", newline="\n")
-        check = self.git("apply", "--check", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+        # --recount: agents often get hunk line counts wrong while the hunk body is right
+        check = self.git("apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
         if check.returncode != 0:
             return False, f"git apply --check failed: {check.stderr.strip()[:300]}"
-        done = self.git("apply", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+        done = self.git("apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
         patch.unlink(missing_ok=True)
         if done.returncode != 0:
             return False, f"git apply failed: {done.stderr.strip()[:300]}"
