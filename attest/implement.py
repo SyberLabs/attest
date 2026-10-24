@@ -269,15 +269,63 @@ def call_worker(ticket: dict, cwd: Path) -> str:
     cmd = worker_cmd()
     if cmd:
         return call_agent(payload, cwd, cmd=cmd)
-    from openai import OpenAI
+    return _openai_worker(ticket, AGENT_TIMEOUT_S)
 
+
+BUILTIN_INSTRUCTIONS = (
+    "You implement one missing capability in a small web app. The spec claim it must satisfy, what the "
+    "browser observed, and the full current content of every app file are given below. Implement the "
+    "capability with the smallest change, in the existing code style, markup and CSS conventions. Do not "
+    "change seed data, existing rows, names or unrelated behaviour, and do not add data that makes the spec "
+    "pass by itself: the user performs the spec's steps in the browser. Return the complete new content of "
+    "each file you change (only those files)."
+)
+
+
+def _openai_worker(ticket: dict, timeout_s: int) -> str:
+    """The built-in worker: OpenAI returns whole files (structured output); Attest builds the diff.
+
+    Hand-written hunks were fragile: the model copied JSON-escaped quotes into context lines.
+    """
+    from openai import OpenAI
+    from pydantic import BaseModel
+
+    class FileEdit(BaseModel):
+        path: str
+        content: str
+
+    class WorkerResult(BaseModel):
+        files: list[FileEdit]
+
+    app = ticket.get("app") or {}
+    files = app.get("files") or {}
+    text = (
+        f"Spec ({ticket['spec']['source']}, lines {ticket['spec']['lines']}): {ticket['spec']['text']}\n"
+        f"Acceptance: {ticket.get('acceptance')}\n"
+        f"Observed in the browser: {json.dumps(ticket.get('observed'), ensure_ascii=True)}\n\n"
+        + "\n\n".join(f"=== FILE {name} ===\n{body}" for name, body in files.items())
+    )
     model = worker_identity().split(":", 1)[1]
     kwargs = {"reasoning": {"effort": "low"}} if model.startswith(("gpt-5", "o")) else {}
     try:
-        resp = OpenAI(timeout=AGENT_TIMEOUT_S).responses.create(model=model, instructions=WORKER_INSTRUCTIONS, input=payload, **kwargs)
+        resp = OpenAI(timeout=timeout_s).responses.parse(
+            model=model, instructions=BUILTIN_INSTRUCTIONS, input=text, text_format=WorkerResult, **kwargs
+        )
     except Exception as e:  # network, auth or model errors leave the ticket open
         return f"openai worker error: {e}"
-    return resp.output_text or ""
+    parsed = resp.output_parsed
+    if parsed is None:
+        return "openai worker error: no structured output"
+    import difflib
+
+    chunks = []
+    for edit in parsed.files:
+        old = files.get(edit.path)
+        if old is None or not safe_app_path(edit.path):
+            continue  # only existing app files; new files go through external workers
+        new = edit.content if edit.content.endswith("\n") else edit.content + "\n"
+        chunks.extend(difflib.unified_diff(old.splitlines(True), new.splitlines(True), f"a/{edit.path}", f"b/{edit.path}"))
+    return "".join(chunks)
 
 
 # -- the spec loop for one claim ---------------------------------------------------
