@@ -30,6 +30,7 @@ class Rules:
     label_match: float = 0.8
     shell_timeout_s: float = 180.0
     loop_attempts: int = 1
+    kane_max_steps: int = 15
 
 
 def load_rules(path: Path | str | None = None) -> Rules:
@@ -41,6 +42,7 @@ def load_rules(path: Path | str | None = None) -> Rules:
         label_match=float(data.get("label_match", 0.8)),
         shell_timeout_s=float(data.get("shell_timeout_s", 180)),
         loop_attempts=int(data.get("loop_attempts", 1)),
+        kane_max_steps=int(data.get("kane_max_steps", 15)),
     )
 
 
@@ -61,7 +63,16 @@ def label_match(expects: str, observed: str) -> float:
         return 1.0
     if not a or not b:
         return 0.0
-    return fuzz.token_set_ratio(a, b) / 100.0
+    score = fuzz.token_set_ratio(a, b) / 100.0
+    negations = {"not", "no", "never", "without", "cannot", "cant", "disabled", "disable", "off", "isnt", "arent", "wont", "dont", "doesnt"}
+    if bool(set(a.split()) & negations) != bool(set(b.split()) & negations):
+        return min(score, 0.5)
+    # a different number is a different promise: "count is 1" vs "count is 2" scored 0.90
+    nums_a = sorted(t for t in a.split() if t.isdigit())
+    nums_b = sorted(t for t in b.split() if t.isdigit())
+    if nums_a and nums_b and nums_a != nums_b:
+        return min(score, 0.5)
+    return score
 
 
 def _norm_text(s: str) -> str:
@@ -161,8 +172,8 @@ def _judge_browser(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: page not reachable", evidence=ev)
     if obs.status == "failed":
         return Verdict(claim_id=claim.id, status="broken", reason="broken: browser step failed", evidence=ev)
-    # SATURDAY: healing detection. If the runner's note shows it re-authored the step
-    # to get past a mismatch, the claim is at best stale. Needs the real runner's remark format.
+    # No healing rule: on event day Kane never healed (a drifted page replayed and stored
+    # the new text), so there is no remark pattern to trust. Drift lands in label_match.
     if not claim.expects:
         return Verdict(claim_id=claim.id, status="proven", reason="proven: step completed, nothing promised", evidence=ev)
     seen = observed_text(claim, ev)

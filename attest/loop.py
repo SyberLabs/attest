@@ -12,6 +12,8 @@ under one turn. One attempt, then a human.
 from __future__ import annotations
 
 import difflib
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -20,6 +22,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+import typer
 
 from .compiler import recompile_claim
 from .grounding import ground
@@ -27,11 +30,21 @@ from .ingest import ingest_text
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
 from .pipeline import ProveResult
+from .policy import load_policy
 from .runner import BrowserRunner
 from .shell import ShellSession
 from .verdict import Rules, judge, load_rules
 
-AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "claude -p")
+# read-only: the brief carries the numbered excerpt, and the agent must return a diff, not edit
+# "openai" (or "openai:<model>") calls the OpenAI API directly; anything else is a shell command
+AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "openai")
+AGENT_INSTRUCTIONS = (
+    "You repair documentation. You receive a brief about one doc claim that a browser or shell run "
+    "contradicted, with real line numbers. Change the smallest span of the doc so the claim matches what "
+    "was observed. Reply with only a unified diff in git format, no prose and no code fence. Do not use the "
+    "'*** Begin Patch' format. Use real line numbers from the brief. Example of the exact format:\n"
+    "--- a/guide.md\n+++ b/guide.md\n@@ -12 +12 @@\n-The button says \"Save\".\n+The button says \"Save changes\".\n"
+)
 AGENT_TIMEOUT_S = int(os.environ.get("ATTEST_AGENT_TIMEOUT_S", "240"))
 CONTEXT_LINES = 3
 
@@ -79,7 +92,11 @@ def brief_text(brief: Brief, claim: Claim, doc_path: str) -> str:
         for k, val in (obs.observed if obs else {}).items():
             lines.append(f"observed {k} = {val!r}")
         if obs and obs.note:
-            lines.append(f"runner note: {obs.note}")
+            # the Kane runner joins remark, failure record, root cause and fix with " | "
+            parts = [p.strip() for p in obs.note.split(" | ") if p.strip() and not p.startswith("pack: ")]
+            if parts:
+                lines.append(f"runner note: {parts[0][:300]}")
+                lines += [f"- {p[:300]}" for p in parts[1:6]]
         if obs and obs.screenshot:
             lines.append(f"screenshot: {obs.screenshot}")
     lines += ["", "## Grounding"]
@@ -97,8 +114,25 @@ def brief_text(brief: Brief, claim: Claim, doc_path: str) -> str:
 # -- agent -------------------------------------------------------------------------
 
 
+def call_openai_agent(text: str, model: str | None = None, timeout_s: int = AGENT_TIMEOUT_S) -> str:
+    """The factory's code writer: one Responses API call that returns the doc diff."""
+    from openai import OpenAI
+
+    from .compiler import DEFAULT_MODEL
+
+    model = model or os.environ.get("ATTEST_AGENT_MODEL") or DEFAULT_MODEL
+    kwargs = {"reasoning": {"effort": "low"}} if model.startswith(("gpt-5", "o")) else {}
+    try:
+        resp = OpenAI(timeout=timeout_s).responses.create(model=model, instructions=AGENT_INSTRUCTIONS, input=text, **kwargs)
+    except Exception as e:  # network, auth or model errors leave the claim for a human
+        return f"openai agent error: {e}"
+    return resp.output_text or ""
+
+
 def call_agent(text: str, cwd: Path, cmd: str | None = None, timeout_s: int = AGENT_TIMEOUT_S) -> str:
     cmd = cmd or AGENT_CMD
+    if cmd.strip() == "openai" or cmd.startswith("openai:"):
+        return call_openai_agent(text, cmd.split(":", 1)[1] if ":" in cmd else None, timeout_s)
     try:
         p = subprocess.run(
             cmd,
@@ -180,10 +214,11 @@ class Checkout:
             return False, f"diff touches files other than the doc: {sorted(touched - {self.doc_name})}"
         patch = self.root / ".attest.patch"
         patch.write_text(diff, encoding="utf-8", newline="\n")
-        check = self.git("apply", "--check", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+        # --recount: agents often get hunk line counts wrong while the hunk body is right
+        check = self.git("apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
         if check.returncode != 0:
             return False, f"git apply --check failed: {check.stderr.strip()[:300]}"
-        done = self.git("apply", "--unidiff-zero", "--whitespace=nowarn", str(patch))
+        done = self.git("apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch))
         patch.unlink(missing_ok=True)
         if done.returncode != 0:
             return False, f"git apply failed: {done.stderr.strip()[:300]}"
@@ -275,15 +310,48 @@ def run_loop(
     shell_env: dict[str, str] | None = None,
     log=None,
     apply_to_source: bool = False,
+    on_update=None,
+    policy_path: Path | None = None,
 ) -> ProveResult:
     """Fix the doc for every failing claim, one attempt each, and re-prove those claims."""
     rules = rules or load_rules()
     attempts_allowed = max(1, rules.loop_attempts)
     ledger = Ledger(home / "ledger.jsonl")
+    recorded_runs = getattr(result, "_kane_runs_count", 0)
     doc = result.doc
+    policy = load_policy(doc.source, policy_path)
+    result.authority = {}
+    result.receipts = {}
     verdict_map = result.by_id
     for claim in result.failing():
+        authority = policy.decide(claim)
+        result.authority[claim.id] = {"decision": authority.decision, "rule": authority.rule, "policy": str(policy.path) if policy.path else None}
         before = verdict_map[claim.id]
+        before_ev = before.evidence
+        doc_before = doc.sha256
+        if not authority.allowed:
+            suffix = "(loop: doc repair refused: protected promise; implementation handoff issued)"
+            after = before.model_copy(update={"reason": f"{before.reason} {suffix}"})
+            result.briefs[claim.id] = Brief(claim_id=claim.id, verdict=before, doc_excerpt="", attempts=0)
+            result.prior[claim.id] = before
+            _replace_verdict(result, after)
+            ledger.record(doc.sha256, result.turn, [claim], [after], looped=True)
+            receipt = _receipt(result, claim, before, after, policy, authority, None, None, "handoff_implementation", {
+                "claim": claim.id, "doc_text": claim.span.text, "observed": _observed(before_ev),
+                "instruction": "the application must change, not the doc",
+            }, doc_before, None)
+            path = _write_receipt(home, receipt)
+            result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
+            typer.echo(typer.style(f"AUTHORITY line {claim.span.start_line}  protected promise: doc repair refused, implementation handoff", fg=typer.colors.RED))
+            typer.echo(f"RECEIPT   {path}")
+            if log:
+                log(claim, after)
+            continue
+        typer.echo(typer.style(f"AUTHORITY line {claim.span.start_line}  descriptive: the agent may fix the doc", fg=typer.colors.CYAN))
+        if on_update:
+            on_update(f"Asking the agent to fix line {claim.span.start_line}")
+        typer.echo("")
+        typer.echo(f"   {typer.style('AGENT', fg=typer.colors.MAGENTA, bold=True)}     {typer.style(f'line {claim.span.start_line}', dim=True)}  asking the coding agent to fix the doc...")
         grounding = ground(doc, claim)
         doc_path = Path(doc.source).name if not doc.source.startswith("http") else "doc.md"
         brief = build_brief(doc, claim, before, grounding, doc_path)
@@ -298,6 +366,21 @@ def run_loop(
                 message = "agent returned no unified diff"
                 continue
             brief = brief.model_copy(update={"patch": diff})
+            if diff:
+                from .cli import _ascii  # terminal stays ASCII on PowerShell 5.1
+
+                for line in diff.splitlines():
+                    shown = "             | " + _ascii(line)
+                    if line.startswith(("+++", "---", "diff ", "index ")):
+                        typer.echo(typer.style(shown, dim=True))
+                    elif line.startswith("@@"):
+                        typer.echo(typer.style(shown, fg=typer.colors.CYAN))
+                    elif line.startswith("+"):
+                        typer.echo(typer.style(shown, fg=typer.colors.GREEN, bold=True))
+                    elif line.startswith("-"):
+                        typer.echo(typer.style(shown, fg=typer.colors.RED, bold=True))
+                    else:
+                        typer.echo(shown)
             ok, message = co.apply(diff)
             if ok:
                 text = co.doc_path.read_text(encoding="utf-8")
@@ -310,6 +393,9 @@ def run_loop(
             after = before.model_copy(update={"reason": f"{before.reason} (loop: {message})"})
             _replace_verdict(result, after)
             ledger.record(doc.sha256, result.turn, [claim], [after], looped=True)
+            receipt = _receipt(result, claim, before, after, policy, authority, agent_cmd or AGENT_CMD, brief.patch, "unresolved", None, doc_before, None)
+            path = _write_receipt(home, receipt); result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
+            typer.echo(f"RECEIPT   {path}")
             if log:
                 log(claim, after)
             continue
@@ -317,7 +403,14 @@ def run_loop(
         new_claims = shift_spans(result.claims, doc.lines, patched_doc.lines, claim.id)
         fresh = recompile_claim(patched_doc, claim, llm=llm)
         new_claims = [fresh if c.id == claim.id else c for c in new_claims]
+        if on_update:
+            on_update(f"Kane is re-checking line {claim.span.start_line}")
+        typer.echo(typer.style(f"   ...       {'Kane' if fresh.kind == 'browser' else 'Attest'} is re-checking line {claim.span.start_line}", fg=typer.colors.BRIGHT_BLACK))
         ev = rerun_claim(fresh, result, runner, rules, shell_env=shell_env)
+        runs = getattr(runner, "runs", None)
+        if runs is not None and len(runs) > recorded_runs:
+            recorded_runs = ledger.record_new_kane_runs(result.doc.sha256, result.turn, runs, recorded_runs)
+            result._kane_runs_count = recorded_runs  # type: ignore[attr-defined]
         if ev is not None:
             result.evidence[claim.id] = ev
         after = judge(fresh, ev, {k: v for k, v in result.by_id.items() if k != claim.id}, rules)
@@ -328,6 +421,13 @@ def run_loop(
         doc = patched_doc.model_copy(update={"claims": new_claims, "sha256": result.doc.sha256})
         result.doc = doc
         ledger.record(result.doc.sha256, result.turn, [fresh], [after], looped=True)
+        disposition = "repaired" if after.status == "proven" else "unresolved"
+        receipt = _receipt(result, claim, before, after, policy, authority, agent_cmd or AGENT_CMD, brief.patch, disposition, None, doc_before, patched_doc.sha256)
+        path = _write_receipt(home, receipt); result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
+        typer.echo(f"RECEIPT   {path}")
+        if fresh.kind == "browser":
+            _rejudge_dependents(result, fresh, runner, rules, ledger, log)
+            verdict_map = result.by_id
         if apply_to_source and not result.doc.source.startswith("http"):
             Path(result.doc.source).write_text("\n".join(patched_doc.lines) + "\n", encoding="utf-8")
         if log:
@@ -335,6 +435,74 @@ def run_loop(
     for s in getattr(result, "_rerun_sessions", []):
         s.close()
     return result
+
+
+def _observed(ev, verdict_status=None):
+    if ev is None:
+        return {"status": verdict_status, "observed": {}, "note": None, "screenshot": None}
+    obs = ev.observation
+    return {"status": verdict_status or (obs.status if obs else ("timed_out" if ev.timed_out else str(ev.exit_code))),
+            "observed": obs.observed if obs else {"stdout_tail": ev.stdout_tail or ""},
+            "note": obs.note if obs else ev.command, "screenshot": obs.screenshot if obs else None}
+
+
+def _receipt(result, claim, before, after, policy, authority, agent, patch, disposition, handoff, sha_before, sha_after):
+    ev_before = before.evidence
+    ev_after = after.evidence if after is not before else None
+    patch_hash = hashlib.sha256(patch.encode("utf-8")).hexdigest() if patch else None
+    case_id = f"{sha_before[:12]}-{claim.id}-{result.turn}"
+    return {"schema": "attest.receipt/v0", "case_id": case_id,
+            "created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            "doc": {"source": result.doc.source, "sha256_before": sha_before, "sha256_after": sha_after},
+            "claim": {"id": claim.id, "kind": claim.kind, "lines": [claim.span.start_line, claim.span.end_line],
+                      "text": claim.span.text, "expects_before": claim.expects, "expects_after": claim.expects if sha_after is None else next((c.expects for c in result.claims if c.id == claim.id), claim.expects)},
+            "authority": {"policy": str(policy.path) if policy.path else None, "decision": authority.decision, "rule": authority.rule},
+            "proposal": {"agent": agent, "patch_sha256": patch_hash, "patch": patch},
+            "approval": {"actor": f"policy:{policy.path}" if policy.path else "policy:default", "proposal_sha256": patch_hash},
+            "evidence": {"before": _observed(ev_before, before.status), "after": _observed(ev_after, after.status) if ev_after else None},
+            "handoff": handoff, "disposition": disposition, "verified": False}
+
+
+def _write_receipt(home: Path, receipt: dict) -> Path:
+    target = home / "receipts" / f"{receipt['case_id']}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(receipt, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(target)
+    return target
+
+
+def _rejudge_dependents(result: ProveResult, fixed: Claim, runner: BrowserRunner, rules: Rules, ledger: Ledger, log=None) -> None:
+    """Later browser claims skipped behind the fixed one get judged from the runner's fresh observations.
+
+    A batching runner re-runs the whole test file when one claim changes, so it
+    already holds new observations for the claims after it; nothing runs again.
+    """
+    cached = getattr(runner, "cached", None)
+    if cached is None:
+        return
+    after_fixed = False
+    for c in result.claims:
+        if c.id == fixed.id:
+            after_fixed = True
+            continue
+        if not after_fixed or c.kind != "browser" or result.by_id[c.id].status != "skipped":
+            continue
+        obs = cached(c.id)
+        if obs is None:
+            continue
+        ev = Evidence(claim_id=c.id, kind="browser", observation=obs)
+        before = result.by_id[c.id]
+        v = judge(c, ev, {k: x for k, x in result.by_id.items() if k != c.id}, rules)
+        if v.status == "skipped":
+            continue
+        v = v.model_copy(update={"reason": f"{v.reason} (after loop on {fixed.id})"})
+        result.evidence[c.id] = ev
+        result.prior[c.id] = before
+        _replace_verdict(result, v)
+        ledger.record(result.doc.sha256, result.turn, [c], [v], looped=True)
+        if log:
+            log(c, v)
 
 
 def _replace_verdict(result: ProveResult, v: Verdict) -> None:

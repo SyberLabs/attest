@@ -1,122 +1,275 @@
+{%- macro icon(status) -%}
+{%- if status == 'proven' -%}<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+{%- elif status == 'stale' -%}<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2L14.6 13.6H1.4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 6.4v3.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="11.7" r="1" fill="currentColor"/></svg>
+{%- elif status == 'broken' -%}<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+{%- elif status == 'skipped' -%}<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4l5 4-5 4zM9 4l5 4-5 4z" fill="currentColor"/></svg>
+{%- elif status == 'unverifiable' -%}<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+{%- else -%}<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 2.2"/></svg>
+{%- endif -%}
+{%- endmacro -%}
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }} · Attest</title>
+<title>{{ title }} &middot; Attest</title>
 <style>
   :root {
-    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d0d7de; --code-bg: #f6f8fa;
-    --proven: {{ colors.proven }}; --stale: {{ colors.stale }}; --broken: {{ colors.broken }};
-    --unverifiable: {{ colors.unverifiable }}; --skipped: {{ colors.skipped }};
-    --gutter: 56px;
+    --bg: #f6f8fa; --card: #ffffff; --fg: #1f2328; --muted: #59636e; --faint: #818b98;
+    --line: #d1d9e0; --line-soft: #e9eef3; --code-bg: #f6f8fa; --accent: #0969da;
+    --proven: #1a7f37; --proven-bg: #dafbe1; --proven-line: #4ac26b;
+    --stale: #9a6700; --stale-bg: #fff8c5; --stale-line: #d4a72c;
+    --broken: #cf222e; --broken-bg: #ffebe9; --broken-line: #ff8182;
+    --unverifiable: #59636e; --unverifiable-bg: #eff2f5; --unverifiable-line: #c8d1da;
+    --skipped: #57606a; --skipped-bg: #eaeef2; --skipped-line: #afb8c1;
+    --none: #818b98; --none-bg: #ffffff; --none-line: #c8d1da;
+    --live: #0969da; --live-bg: #ddf4ff; --agent: #8250df; --agent-bg: #fbefff;
+    --gutter: 92px;
+    --mono: ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
-  a { color: #0969da; }
-  code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; font-size: 13px; }
-  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
-  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; margin: 0; }
+  html { scroll-padding-top: 150px; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Noto Sans", Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+  code, pre { font-family: var(--mono); font-size: 13px; }
+  code { background: rgba(129, 139, 152, .14); padding: 1px 5px; border-radius: 5px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line-soft); padding: 11px 13px; border-radius: 8px; overflow-x: auto; margin: 0; line-height: 1.5; }
   pre code { background: none; padding: 0; }
 
-  .strip { position: sticky; top: 0; z-index: 5; background: #24292f; color: #fff; padding: 8px 16px; display: flex; gap: 18px; align-items: baseline; font-size: 13px; flex-wrap: wrap; }
-  .strip h1 { font-size: 14px; margin: 0 8px 0 0; font-weight: 600; }
-  .strip .n { font-weight: 700; }
-  .strip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
-  .dot.proven { background: var(--proven); } .dot.stale { background: var(--stale); } .dot.broken { background: var(--broken); }
-  .dot.unverifiable { background: var(--unverifiable); } .dot.skipped { background: var(--skipped); }
-  .strip .meta { margin-left: auto; color: #c9d1d9; }
+  /* ---- header ---------------------------------------------------------- */
+  .top { position: sticky; top: 0; z-index: 10; background: #fff; border-bottom: 1px solid var(--line); box-shadow: 0 1px 0 rgba(31,35,40,.04), 0 6px 16px -12px rgba(31,35,40,.25); }
+  .top-in { max-width: 1040px; margin: 0 auto; padding: 10px 16px 9px; }
+  .top-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .logo { flex: none; width: 30px; height: 30px; border-radius: 8px; background: #1f2328; color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 15px; letter-spacing: -.5px; }
+  .logo svg { width: 18px; height: 18px; }
+  .titles { min-width: 0; flex: 1; }
+  .titles h1 { margin: 0; font-size: 17px; line-height: 1.25; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .titles .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .titles .sub b { color: var(--fg); font-weight: 600; font-family: var(--mono); font-size: 11.5px; }
+  .score { flex: none; text-align: right; line-height: 1; }
+  .score .big { font-size: 30px; font-weight: 750; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+  .score .of { color: var(--faint); font-weight: 600; font-size: 22px; }
+  .score .lbl { display: block; margin-top: 3px; font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+  .score.proven .big b:first-child, .score.proven .lbl { color: var(--proven); }
+  .score.stale .lbl { color: var(--stale); } .score.broken .lbl { color: var(--broken); }
+  .bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line-soft); margin: 9px 0 8px; }
+  .bar i { display: block; height: 100%; }
+  .bar i + i { box-shadow: inset 2px 0 0 #fff; }
+  .bar .proven { background: var(--proven-line); } .bar .stale { background: var(--stale-line); } .bar .broken { background: var(--broken-line); }
+  .bar .unverifiable { background: var(--unverifiable-line); } .bar .skipped { background: var(--skipped-line); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--line); color: var(--muted); background: #fff; white-space: nowrap; }
+  .chip .ic { width: 12px; height: 12px; }
+  .chip .n { font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .chip.on.stale { background: var(--stale-bg); border-color: var(--stale-line); color: var(--stale); }
+  .chip.on.broken { background: var(--broken-bg); border-color: var(--broken-line); color: var(--broken); }
+  .chip.on.stale .n { color: var(--stale); } .chip.on.broken .n { color: var(--broken); }
+  .chip.on.loop { background: var(--agent-bg); border-color: #d8b9ff; color: var(--agent); } .chip.on.loop .n { color: var(--agent); }
+  .chip.zero { opacity: .7; }
+  .chips .meta { margin-left: auto; color: var(--faint); white-space: nowrap; }
+  .review-status { margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--stale-line); border-radius: 8px; background: var(--card); }
+  .review-status h2 { margin: 0 0 8px; font-size: 14px; }
+  .review-status dl { display: grid; grid-template-columns: 145px minmax(0, 1fr); gap: 5px 12px; margin: 0; }
+  .review-status dt { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+  .review-status dd { margin: 0; overflow-wrap: anywhere; }
+  .review-status .unresolved { color: var(--broken); font-weight: 700; }
 
-  main { max-width: 980px; margin: 0 auto; padding: 18px 16px 80px; }
-  .doc { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
-  .head { padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
-  .row { display: grid; grid-template-columns: var(--gutter) 1fr; }
-  .row + .row { border-top: 1px solid #f0f2f4; }
-  .gutter { padding: 10px 6px; display: flex; flex-direction: column; gap: 6px; align-items: center; border-right: 1px solid var(--line); background: #fafbfc; }
-  .content { padding: 10px 18px; min-width: 0; }
+  /* ---- live banner ----------------------------------------------------- */
+  .now { display: flex; align-items: center; gap: 10px; margin-top: 9px; padding: 8px 12px; border-radius: 8px; background: var(--live-bg); border: 1px solid #a8d8ff; color: #0a3069; font-size: 13.5px; }
+  .now.agent { background: var(--agent-bg); border-color: #e0c6ff; color: #512a97; }
+  .now .who { flex: none; font-size: 10.5px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--live); color: #fff; }
+  .now.agent .who { background: var(--agent); }
+  .now .txt { flex: 1; min-width: 0; font-weight: 550; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .now .prog { flex: none; font-size: 12px; color: inherit; opacity: .8; font-variant-numeric: tabular-nums; }
+  .spin { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .9s linear infinite; opacity: .85; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- document -------------------------------------------------------- */
+  main { max-width: 1040px; margin: 0 auto; padding: 14px 16px 80px; }
+  .doc { border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
+  .head { padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--bg); color: var(--muted); font-size: 12px; display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; }
+  .head .src { font-family: var(--mono); color: var(--fg); font-weight: 600; word-break: break-all; }
+  .head .sep { color: var(--line); }
+  .row { display: grid; grid-template-columns: var(--gutter) minmax(0, 1fr); position: relative; }
+  .row + .row { border-top: 1px solid var(--line-soft); }
+  .gutter { padding: 10px 8px; display: flex; flex-direction: column; gap: 8px; align-items: stretch; border-right: 1px solid var(--line-soft); background: #fbfcfd; }
+  .content { padding: 10px 20px; min-width: 0; }
   .content > :first-child { margin-top: 0; } .content > :last-child { margin-bottom: 0; }
-  h1,h2,h3 { line-height: 1.25; } h1 { font-size: 1.7em; } h2 { font-size: 1.35em; border-bottom: 1px solid var(--line); padding-bottom: 4px; } h3 { font-size: 1.1em; }
+  .content img { max-width: 100%; }
+  .row.tone-stale > .content { background: linear-gradient(90deg, var(--stale-bg), rgba(255,248,197,.25)); box-shadow: inset 3px 0 0 var(--stale-line); }
+  .row.tone-broken > .content { background: linear-gradient(90deg, var(--broken-bg), rgba(255,235,233,.25)); box-shadow: inset 3px 0 0 var(--broken-line); }
+  .row.tone-fixed > .content { background: linear-gradient(90deg, #eefbf1, rgba(218,251,225,.15)); box-shadow: inset 3px 0 0 var(--proven-line); }
+  .row.tone-active > .content { background: linear-gradient(90deg, var(--live-bg), rgba(221,244,255,.2)); box-shadow: inset 3px 0 0 var(--live); }
+  h1,h2,h3 { line-height: 1.25; font-weight: 650; } .content h1 { font-size: 1.6em; } .content h2 { font-size: 1.3em; padding-bottom: 4px; border-bottom: 1px solid var(--line-soft); } .content h3 { font-size: 1.1em; }
   table { border-collapse: collapse; } th, td { border: 1px solid var(--line); padding: 4px 10px; }
-  .badge { position: relative; width: 40px; height: 20px; border-radius: 10px; border: 2px solid; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer; letter-spacing: .3px; color: #fff; background: currentColor; }
-  .badge span { color: #fff; }
-  .badge.proven { color: var(--proven); } .badge.stale { color: var(--stale); } .badge.broken { color: var(--broken); } .badge.skipped { color: var(--skipped); }
-  .badge.unverifiable { color: var(--unverifiable); background: transparent; } .badge.unverifiable span { color: var(--unverifiable); }
-  .badge.none { color: var(--line); background: transparent; } .badge.none span { color: var(--muted); }
-  .badge .tip { display: none; position: absolute; left: 48px; top: -4px; background: #24292f; color: #fff; padding: 6px 9px; border-radius: 6px; font-size: 12px; font-weight: 400; width: max-content; max-width: 420px; z-index: 4; white-space: normal; text-align: left; }
+  blockquote { margin: 0; padding: 0 12px; color: var(--muted); border-left: 3px solid var(--line); }
+
+  /* ---- gutter badges --------------------------------------------------- */
+  .badge { all: unset; box-sizing: border-box; cursor: pointer; position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
+  .badge .pill { display: flex; align-items: center; justify-content: center; gap: 4px; height: 24px; padding: 0 7px; border-radius: 12px; font-size: 11.5px; font-weight: 700; letter-spacing: .1px; border: 1px solid; white-space: nowrap; }
+  .badge .ic { width: 13px; height: 13px; flex: none; }
+  .badge .ln { text-align: center; font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+  .badge.proven .pill { color: var(--proven); background: var(--proven-bg); border-color: var(--proven-line); }
+  .badge.stale .pill { color: #fff; background: #bf8700; border-color: #bf8700; box-shadow: 0 0 0 3px rgba(212,167,44,.25); }
+  .badge.broken .pill { color: #fff; background: var(--broken); border-color: var(--broken); box-shadow: 0 0 0 3px rgba(207,34,46,.18); }
+  .badge.unverifiable .pill { color: var(--unverifiable); background: var(--unverifiable-bg); border-color: var(--unverifiable-line); }
+  .badge.skipped .pill { color: var(--skipped); background: var(--skipped-bg); border-color: var(--skipped-line); }
+  .badge.none .pill { color: var(--none); background: #fff; border: 1px dashed var(--none-line); font-weight: 600; }
+  .live .badge.none .pill { animation: wait 1.8s ease-in-out infinite; }
+  @keyframes wait { 50% { opacity: .45; } }
+  .badge[data-active] .pill { color: var(--live); background: var(--live-bg); border: 1px solid var(--live); box-shadow: 0 0 0 0 rgba(9,105,218,.45); animation: ping 1.4s ease-out infinite; }
+  .badge[data-active] .pill .ic { display: none; }
+  .badge[data-active] .pill::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .9s linear infinite; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(9,105,218,.45); } 100% { box-shadow: 0 0 0 7px rgba(9,105,218,0); } }
+  .badge .fixed { text-align: center; font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--agent); background: var(--agent-bg); border: 1px solid #e0c6ff; border-radius: 4px; padding: 1px 0; }
+  .badge:focus-visible .pill { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .badge:hover .pill { filter: brightness(.97); }
+  .badge .tip { display: none; position: absolute; left: calc(100% + 12px); top: 0; background: #1f2328; color: #fff; padding: 7px 10px; border-radius: 7px; font-size: 12px; font-weight: 400; line-height: 1.45; width: max-content; max-width: min(420px, 70vw); z-index: 6; white-space: normal; text-align: left; box-shadow: 0 8px 24px rgba(31,35,40,.25); }
+  .badge .tip b { font-family: var(--mono); font-weight: 600; margin-right: 4px; }
   .badge:hover .tip { display: block; }
 
-  .drawer { display: none; grid-column: 1 / -1; background: #f6f8fa; border-top: 1px dashed var(--line); padding: 12px 18px 14px calc(var(--gutter) + 18px); font-size: 13px; }
+  /* ---- evidence drawer ------------------------------------------------- */
+  .drawer { display: none; grid-column: 1 / -1; background: #f9fafb; border-top: 1px solid var(--line-soft); padding: 14px 16px 16px; font-size: 13px; }
   .drawer.open { display: block; }
-  .drawer h4 { margin: 0 0 8px; font-size: 13px; } .drawer h4 .st { text-transform: uppercase; font-size: 11px; padding: 1px 7px; border-radius: 10px; color: #fff; margin-left: 6px; }
-  .st.proven { background: var(--proven); } .st.stale { background: var(--stale); } .st.broken { background: var(--broken); } .st.unverifiable { background: var(--unverifiable); } .st.skipped { background: var(--skipped); }
-  .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
-  .drawer pre { white-space: pre-wrap; word-break: break-word; }
-  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
-  .kv { margin: 0; } .kv dt { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-top: 8px; } .kv dd { margin: 2px 0 0; }
-  .shot { border: 1px solid var(--line); background: #fff; border-radius: 6px; min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--muted); overflow: hidden; }
-  .shot img { max-width: 100%; display: block; }
-  .diff { white-space: pre; } .diff .add { color: #1a7f37; } .diff .del { color: #cf222e; }
-  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .pair > div { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
-  .review-status { max-width: 980px; margin: 14px auto 0; padding: 12px 16px; border: 1px solid var(--line); border-left: 4px solid var(--stale); border-radius: 6px; background: var(--code-bg); }
-  .review-status h2 { margin: 0 0 8px; font-size: 15px; border: 0; padding: 0; }
-  .review-status dl { display: grid; grid-template-columns: 150px 1fr; gap: 4px 10px; margin: 0; }
-  .review-status dt { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
-  .review-status dd { margin: 0; overflow-wrap: anywhere; }
-  .review-status .unresolved { color: var(--broken); font-weight: 600; }
-  .review-status code { overflow-wrap: anywhere; }
-  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 30px; }
+  .dr-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+  .dr-head .title { font-weight: 650; font-size: 13.5px; }
+  .dr-head .id { color: var(--faint); font-family: var(--mono); font-size: 11.5px; }
+  .x { all: unset; box-sizing: border-box; margin-left: auto; cursor: pointer; color: var(--muted); font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; line-height: 1.5; }
+  .x:hover { background: var(--line-soft); color: var(--fg); }
+  .st { display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; font-size: 10.5px; font-weight: 800; letter-spacing: .5px; padding: 2px 8px; border-radius: 10px; color: #fff; }
+  .st .ic { width: 11px; height: 11px; }
+  .st.proven { background: var(--proven); } .st.stale { background: #bf8700; } .st.broken { background: var(--broken); } .st.unverifiable { background: var(--unverifiable); } .st.skipped { background: var(--skipped); }
+  .reason { margin: 0 0 12px; color: var(--muted); }
+  .cmp { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 12px; }
+  .cmp > div { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; min-width: 0; }
+  .cmp .k { font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--faint); }
+  .cmp .v { font-size: 14.5px; font-weight: 600; margin-top: 2px; word-break: break-word; }
+  .cmp.stale .obs { border-color: var(--stale-line); background: var(--stale-bg); }
+  .cmp.broken .obs { border-color: var(--broken-line); background: var(--broken-bg); }
+  .cmp.proven .obs { border-color: var(--proven-line); background: #f3fcf5; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; align-items: start; }
+  .drawer pre { white-space: pre-wrap; word-break: break-word; background: #fff; }
+  .kv { margin: 0; } .kv dt { color: var(--faint); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-top: 10px; } .kv dt:first-child { margin-top: 0; } .kv dd { margin: 3px 0 0; word-break: break-word; }
+  .kv small code { font-size: 11.5px; }
+  .shot { border: 1px solid var(--line); background: #fff; border-radius: 8px; min-height: 120px; display: flex; flex-direction: column; color: var(--muted); overflow: hidden; }
+  .shot > a { display: block; line-height: 0; }
+  .shot img { width: 100%; display: block; }
+  .shot .cap { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line-soft); font-size: 11.5px; line-height: 1.4; background: #fbfcfd; }
+  .shot .empty { margin: auto; padding: 16px; text-align: center; font-size: 12px; }
+  details { margin-top: 10px; } summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; }
+  details[open] summary { margin-bottom: 6px; }
+  ul.ground { margin: 0; padding-left: 18px; }
+
+  /* ---- the loop: caught and fixed ------------------------------------- */
+  .drawer.looped { background: #fff; border-top: 2px solid var(--agent); padding-top: 16px; }
+  .fix-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .fix-head .tag { flex: none; font-size: 10.5px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; color: #fff; background: var(--agent); padding: 3px 8px; border-radius: 4px; }
+  .fix-head .tag.failed { background: var(--broken); }
+  .fix-head .line { font-size: 14px; font-weight: 600; min-width: 0; }
+  .fix-head .line span { color: var(--muted); font-weight: 400; }
+  .ba { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); align-items: stretch; margin-bottom: 12px; }
+  .ba-card { border: 1px solid; border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  .ba-card.stale { border-color: var(--stale-line); background: var(--stale-bg); }
+  .ba-card.broken { border-color: var(--broken-line); background: var(--broken-bg); }
+  .ba-card.proven { border-color: var(--proven-line); background: #effcf2; }
+  .ba-card.unverifiable, .ba-card.skipped { border-color: var(--line); background: var(--bg); }
+  .ba-k { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .ba-row { margin-top: 6px; }
+  .ba-row .k { display: block; font-size: 11px; color: var(--muted); }
+  .ba-row .v { display: block; font-size: 15px; font-weight: 650; line-height: 1.3; word-break: break-word; }
+  .ba-card.stale .said .v, .ba-card.broken .said .v { text-decoration: line-through; text-decoration-color: rgba(207,34,46,.6); text-decoration-thickness: 2px; }
+  .ba-why { margin-top: 8px; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+  .ba-arrow { display: grid; place-items: center; color: var(--agent); }
+  .ba-arrow svg { width: 20px; height: 20px; }
+  .diffbox { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+  .diffbox-h { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 7px 12px; background: var(--bg); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .diffbox-h b { color: var(--fg); }
+  pre.diff { border: 0; border-radius: 0; padding: 6px 0; background: #fff; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; }
+  .diff span { display: block; padding: 1px 12px; }
+  .diff .add { background: #e6ffec; color: #116329; } .diff .add mark { background: #abf2bc; color: inherit; border-radius: 3px; padding: 0 1px; }
+  .diff .del { background: #ffebe9; color: #82071e; } .diff .del mark { background: #ffcecb; color: inherit; border-radius: 3px; padding: 0 1px; }
+  .diff .hunk { color: #0550ae; background: #ddf4ff; } .diff .meta { color: var(--faint); }
+  .nopatch { padding: 10px 12px; color: var(--muted); }
+  footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 26px; }
+
+  @media (max-width: 560px) {
+    :root { --gutter: 80px; }
+    .content { padding: 10px 14px; }
+    .cmp { grid-template-columns: 1fr; }
+    .ba { grid-template-columns: 1fr; gap: 6px; } .ba-arrow { transform: rotate(90deg); height: 20px; }
+    .chips .meta { margin-left: 0; }
+  }
 </style>
 </head>
-<body>
-<header class="strip" id="ledger-strip">
-  <h1>Ledger</h1>
-  <span><span class="n">{{ strip.claims }}</span> claims</span>
-  <span><span class="dot proven"></span><span class="n">{{ strip.proven }}</span> proven</span>
-  <span><span class="dot stale"></span><span class="n">{{ strip.stale }}</span> stale</span>
-  <span><span class="dot broken"></span><span class="n">{{ strip.broken }}</span> broken</span>
-  <span><span class="dot unverifiable"></span><span class="n">{{ strip.unverifiable }}</span> unverifiable</span>
-  <span><span class="dot skipped"></span><span class="n">{{ strip.skipped }}</span> skipped</span>
-  <span><span class="n">{{ strip.loops_closed }}</span>/{{ strip.loops_attempted }} loops closed</span>
-  {# SATURDAY: browser step counts (authored, replayed) and credits come from the browser runner's ledger rows #}
-  <span class="meta">turn {{ strip.turn }} · runner {{ runner_name }}</span>
+<body class="{{ 'live' if live else 'final' }}">
+<header class="top" id="ledger-strip">
+  <div class="top-in">
+    <div class="top-row">
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3 8.6l3.2 3.2L13 4.6" fill="none" stroke="#4ac26b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="titles">
+        <h1>{{ title }}</h1>
+        <div class="sub">Attest proof of <b>{{ doc_name }}</b>{% if doc.commit %} &middot; commit {{ doc.commit[:7] }}{% endif %}</div>
+      </div>
+      <div class="score {{ score.tone }}" title="from the ledger">
+        <span class="big"><b data-count="proven">{{ strip.proven }}</b><span class="of"> / <b data-count="claims">{{ strip.claims }}</b></span></span>
+        <span class="lbl">{% if score.tone == 'proven' %}all proven{% else %}proven{% endif %}</span>
+      </div>
+    </div>
+    <div class="bar" aria-hidden="true">{% for s in score.segments %}<i class="{{ s.status }}" style="width: {{ s.pct }}%"></i>{% endfor %}</div>
+    <div class="chips">
+      <span class="chip stale {{ 'on' if strip.stale else 'zero' }}">{{ icon('stale') }}<span class="n" data-count="stale">{{ strip.stale }}</span> stale</span>
+      <span class="chip broken {{ 'on' if strip.broken else 'zero' }}">{{ icon('broken') }}<span class="n" data-count="broken">{{ strip.broken }}</span> broken</span>
+      {% if strip.unverifiable %}<span class="chip">{{ icon('unverifiable') }}<span class="n" data-count="unverifiable">{{ strip.unverifiable }}</span> unverified</span>{% endif %}
+      {% if strip.skipped %}<span class="chip">{{ icon('skipped') }}<span class="n" data-count="skipped">{{ strip.skipped }}</span> skipped</span>{% endif %}
+      {% if strip.loops_attempted %}<span class="chip loop on"><span class="n">{{ strip.loops_closed }}/{{ strip.loops_attempted }}</span> fixed by agent</span>{% endif %}
+      {% if strip.kane_steps|default(0) > 0 %}<span class="chip" title="{{ strip.authored }} authored, {{ strip.replayed }} replayed"><span class="n">{{ strip.kane_steps }}</span> Kane steps &middot; {{ strip.authored }} authored, {{ strip.replayed }} replayed</span>{% endif %}
+      <span class="meta">turn {{ strip.turn }} &middot; runner {{ runner_name }}</span>
+    </div>
+    {% if live %}
+    <div class="now {{ now_actor }}" role="status" aria-live="polite">
+      <span class="spin" aria-hidden="true"></span>
+      <span class="who">{{ {'agent': 'Agent', 'kane': 'Kane', 'shell': 'Shell'}.get(now_actor, 'Live') }}</span>
+      <span class="txt">{{ now }}</span>
+      <span class="prog">{{ progress.judged }}/{{ progress.total }} checked</span>
+    </div>
+    {% endif %}
+  </div>
 </header>
 
-<section class="review-status" aria-label="Review status">
-  <h2>Review status</h2>
-  <dl>
-    <dt>Coverage gaps</dt>
-    <dd>
-      {% if coverage_claims == 0 %}No compiled checkable claims; coverage is unknown.
-      {% elif coverage_gaps %}{{ coverage_gaps|length }} compiled claim{{ '' if coverage_gaps|length == 1 else 's' }} lack a proven result:
-        <ul>{% for claim_id, status in coverage_gaps %}<li>{{ claim_id }} · {{ status }}</li>{% endfor %}</ul>
-      {% else %}No non-proven compiled claims; requirements outside this document are not assessed.{% endif %}
-    </dd>
-    <dt>Authority</dt>
-    <dd class="unresolved">{{ authority_status }} — {{ authority_detail }}</dd>
-    <dt>Proposal</dt>
-    <dd>{% if has_proposal %}Unapproved proposal; not published. This page records no approval or publication for the displayed patch.{% else %}No patch proposal recorded; this page does not certify publication or approval.{% endif %}</dd>
-    <dt>Content identity</dt>
-    <dd>{% if before_identity %}<strong>Before</strong> <code>{{ before_identity }}</code> · <strong>After</strong> <code>{{ after_identity }}</code>{% else %}Current document SHA-256 <code>{{ after_identity }}</code>{% endif %}</dd>
-  </dl>
-</section>
-
 <main>
+  <section class="review-status" aria-label="Review status">
+    <h2>Review status</h2>
+    <dl>
+      <dt>Coverage gaps</dt>
+      <dd>{% if coverage_claims == 0 %}No compiled checkable claims; coverage is unknown.{% elif coverage_gaps %}{{ coverage_gaps|length }} compiled claim{{ '' if coverage_gaps|length == 1 else 's' }} lack a proven result: <ul>{% for claim_id, status in coverage_gaps %}<li>{{ claim_id }} · {{ status }}</li>{% endfor %}</ul>{% else %}No non-proven compiled claims; requirements outside this document are not assessed.{% endif %}</dd>
+      <dt>Authority</dt>
+      <dd class="unresolved">{{ authority_status }} — {{ authority_detail }}</dd>
+      <dt>Proposal</dt>
+      <dd>{{ proposal_status }}</dd>
+      <dt>Content identity</dt>
+      <dd>{% if before_identity %}<strong>Before</strong> <code>{{ before_identity }}</code> · <strong>After</strong> <code>{{ after_identity }}</code>{% else %}Current document SHA-256 <code>{{ after_identity }}</code>{% endif %}</dd>
+    </dl>
+  </section>
   <div class="doc">
     <div class="head">
-      <span>{{ doc.source }}</span>
+      <span class="src">{{ doc.source }}</span>
       {% if doc.commit %}<span>commit {{ doc.commit[:12] }}</span>{% endif %}
       <span>sha256 {{ after_identity[:12] }}</span>
       <span>{{ doc.lines|length }} lines</span>
     </div>
     {% for b in blocks %}
-    <div class="row" data-lines="{{ b.start_line }}-{{ b.end_line }}">
+    {% set tone = row_tones[loop.index0] %}
+    <div class="row{% if tone %} tone-{{ tone }}{% endif %}" data-lines="{{ b.start_line }}-{{ b.end_line }}">
       <div class="gutter">
         {% for c in b.claims %}
           {% set v = verdicts.get(c.id) %}
-          <div class="badge {{ v.status if v else 'none' }}" data-target="drawer-{{ c.id }}" title="{{ c.id }}">
-            <span>{{ c.id }}</span>
-            <div class="tip">{% if v %}{{ v.reason }}{% else %}no verdict yet{% endif %}</div>
-          </div>
+          {% set st = v.status if v else 'none' %}
+          <button type="button" class="badge {{ st }}" data-target="drawer-{{ c.id }}" title="{{ c.id }}"{% if c.id in active_ids %} data-active{% endif %}{% if c.id in fixed_ids %} data-fixed{% endif %}>
+            <span class="pill">{{ icon(st) }}<span>{{ 'checking' if c.id in active_ids else status_words[st] }}</span></span>
+            <span class="ln">line {{ c.span.start_line }}</span>
+            {% if c.id in fixed_ids %}<span class="fixed">fixed</span>{% endif %}
+            <span class="tip"><b>{{ c.id }}</b>{% if v %}{{ v.reason }}{% else %}no verdict yet{% endif %}</span>
+          </button>
         {% endfor %}
       </div>
       <div class="content">{{ b.html|safe }}</div>
@@ -125,69 +278,155 @@
         {% set ev = v.evidence if v else none %}
         {% set brief = briefs.get(c.id) %}
         {% set before = prior.get(c.id) %}
-        <div class="drawer" id="drawer-{{ c.id }}">
-          <h4>{{ c.id }} · {{ c.kind }} claim · lines {{ c.span.start_line }}-{{ c.span.end_line }}
-            {% if v %}<span class="st {{ v.status }}">{{ v.status }}</span>{% endif %}</h4>
-          {% if v %}<p>{{ v.reason }}</p>{% endif %}
+        <div class="drawer{% if brief %} looped{% endif %}{% if c.id in open_ids %} open{% endif %}" id="drawer-{{ c.id }}">
+          {% if brief %}
+            {% set dv = diffs.get(c.id) %}
+            {% set closed = v and v.status == 'proven' %}
+            <div class="fix-head">
+              {% set refused = authority.get(c.id, {}).get('decision') == 'doc_repair_denied' %}
+              <span class="tag{% if not closed %} failed{% endif %}">{% if closed %}Caught and fixed{% elif refused %}Repair refused{% else %}Fix attempted{% endif %}</span>
+              <span class="line">Line {{ c.span.start_line }} <span>&middot; {{ c.kind }} claim &middot; {{ c.id }}</span></span>
+              <button type="button" class="x" data-close="drawer-{{ c.id }}">close</button>
+            </div>
+            {% set auth = authority.get(c.id, {}) %}
+            {% set receipt = receipts.get(c.id, {}) %}
+            <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}</p>
+            {% if auth.get('decision') == 'doc_repair_denied' %}
+              <div class="nopatch"><b>DOC REPAIR REFUSED: implementation handoff</b><br>The application must change, not the doc.</div>
+            {% else %}
+            <div class="ba">
+              <div class="ba-card {{ before.status if before else 'unverifiable' }}">
+                <div class="ba-k">Before {% if before %}<span class="st {{ before.status }}">{{ icon(before.status) }}{{ before.status }}</span>{% endif %}</div>
+                {% if dv.said %}<div class="ba-row said"><span class="k">Doc said</span><span class="v">{{ dv.said }}</span></div>{% endif %}
+                {% if saw_before.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw_before.get(c.id) }}</span></div>{% endif %}
+                {% if before %}<div class="ba-why">{{ before.reason }}</div>{% endif %}
+              </div>
+              <div class="ba-arrow" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 8h11M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div class="ba-card {{ v.status if v else 'unverifiable' }}">
+                <div class="ba-k">After {% if v %}<span class="st {{ v.status }}">{{ icon(v.status) }}{{ v.status }}</span>{% endif %}</div>
+                {% if dv.says %}<div class="ba-row"><span class="k">Doc says</span><span class="v">{{ dv.says }}</span></div>{% endif %}
+                {% if saw.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw.get(c.id) }}</span></div>{% endif %}
+                {% if v %}<div class="ba-why">{{ v.reason }}</div>{% endif %}
+              </div>
+            </div>
+            <div class="diffbox">
+              <div class="diffbox-h"><span><b>Doc patch</b> from the coding agent &middot; touches only the doc</span><span>{{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }}</span></div>
+              {% if brief.patch %}<pre class="diff">{% for r in dv.rows %}<span class="{{ r.kind }}">{{ r.html }}</span>{% endfor %}</pre>{% else %}<div class="nopatch">no patch</div>{% endif %}
+            </div>
+            {% endif %}
+          {% else %}
+            <div class="dr-head">
+              {% if v %}<span class="st {{ v.status }}">{{ icon(v.status) }}{{ v.status }}</span>{% else %}<span class="st unverifiable">waiting</span>{% endif %}
+              <span class="title">Line {{ c.span.start_line }}{% if c.span.end_line != c.span.start_line %}-{{ c.span.end_line }}{% endif %} &middot; {{ c.kind }} claim</span>
+              <span class="id">{{ c.id }}</span>
+              <button type="button" class="x" data-close="drawer-{{ c.id }}">close</button>
+            </div>
+            {% if v %}<p class="reason">{{ v.reason }}</p>{% endif %}
+          {% endif %}
+          {% if c.kind == 'browser' %}
+            <div class="cmp {{ v.status if v else '' }}">
+              <div><div class="k">Doc expects</div><div class="v">{{ c.expects or '' }}</div></div>
+              <div class="obs"><div class="k">Page observed</div><div class="v">{% if ev and ev.observation %}{% for k, val in ev.observation.observed.items() %}<span title="{{ k }}">{{ val }}</span>{% if not loop.last %}, {% endif %}{% else %}nothing stored{% endfor %}{% else %}no observation{% endif %}</div></div>
+            </div>
+          {% endif %}
           <div class="cols">
-            <div>
-              {% if c.kind == 'browser' %}
-                <div class="shot">
-                  {% if artifact_urls.get(c.id) %}<img src="{{ artifact_urls.get(c.id) }}" alt="screenshot for {{ c.id }}">{% else %}screenshot slot: no local screenshot artifact from runner "{{ runner_name }}"{% endif %}
-                </div>
-                <dl class="kv">
-                  <dt>Objective</dt><dd>{{ c.objective }}</dd>
-                  <dt>Doc expects</dt><dd><code>{{ c.expects or '' }}</code></dd>
-                  <dt>Page observed</dt><dd>{% if ev and ev.observation %}{% for k, val in ev.observation.observed.items() %}<code>{{ k }}</code> = <code>{{ val }}</code><br>{% else %}nothing stored{% endfor %}{% else %}no observation{% endif %}</dd>
-                  {% if v and v.label_match is not none %}<dt>Label match</dt><dd>{{ '%.2f'|format(v.label_match) }}</dd>{% endif %}
-                  {% if ev and ev.observation and ev.observation.note %}<dt>Runner note</dt><dd>{{ ev.observation.note }}</dd>{% endif %}
-                </dl>
-              {% else %}
-                <dl class="kv">
-                  {% if c.command %}<dt>Command</dt><dd><pre><code>{{ c.command }}</code></pre></dd>{% endif %}
-                  {% if c.expects %}<dt>Doc expects</dt><dd><code>{{ c.expects }}</code></dd>{% endif %}
-                  {% if ev %}
-                    <dt>Exit code</dt><dd>{{ 'timed out' if ev.timed_out else ev.exit_code }}{% if ev.detected_url %} · opened {{ ev.detected_url }}{% endif %}</dd>
-                    <dt>Output tail</dt><dd><pre><code>{{ ev.stdout_tail or '' }}</code></pre></dd>
-                  {% endif %}
-                </dl>
-              {% endif %}
-            </div>
-            <div>
-              {% if brief %}
-                <dl class="kv">
-                  <dt>Loop</dt>
-                  <dd>
-                    <div class="pair">
-                      <div><strong>Before</strong>{% if before %}<br><span class="st {{ before.status }}">{{ before.status }}</span> {{ before.reason }}{% endif %}</div>
-                      <div><strong>After</strong>{% if v %}<br><span class="st {{ v.status }}">{{ v.status }}</span> {{ v.reason }}{% endif %}</div>
-                    </div>
-                  </dd>
-                  <dt>Brief ({{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }})</dt><dd><pre><code>{{ brief.doc_excerpt }}</code></pre></dd>
-                  {% if brief.grounding %}<dt>Grounding</dt><dd><ul>{% for g in brief.grounding %}<li>{{ g }}</li>{% endfor %}</ul></dd>{% endif %}
-                  <dt>Diff</dt><dd><pre class="diff">{% if brief.patch %}{% for line in brief.patch.splitlines() %}<span class="{{ 'add' if line.startswith('+') and not line.startswith('+++') else ('del' if line.startswith('-') and not line.startswith('---') else '') }}">{{ line }}</span>
-{% endfor %}{% else %}no patch{% endif %}</pre></dd>
-                </dl>
-              {% else %}
-                <dl class="kv"><dt>Span</dt><dd><pre><code>{{ c.span.text }}</code></pre></dd>
-                {% if c.depends_on %}<dt>Depends on</dt><dd>{{ c.depends_on|join(', ') }}</dd>{% endif %}</dl>
-              {% endif %}
-            </div>
+            {% if c.kind == 'browser' %}
+              <div class="shot">
+                {% if artifact_urls.get(c.id) %}<a href="{{ artifact_urls.get(c.id) }}" target="_blank" rel="noopener"><img src="{{ artifact_urls.get(c.id) }}" alt="screenshot for {{ c.id }}"></a><div class="cap"><span>Kane's screenshot of the page</span><a href="{{ artifact_urls.get(c.id) }}" target="_blank" rel="noopener">full size</a></div>{% else %}<div class="empty">screenshot slot: no local digest-verified artifact from runner "{{ runner_name }}"</div>{% endif %}
+              </div>
+              <dl class="kv">
+                <dt>Objective</dt><dd>{{ c.objective }}</dd>
+                <dt>Observed keys</dt><dd>{% if ev and ev.observation %}{% for k, val in ev.observation.observed.items() %}<code>{{ k }}</code> = <code>{{ val }}</code><br>{% else %}nothing stored{% endfor %}{% else %}no observation{% endif %}</dd>
+                {% if v and v.label_match is not none %}<dt>Label match</dt><dd>{{ '%.2f'|format(v.label_match) }}</dd>{% endif %}
+                {% if ev and ev.observation and ev.observation.note %}{% set runner_note = runner_notes.get(c.id) %}<dt>Runner note</dt><dd>{% if runner_note.text %}{{ runner_note.text }}{% endif %}{% if runner_note.pack %}{% if runner_note.text %} | {% endif %}pack {{ runner_note.pack }} <small><code>kane-cli evidence serve {{ runner_note.path }}</code></small>{% endif %}</dd>{% endif %}
+                {% if not brief and c.depends_on %}<dt>Depends on</dt><dd>{{ c.depends_on|join(', ') }}</dd>{% endif %}
+              </dl>
+            {% else %}
+              <dl class="kv">
+                {% if c.command %}<dt>Command</dt><dd><pre><code>{{ c.command }}</code></pre></dd>{% endif %}
+                {% if c.expects %}<dt>Doc expects</dt><dd><code>{{ c.expects }}</code></dd>{% endif %}
+                {% if ev %}
+                  <dt>Exit code</dt><dd>{{ 'timed out' if ev.timed_out else ev.exit_code }}{% if ev.detected_url %} &middot; opened {{ ev.detected_url }}{% endif %}</dd>
+                {% endif %}
+              </dl>
+              <dl class="kv">
+                {% if ev %}<dt>Output tail</dt><dd><pre><code>{{ ev.stdout_tail or '' }}</code></pre></dd>{% endif %}
+                {% if not brief %}{% if not ev %}<dt>Span</dt><dd><pre><code>{{ c.span.text }}</code></pre></dd>{% endif %}
+                {% if c.depends_on %}<dt>Depends on</dt><dd>{{ c.depends_on|join(', ') }}</dd>{% endif %}{% endif %}
+              </dl>
+            {% endif %}
           </div>
+          {% if brief %}
+            <details><summary>Brief sent to the agent ({{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }})</summary><pre><code>{{ brief.doc_excerpt }}</code></pre></details>
+            {% set grounding = grounding_lines.get(c.id, []) %}{% if grounding %}<details open><summary>Grounding</summary><ul class="ground">{% for g in grounding %}<li>{{ g }}</li>{% endfor %}</ul></details>{% endif %}
+          {% endif %}
         </div>
       {% endfor %}
     </div>
     {% endfor %}
   </div>
-  <footer>Attest · every badge has evidence behind it · numbers above come from the ledger<br>Local review server: loopback-only, without authentication; do not expose on a public network.</footer>
+  <footer>Attest &middot; every badge has evidence behind it &middot; numbers above come from the ledger<br>Local review server binds to loopback only and has no authentication; do not expose it through a public proxy.</footer>
 </main>
 <script>
-  document.querySelectorAll('.badge[data-target]').forEach(function (b) {
-    b.addEventListener('click', function () {
-      var d = document.getElementById(b.dataset.target);
-      if (d) d.classList.toggle('open');
+  (function () {
+    var KEY = "attest:" + location.pathname;
+    var state = {};
+    try { state = JSON.parse(sessionStorage.getItem(KEY) || "{}") || {}; } catch (e) { state = {}; }
+    function save() { try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+    var toggles = state.toggles || {};
+    Object.keys(toggles).forEach(function (id) {
+      var d = document.getElementById(id);
+      if (d) d.classList.toggle("open", !!toggles[id]);
     });
-  });
+    function setOpen(id, open) {
+      var d = document.getElementById(id);
+      if (!d) return;
+      d.classList.toggle("open", open);
+      toggles[id] = open; state.toggles = toggles; save();
+    }
+    document.querySelectorAll(".badge[data-target]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var d = document.getElementById(b.dataset.target);
+        if (d) setOpen(b.dataset.target, !d.classList.contains("open"));
+      });
+    });
+    document.querySelectorAll("[data-close]").forEach(function (x) {
+      x.addEventListener("click", function () { setOpen(x.dataset.close, false); });
+    });
+    // scroll only this document, never the live wrapper around it
+    function reveal(el, center) {
+      var top = el.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo(0, Math.max(0, center ? top - window.innerHeight / 2 : top - 130));
+    }
+    function offscreen(el) {
+      var r = el.getBoundingClientRect();
+      return r.top < 140 || r.top > window.innerHeight - 60;
+    }
+    {% if live %}
+    if (typeof state.y === "number") window.scrollTo(0, state.y);
+    var active = document.querySelector(".badge[data-active]");
+    if (active && offscreen(active)) reveal(active, true);
+    window.addEventListener("beforeunload", function () { state.y = window.scrollY; save(); });
+    // reload when latest.json moves on, or when this page file was rewritten (e.g. the final render)
+    var mine = {{ now|tojson }}, seen = null, loaded = new Date(document.lastModified).getTime();
+    function reload() { state.y = window.scrollY; save(); location.reload(); }
+    setInterval(function () {
+      fetch(location.href, {method: "HEAD", cache: "no-store"}).then(function (r) {
+        var mod = Date.parse(r.headers.get("Last-Modified") || "");
+        if (mod && loaded && Math.abs(mod - loaded) >= 1000) reload();
+      }).catch(function () {});
+      fetch("../latest.json", {cache: "no-store"}).then(function (r) { return r.json(); }).then(function (j) {
+        var key = j.now + j.running + JSON.stringify(j.page);
+        if (seen === null) { seen = key; if (j.now !== mine) reload(); return; }
+        if (key !== seen) reload();
+      }).catch(function () {});
+    }, 1500);
+    {% else %}
+    delete state.y; save();
+    var hero = document.querySelector(".drawer.looped.open");
+    if (hero && offscreen(hero)) reveal(hero.closest(".row") || hero, false);
+    {% endif %}
+  })();
 </script>
 </body>
 </html>

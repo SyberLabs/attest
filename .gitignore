@@ -9,3 +9,13 @@ dist/
 scratch/
 .env
 *.key
+
+# Event day: Kane output, evidence and session material never enter the repo
+.testmuai/
+.context/
+demo/packs/
+*.har
+*.evidence
+chrome-profile/
+*.pem
+credentials*

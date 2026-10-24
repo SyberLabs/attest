@@ -2,4 +2,4 @@
 label_match: 0.8        # token_set_ratio / 100 below this means stale (tuned on tests/fixtures, see tests/fixtures/README.md)
 shell_timeout_s: 180    # per shell claim
 loop_attempts: 1        # agent attempts per failed claim before a human takes over
-# SATURDAY: kane_max_steps belongs here once kane.py exists
+kane_max_steps: 15      # Kane's reasoning budget per test step (frontmatter max_steps)

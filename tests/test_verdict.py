@@ -76,6 +76,12 @@ def test_label_match_bounds_and_symmetry():
     assert label_match("Hello World", "Hello, World!") == 1.0
 
 
+def test_label_match_negation_guard():
+    assert label_match("Enabled", "Not enabled") <= 0.5
+    assert label_match("Secret scanning", "Secret scanning disabled") <= 0.5
+    assert label_match("Not enabled", "Disabled") > 0.5
+
+
 def test_expects_in_normalizes_whitespace():
     assert expects_in("Local:   http://localhost:5173/", "  ➜  Local:   http://localhost:5173/")
     assert expects_in("Running on http://127.0.0.1:5000", " * Running on http://127.0.0.1:5000\nPress CTRL+C")
@@ -269,3 +275,12 @@ def test_corpus_threshold_is_tight():
     assert max(scores_stale) < 0.8 <= min(scores_proven)
     assert max(scores_stale) > 0.75  # a stale case sits just under the line
     assert min(scores_proven) < 0.85  # a proven case sits just over it
+
+
+def test_a_different_number_is_a_different_label():
+    from attest.verdict import label_match
+
+    assert label_match("count is 1", "count is 2") <= 0.5  # the counter that increments by two
+    assert label_match("3 items", "30 items") <= 0.5
+    assert label_match("count is 0", "Count is 0") == 1.0
+    assert label_match("Vite + React", "Vite + React 7") >= 0.8  # numbers on one side only keep the score
