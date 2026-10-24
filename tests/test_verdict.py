@@ -76,6 +76,12 @@ def test_label_match_bounds_and_symmetry():
     assert label_match("Hello World", "Hello, World!") == 1.0
 
 
+def test_label_match_negation_guard():
+    assert label_match("Enabled", "Not enabled") <= 0.5
+    assert label_match("Secret scanning", "Secret scanning disabled") <= 0.5
+    assert label_match("Not enabled", "Disabled") > 0.5
+
+
 def test_expects_in_normalizes_whitespace():
     assert expects_in("Local:   http://localhost:5173/", "  ➜  Local:   http://localhost:5173/")
     assert expects_in("Running on http://127.0.0.1:5000", " * Running on http://127.0.0.1:5000\nPress CTRL+C")

@@ -6,7 +6,7 @@ system_prompt: 'Answer as numbered steps a person can follow in a web browser. N
 ---
 # How do I enable free secret scanning on my GitHub repo?
 
-1. Open the repository on github.com (URL looks like https://github.com/OWNER/REPO).
+1. Open the repository on github.com (URL looks like https://github.com/kane-user/attest-demo).
 
 2. Confirm you have admin permissions on the repository. If you do not, ask an organization owner or repo admin to perform these steps.
 

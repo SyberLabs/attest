@@ -31,7 +31,7 @@ A positive result in one dimension must not upgrade another. In particular, a su
 
 ### Attest Maintain Docs
 
-The current source has typed `Claim`, `Evidence`, `Verdict` and `BrowserObservation` models. `Verdict` rejects non-`unverifiable` statuses without evidence, and `judge()` rejects cross-runner evidence kinds for shell/browser claims. These are useful local invariants, not a complete verification receipt: `Evidence` does not bind a document digest, source commit or execution ID, and the current fake runner can produce an observation that the deterministic judge calls `proven`. The first release that claims verification must close those gaps and distinguish simulation from live execution.
+The current source has typed `Claim`, `Evidence`, `Verdict` and `BrowserObservation` models. `Verdict` rejects non-`unverifiable` statuses without evidence, and `judge()` rejects cross-runner evidence kinds for shell/browser claims. These are useful local invariants, not a complete verification receipt: `Evidence` does not bind a document digest, source commit or execution ID, and the fake runner can produce an observation that the deterministic judge calls `proven`. The CLI now defaults to Kane, but `--runner fake` and the library-level no-runner fallback still produce ordinary judge results; simulation is not structurally excluded from `proven`.
 
 A Maintain Docs pass requires a complete compilation, exact approved descriptive scope, a fresh real execution where applicable, evidence bound to the before/after document identity, successful whole-document validation, and no automatic application after failed validation. A change to protected behavior is outside this repair permission.
 
@@ -41,7 +41,7 @@ There is no Reconcile Spec implementation in this checkout. Its pass is a comple
 
 ### Kane browser-runner boundary
 
-The current `KaneBrowserRunner` raises `NotImplementedError`; the `BrowserRunner` protocol only defines observation and cleanup. A passing Kane integration therefore requires new tests of the actual event parser/pack mapping. `passed` from Kane is not enough: run termination, claim-to-step mapping, exact observed values, required evidence artifacts, run identity and failure events must all validate. Any healing/re-authored step that changes the compiled action cannot count as a pass for the original claim.
+`KaneBrowserRunner` now writes grouped `_test.md` files, invokes Kane, parses NDJSON, reads sealed packs and maps steps to `BrowserObservation`; the CLI defaults to this runner. `tests/test_kane.py` uses captured event-day fixtures as offline truth for parser/mapping behavior, not as proof of a live browser run. For a release pass, `passed` from Kane alone is insufficient: terminal/run identity, claim-to-step mapping, exact observed values, required evidence artifacts and failure events must validate. The current parser ignores malformed JSON lines and unknown event types; pack selection can fall back to the newest fresh pack when there is no session id; and `Evidence` does not bind run/source digests. Those are implementation gaps against this rubric. Any healing/re-authored step that changes the compiled action cannot count as a pass for the original claim; the current judge does not independently enforce that rule.
 
 ### SyberWork bridge
 
