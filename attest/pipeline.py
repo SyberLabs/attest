@@ -140,6 +140,7 @@ def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
         briefs=result.briefs,
         prior_verdicts=result.prior,
         runner_name=runner_name,
+        artifact_dir=result.out_dir / "artifacts",
     )
     page = write_page(result.out_dir, html_text)
     result.page = page

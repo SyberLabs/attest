@@ -11,10 +11,15 @@ lines the claims came from.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import html
+import os
 import re
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -43,21 +48,147 @@ _HR = re.compile(r"^ {0,3}([-*_])(\s*\1){2,}\s*$")
 _TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
 
 
+_INLINE_TOKEN = re.compile(
+    r"(?P<code>`[^`]+`)"
+    r"|(?P<image>!\[([^\]]*)\]\(([^)\s]+)\))"
+    r"|(?P<link>\[([^\]]+)\]\(([^)\s]+)\))"
+    r"|(?P<url>https?://[^\s<]+)"
+    r"|(?P<strong>\*\*.+?\*\*)"
+    r"|(?P<em>(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*))"
+)
+
+
+def _safe_link_target(value: str) -> str | None:
+    """Allow ordinary HTTP(S) and relative links, never executable schemes."""
+    if not value or "\\" in value or any(ch.isspace() or ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F for ch in value):
+        return None
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return None
+    if parts.scheme:
+        if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
+            return None
+    elif parts.netloc or value.startswith("//"):
+        return None
+    return value
+
+
+def _image_mime(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _store_image_artifact(source: str, artifact_dir: Path | None) -> str | None:
+    """Copy a recognized image into a write-once, content-addressed store."""
+    if artifact_dir is None:
+        return None
+    try:
+        evidence_root = artifact_dir.parent.parent.resolve(strict=True)
+        evidence_path = Path(source).resolve(strict=True)
+        evidence_path.relative_to(evidence_root)
+        fd = os.open(evidence_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as stream:
+            metadata = os.fstat(stream.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 32 * 1024 * 1024:
+                return None
+            data = stream.read(32 * 1024 * 1024 + 1)
+        if len(data) > 32 * 1024 * 1024:
+            return None
+    except (OSError, ValueError):
+        return None
+    if _image_mime(data) is None:
+        return None
+    digest = hashlib.sha256(data).hexdigest()
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    if artifact_dir.is_symlink():
+        raise ValueError("artifact store must not be a symlink")
+    store_root = artifact_dir.resolve(strict=True)
+    store_root.relative_to(artifact_dir.parent.resolve(strict=True))
+    target = store_root / digest
+    try:
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        if target.is_symlink() or not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+            raise ValueError(f"immutable artifact store entry is corrupt: {digest}")
+    else:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+    return f"/artifacts/{digest}"
+
+
+def content_security_policy(html_text: str) -> str:
+    """CSP for the page's fixed inline CSS/JS, with all other sources denied."""
+    def hashes(tag: str) -> str:
+        values = re.findall(rf"<{tag}\b[^>]*>(.*?)</{tag}\s*>", html_text, re.DOTALL | re.IGNORECASE)
+        return " ".join(
+            "'sha256-" + base64.b64encode(hashlib.sha256(value.encode("utf-8")).digest()).decode("ascii") + "'"
+            for value in values
+        ) or "'none'"
+
+    return "; ".join(
+        (
+            "default-src 'none'",
+            "img-src 'self'",
+            f"style-src {hashes('style')}",
+            f"script-src {hashes('script')}",
+            "connect-src 'none'",
+            "font-src 'self'",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+        )
+    )
+
+
 def inline(text: str) -> str:
-    """Escape, then code, bold, italics, links and bare URLs."""
+    """Render a small safe Markdown subset without interpolating raw attributes."""
     out: list[str] = []
-    parts = re.split(r"(`[^`]+`)", text)
-    for part in parts:
-        if part.startswith("`") and part.endswith("`") and len(part) > 1:
-            out.append(f"<code>{html.escape(part[1:-1])}</code>")
-            continue
-        s = html.escape(part, quote=False)
-        s = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)", r'<img alt="\1" src="\2">', s)
-        s = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r'<a href="\2">\1</a>', s)
-        s = re.sub(r"(?<![\"'=>])(https?://[^\s<)]+)", r'<a href="\1">\1</a>', s)
-        s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
-        s = re.sub(r"(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*)", r"<em>\1</em>", s)
-        out.append(s)
+    cursor = 0
+    for match in _INLINE_TOKEN.finditer(text):
+        out.append(html.escape(text[cursor : match.start()]))
+        token = match.group(0)
+        if match.lastgroup == "code":
+            out.append(f"<code>{html.escape(token[1:-1])}</code>")
+        elif match.lastgroup == "image":
+            image = re.fullmatch(r"!\[([^\]]*)\]\(([^)\s]+)\)", token)
+            assert image is not None
+            target = _safe_link_target(image.group(2))
+            if target is None or not re.fullmatch(r"/artifacts/[0-9a-f]{64}", target):
+                out.append(html.escape(token))
+            else:
+                out.append(f'<img alt="{html.escape(image.group(1), quote=True)}" src="{html.escape(target, quote=True)}">')
+        elif match.lastgroup == "link":
+            link = re.fullmatch(r"\[([^\]]+)\]\(([^)\s]+)\)", token)
+            assert link is not None
+            target = _safe_link_target(link.group(2))
+            if target is None:
+                out.append(html.escape(token))
+            else:
+                out.append(f'<a href="{html.escape(target, quote=True)}">{inline(link.group(1))}</a>')
+        elif match.lastgroup == "url":
+            target = token.rstrip(".,;:!?)]}")
+            tail = token[len(target) :]
+            safe_target = _safe_link_target(target)
+            if safe_target is None:
+                out.append(html.escape(token))
+            else:
+                escaped = html.escape(safe_target, quote=True)
+                out.append(f'<a href="{escaped}">{html.escape(safe_target)}</a>{html.escape(tail)}')
+        elif match.lastgroup == "strong":
+            out.append(f"<strong>{inline(token[2:-2])}</strong>")
+        else:
+            out.append(f"<em>{inline(token[1:-1])}</em>")
+        cursor = match.end()
+    out.append(html.escape(text[cursor:]))
     return "".join(out)
 
 
@@ -167,12 +298,37 @@ def render_page(
     prior_verdicts: dict[str, Verdict] | None = None,
     title: str | None = None,
     runner_name: str = "none",
+    artifact_dir: Path | None = None,
 ) -> str:
     """Return the HTML. ``strip`` is the ledger summary dict, already counted."""
     by_id = {v.claim_id: v for v in verdicts}
     blks = attach_claims(blocks(doc.lines), claims)
     briefs = briefs or {}
     prior_verdicts = prior_verdicts or {}
+    rendered_text = "\n".join(doc.lines)
+    rendered_hashes = {
+        hashlib.sha256(rendered_text.encode("utf-8")).hexdigest(),
+        hashlib.sha256((rendered_text + "\n").encode("utf-8")).hexdigest(),
+    }
+    has_revision = bool(prior_verdicts) and doc.sha256 not in rendered_hashes
+    rendered_identity = (
+        hashlib.sha256((rendered_text + "\n").encode("utf-8")).hexdigest()
+        if has_revision
+        else doc.sha256
+    )
+    artifact_urls = {
+        claim_id: url
+        for claim_id, v in by_id.items()
+        if v.evidence and v.evidence.screenshot
+        for url in [_store_image_artifact(v.evidence.screenshot, artifact_dir)]
+        if url
+    }
+    coverage_gaps = [
+        (claim.id, by_id[claim.id].status if claim.id in by_id else "no verdict")
+        for claim in claims
+        if claim.kind != "prose" and (claim.id not in by_id or by_id[claim.id].status != "proven")
+    ]
+    has_proposal = any(brief.patch and brief.patch.strip() for brief in briefs.values())
     tmpl = _env().get_template("index.html.j2")
     return tmpl.render(
         title=title or _title_of(doc),
@@ -185,6 +341,14 @@ def render_page(
         strip=strip,
         colors=BADGE_COLORS,
         runner_name=runner_name,
+        artifact_urls=artifact_urls,
+        coverage_gaps=coverage_gaps,
+        coverage_claims=sum(1 for claim in claims if claim.kind != "prose"),
+        authority_status="Unresolved",
+        authority_detail="No authority decision is recorded; protected-contract refusals remain unresolved and are not a green result.",
+        has_proposal=has_proposal,
+        before_identity=doc.sha256 if has_revision else None,
+        after_identity=rendered_identity if has_revision else doc.sha256,
     )
 
 

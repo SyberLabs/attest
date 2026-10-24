@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import http.server
 import os
+import re
 import socketserver
+import stat
 import sys
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import typer
 
 from . import __version__
 from .pipeline import ATTEST_DIR, cleanup_scratch, export_badge, prove, render_result
+from .render import _image_mime, content_security_policy
 from .runner import FakeBrowserRunner
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Docs that can't lie: prove every step of a document.")
@@ -90,11 +95,23 @@ def _strip_line(result, home: Path) -> str:
 
 
 def _latest_dir(home: Path) -> Path:
-    pointer = home / "latest"
-    if not pointer.exists():
-        typer.echo("nothing rendered yet; run `attest prove <doc>` first", err=True)
+    root = home.resolve()
+    pointer = root / "latest"
+    try:
+        pointer_path = pointer.resolve(strict=True)
+        pointer_path.relative_to(root)
+        target = Path(pointer_path.read_text(encoding="utf-8").strip())
+        if not target.is_absolute():
+            target = root / target
+        directory = target.resolve(strict=True)
+        directory.relative_to(root)
+    except (OSError, ValueError):
+        typer.echo("latest page must resolve inside the Attest home directory", err=True)
         raise typer.Exit(1)
-    return Path(pointer.read_text(encoding="utf-8").strip())
+    if not directory.is_dir():
+        typer.echo("latest page must name a rendered directory", err=True)
+        raise typer.Exit(1)
+    return directory
 
 
 @app.command()
@@ -103,7 +120,7 @@ def serve(
     home: Path = typer.Option(ATTEST_DIR, "--home"),
     open_page: bool = typer.Option(False, "--open", help="Open the page in a browser."),
 ) -> None:
-    """Serve the most recently rendered page on localhost."""
+    """Serve the most recent review on loopback only; do not expose it through a public proxy."""
     directory = _latest_dir(home)
     handler = functools.partial(_QuietHandler, directory=str(directory))
     socketserver.TCPServer.allow_reuse_address = True
@@ -119,7 +136,79 @@ def serve(
             pass
 
 
+def _read_regular_file(path: Path, max_bytes: int) -> bytes:
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(fd, "rb") as stream:
+        metadata = os.fstat(stream.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > max_bytes:
+            raise OSError("file is not a bounded regular file")
+        data = stream.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise OSError("file exceeds the size limit")
+    return data
+
+
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    """Serve only the review page and digest-verified images from its artifact store."""
+
+    def do_HEAD(self):  # noqa: N802
+        self.send_error(405)
+
+    def do_GET(self):  # noqa: N802
+        self._served_html = ""
+        path = urlsplit(self.path).path
+        if path in ("/", "/index.html"):
+            page = Path(self.directory) / "index.html"
+            if page.is_symlink() or not page.is_file():
+                self.send_error(404)
+                return
+            try:
+                body = _read_regular_file(page, 32 * 1024 * 1024)
+                self._served_html = body.decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                self.send_error(404)
+                return
+            self._send_bytes(body, "text/html; charset=utf-8", "no-store")
+            return
+        prefix = "/artifacts/"
+        digest = path[len(prefix) :] if path.startswith(prefix) else ""
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            self.send_error(404)
+            return
+        page_root = Path(self.directory).resolve()
+        artifact_dir = page_root / "artifacts"
+        try:
+            if artifact_dir.is_symlink():
+                raise OSError("artifact directory must not be a symlink")
+            root = artifact_dir.resolve(strict=True)
+            root.relative_to(page_root)
+            artifact = root / digest
+            body = _read_regular_file(artifact, 32 * 1024 * 1024)
+        except (OSError, ValueError):
+            self.send_error(404)
+            return
+        mime = _image_mime(body)
+        if mime is None or hashlib.sha256(body).hexdigest() != digest:
+            self.send_error(404)
+            return
+        self._send_bytes(body, mime, "private, max-age=31536000, immutable")
+
+    def _send_bytes(self, body: bytes, content_type: str, cache_control: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache_control)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def end_headers(self):  # noqa: N802
+        html_text = getattr(self, "_served_html", "")
+        self.send_header("Content-Security-Policy", content_security_policy(html_text))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        super().end_headers()
+
     def log_message(self, fmt, *args):  # noqa: D401
         return
 

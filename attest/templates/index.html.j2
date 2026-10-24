@@ -23,6 +23,8 @@
   .strip h1 { font-size: 14px; margin: 0 8px 0 0; font-weight: 600; }
   .strip .n { font-weight: 700; }
   .strip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  .dot.proven { background: var(--proven); } .dot.stale { background: var(--stale); } .dot.broken { background: var(--broken); }
+  .dot.unverifiable { background: var(--unverifiable); } .dot.skipped { background: var(--skipped); }
   .strip .meta { margin-left: auto; color: #c9d1d9; }
 
   main { max-width: 980px; margin: 0 auto; padding: 18px 16px 80px; }
@@ -55,6 +57,13 @@
   .shot img { max-width: 100%; display: block; }
   .diff { white-space: pre; } .diff .add { color: #1a7f37; } .diff .del { color: #cf222e; }
   .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .pair > div { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .review-status { max-width: 980px; margin: 14px auto 0; padding: 12px 16px; border: 1px solid var(--line); border-left: 4px solid var(--stale); border-radius: 6px; background: var(--code-bg); }
+  .review-status h2 { margin: 0 0 8px; font-size: 15px; border: 0; padding: 0; }
+  .review-status dl { display: grid; grid-template-columns: 150px 1fr; gap: 4px 10px; margin: 0; }
+  .review-status dt { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  .review-status dd { margin: 0; overflow-wrap: anywhere; }
+  .review-status .unresolved { color: var(--broken); font-weight: 600; }
+  .review-status code { overflow-wrap: anywhere; }
   footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 30px; }
 </style>
 </head>
@@ -62,22 +71,41 @@
 <header class="strip" id="ledger-strip">
   <h1>Ledger</h1>
   <span><span class="n">{{ strip.claims }}</span> claims</span>
-  <span><span class="dot" style="background: var(--proven)"></span><span class="n">{{ strip.proven }}</span> proven</span>
-  <span><span class="dot" style="background: var(--stale)"></span><span class="n">{{ strip.stale }}</span> stale</span>
-  <span><span class="dot" style="background: var(--broken)"></span><span class="n">{{ strip.broken }}</span> broken</span>
-  <span><span class="dot" style="background: var(--unverifiable)"></span><span class="n">{{ strip.unverifiable }}</span> unverifiable</span>
-  <span><span class="dot" style="background: var(--skipped)"></span><span class="n">{{ strip.skipped }}</span> skipped</span>
+  <span><span class="dot proven"></span><span class="n">{{ strip.proven }}</span> proven</span>
+  <span><span class="dot stale"></span><span class="n">{{ strip.stale }}</span> stale</span>
+  <span><span class="dot broken"></span><span class="n">{{ strip.broken }}</span> broken</span>
+  <span><span class="dot unverifiable"></span><span class="n">{{ strip.unverifiable }}</span> unverifiable</span>
+  <span><span class="dot skipped"></span><span class="n">{{ strip.skipped }}</span> skipped</span>
   <span><span class="n">{{ strip.loops_closed }}</span>/{{ strip.loops_attempted }} loops closed</span>
   {# SATURDAY: browser step counts (authored, replayed) and credits come from the browser runner's ledger rows #}
   <span class="meta">turn {{ strip.turn }} · runner {{ runner_name }}</span>
 </header>
+
+<section class="review-status" aria-label="Review status">
+  <h2>Review status</h2>
+  <dl>
+    <dt>Coverage gaps</dt>
+    <dd>
+      {% if coverage_claims == 0 %}No compiled checkable claims; coverage is unknown.
+      {% elif coverage_gaps %}{{ coverage_gaps|length }} compiled claim{{ '' if coverage_gaps|length == 1 else 's' }} lack a proven result:
+        <ul>{% for claim_id, status in coverage_gaps %}<li>{{ claim_id }} · {{ status }}</li>{% endfor %}</ul>
+      {% else %}No non-proven compiled claims; requirements outside this document are not assessed.{% endif %}
+    </dd>
+    <dt>Authority</dt>
+    <dd class="unresolved">{{ authority_status }} — {{ authority_detail }}</dd>
+    <dt>Proposal</dt>
+    <dd>{% if has_proposal %}Unapproved proposal; not published. This page records no approval or publication for the displayed patch.{% else %}No patch proposal recorded; this page does not certify publication or approval.{% endif %}</dd>
+    <dt>Content identity</dt>
+    <dd>{% if before_identity %}<strong>Before</strong> <code>{{ before_identity }}</code> · <strong>After</strong> <code>{{ after_identity }}</code>{% else %}Current document SHA-256 <code>{{ after_identity }}</code>{% endif %}</dd>
+  </dl>
+</section>
 
 <main>
   <div class="doc">
     <div class="head">
       <span>{{ doc.source }}</span>
       {% if doc.commit %}<span>commit {{ doc.commit[:12] }}</span>{% endif %}
-      <span>sha256 {{ doc.sha256[:12] }}</span>
+      <span>sha256 {{ after_identity[:12] }}</span>
       <span>{{ doc.lines|length }} lines</span>
     </div>
     {% for b in blocks %}
@@ -105,7 +133,7 @@
             <div>
               {% if c.kind == 'browser' %}
                 <div class="shot">
-                  {% if ev and ev.screenshot %}<img src="{{ ev.screenshot }}" alt="screenshot for {{ c.id }}">{% else %}screenshot slot: no screenshot from runner "{{ runner_name }}"{% endif %}
+                  {% if artifact_urls.get(c.id) %}<img src="{{ artifact_urls.get(c.id) }}" alt="screenshot for {{ c.id }}">{% else %}screenshot slot: no local screenshot artifact from runner "{{ runner_name }}"{% endif %}
                 </div>
                 <dl class="kv">
                   <dt>Objective</dt><dd>{{ c.objective }}</dd>
@@ -151,7 +179,7 @@
     </div>
     {% endfor %}
   </div>
-  <footer>Attest · every badge has evidence behind it · numbers above come from the ledger</footer>
+  <footer>Attest · every badge has evidence behind it · numbers above come from the ledger<br>Local review server: loopback-only, without authentication; do not expose on a public network.</footer>
 </main>
 <script>
   document.querySelectorAll('.badge[data-target]').forEach(function (b) {

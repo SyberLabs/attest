@@ -1,19 +1,27 @@
+import base64
+import hashlib
 import json
 import os
 import sys
+from functools import partial
+from http.server import ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 from typer.testing import CliRunner
 
-from attest.cli import app
+from attest.cli import _QuietHandler, app
 from attest.ingest import ingest, ingest_text
 from attest.models import Brief, BrowserObservation, Claim, Evidence, Span, Verdict
 from attest.pipeline import prove
-from attest.render import attach_claims, badge_svg, blocks, inline, proof_md, render_page
+from attest.render import attach_claims, badge_svg, blocks, content_security_policy, inline, proof_md, render_page
 from attest.runner import FakeBrowserRunner
 
 ROOT = Path(__file__).resolve().parents[1]
 FLASK = ROOT / "demo" / "flask.md"
+PNG_1PX = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=")
 
 
 def venv_env():
@@ -31,6 +39,75 @@ def test_inline_markdown():
     )
     assert inline("see http://127.0.0.1:5000/ now") == 'see <a href="http://127.0.0.1:5000/">http://127.0.0.1:5000/</a> now'
     assert "<script>" not in inline("<script>alert(1)</script>")
+
+
+def test_inline_hostile_markdown_cannot_create_unsafe_elements_or_targets():
+    rendered = inline(
+        'https://example.test/\"><img/src=x onerror=alert(1)> '
+        '[run](javascript:alert(1)) ![payload](data:text/html,boom) '
+        '![tracker](https://tracker.test/pixel.png) '
+        '[quoted](https://safe.test/\"onmouseover=\"alert(1))'
+    )
+
+    assert "<img" not in rendered
+    assert "<script" not in rendered
+    assert 'href="javascript:' not in rendered
+    assert 'src="data:' not in rendered
+    assert "&quot;" in rendered
+    assert ' onerror="' not in rendered and ' onmouseover="' not in rendered
+
+
+def test_review_page_shows_gaps_unresolved_authority_and_distinct_identities():
+    before = ingest_text("# Before\n", source="review.md")
+    after = before.model_copy(update={"lines": ["# After"]})
+    claim = Claim(id="c01", kind="shell", span=Span(start_line=1, end_line=1, text="# After"), command="echo after")
+    before_verdict = Verdict(
+        claim_id="c01",
+        status="broken",
+        reason="protected contract refusal",
+        evidence=Evidence(claim_id="c01", kind="shell", exit_code=1),
+    )
+    current = Verdict(claim_id="c01", status="unverifiable", reason="protected contract refusal unresolved")
+    brief = Brief(claim_id="c01", verdict=before_verdict, doc_excerpt="# Before", patch="--- a/review.md\n+++ b/review.md\n-# Before\n+# After")
+    strip = {"claims": 1, "proven": 0, "stale": 0, "broken": 0, "unverifiable": 1, "skipped": 0, "turn": 1, "loops_attempted": 0, "loops_closed": 0}
+
+    page = render_page(after, [claim], [current], strip, briefs={"c01": brief}, prior_verdicts={"c01": before_verdict})
+
+    before_identity = before.sha256
+    after_identity = hashlib.sha256(b"# After\n").hexdigest()
+    assert before_identity != after_identity
+    assert f"Before</strong> <code>{before_identity}</code>" in page
+    assert f"After</strong> <code>{after_identity}</code>" in page
+    assert "c01 · unverifiable" in page
+    assert "Unresolved" in page and "protected-contract refusals remain unresolved" in page
+    assert "Unapproved proposal; not published." in page
+    assert "green result" in page
+
+
+def test_screenshot_artifacts_reject_paths_outside_attest_home(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(PNG_1PX)
+    doc = ingest_text("# Evidence\n", source="evidence.md")
+    claim = Claim(id="c01", kind="browser", span=Span(start_line=1, end_line=1, text="# Evidence"), objective="open")
+    evidence = Evidence(claim_id="c01", kind="browser", observation=BrowserObservation(status="passed", screenshot=str(outside)))
+    verdict = Verdict(claim_id="c01", status="proven", reason="observed", evidence=evidence)
+    strip = {"claims": 1, "proven": 1, "stale": 0, "broken": 0, "unverifiable": 0, "skipped": 0, "turn": 1, "loops_attempted": 0, "loops_closed": 0}
+
+    page = render_page(doc, [claim], [verdict], strip, artifact_dir=home / "doc" / "artifacts")
+
+    assert "/artifacts/" not in page
+    assert not (home / "doc" / "artifacts").exists()
+
+
+def test_review_page_csp_uses_hashes_and_denies_external_defaults():
+    policy = content_security_policy('<style>body{color:red}</style><script>run()</script>')
+    assert "default-src 'none'" in policy
+    assert "style-src 'sha256-" in policy and "script-src 'sha256-" in policy
+    assert "img-src 'self'" in policy
+    assert "object-src 'none'" in policy and "base-uri 'none'" in policy
+    assert "unsafe-inline" not in policy
 
 
 def test_blocks_keep_line_ranges():
@@ -74,26 +151,36 @@ def test_attach_claims_puts_badge_on_first_touching_block():
 # -- page --------------------------------------------------------------------------------
 
 
-def test_render_page_contains_badges_reasons_drawers_and_strip_numbers():
+def test_render_page_contains_badges_reasons_drawers_and_strip_numbers(tmp_path):
     doc = ingest(str(FLASK))
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+    screenshot = evidence_dir / "shot.png"
+    screenshot.write_bytes(PNG_1PX)
     f = doc.fences[2]
     c1 = Claim(id="c01", kind="shell", span=Span(start_line=f.start_line, end_line=f.end_line, text=f.text), command=f.text)
     c2 = Claim(id="c02", kind="browser", span=Span(start_line=35, end_line=35, text=doc.lines[34]), objective="Open it", expects="Hello, World!", store_as="c02_label", depends_on=["c01"])
     ev1 = Evidence(claim_id="c01", kind="shell", command=f.text, exit_code=0, stdout_tail="Running on http://127.0.0.1:5000", detected_url="http://127.0.0.1:5000")
-    ev2 = Evidence(claim_id="c02", kind="browser", observation=BrowserObservation(status="passed", observed={"c02_label": "Hello, Flask!"}, screenshot="shot.png"))
+    ev2 = Evidence(claim_id="c02", kind="browser", observation=BrowserObservation(status="passed", observed={"c02_label": "Hello, Flask!"}, screenshot=str(screenshot)))
     v1 = Verdict(claim_id="c01", status="proven", reason="proven: exit 0", evidence=ev1)
     v2 = Verdict(claim_id="c02", status="stale", reason="stale: label_match 0.67", evidence=ev2, label_match=0.67)
     strip = {"claims": 2, "proven": 1, "stale": 1, "broken": 0, "unverifiable": 0, "skipped": 0, "turn": 7, "loops_attempted": 1, "loops_closed": 0}
     brief = Brief(claim_id="c02", verdict=v2, doc_excerpt="35  Head over...", grounding=["[docs] says Hello"], patch="--- a/x\n+++ b/x\n-old\n+new", attempts=1)
-    html = render_page(doc, [c1, c2], [v1, v2], strip, briefs={"c02": brief}, prior_verdicts={"c02": v2}, runner_name="fake")
+    artifact_dir = tmp_path / "review" / "artifacts"
+    html = render_page(doc, [c1, c2], [v1, v2], strip, briefs={"c02": brief}, prior_verdicts={"c02": v2}, runner_name="fake", artifact_dir=artifact_dir)
     assert 'id="ledger-strip"' in html and ">Ledger<" in html
     assert 'class="badge proven"' in html and 'class="badge stale"' in html
     assert "proven: exit 0" in html and "stale: label_match 0.67" in html
     assert 'id="drawer-c01"' in html and 'id="drawer-c02"' in html
     assert "Running on http://127.0.0.1:5000" in html  # stdout tail
-    assert 'src="shot.png"' in html  # screenshot slot
+    digest = hashlib.sha256(PNG_1PX).hexdigest()
+    assert f'src="/artifacts/{digest}"' in html
+    assert (artifact_dir / digest).read_bytes() == PNG_1PX
     assert "Hello, Flask!" in html and "Hello, World!" in html  # observed vs expects
     assert "[docs] says Hello" in html and "+new" in html  # brief and diff
+    assert "Unapproved proposal; not published." in html
+    assert "Authority" in html and "Unresolved" in html
+    assert "Coverage gaps" in html and "c02 · stale" in html
     assert "turn 7" in html and "runner fake" in html
     # strip numbers are the ones passed in, in order
     pos = [html.index(s) for s in ('<span class="n">2</span> claims', '<span class="n">1</span> proven', '<span class="n">1</span> stale', '<span class="n">0</span> broken')]
@@ -178,3 +265,67 @@ def test_cli_prove_serve_badge(tmp_path, monkeypatch):
 def test_cli_serve_without_pages_errors(tmp_path):
     r = CliRunner().invoke(app, ["serve", "--home", str(tmp_path)])
     assert r.exit_code == 1
+
+
+def test_cli_latest_pointer_cannot_escape_attest_home(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "index.html").write_text("private", encoding="utf-8")
+    (home / "latest").write_text(str(outside), encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["serve", "--home", str(home)])
+
+    assert result.exit_code == 1
+    assert "inside the Attest home directory" in result.output
+
+
+def test_cli_serves_digest_verified_images_with_restrictive_headers(tmp_path):
+    page_dir = tmp_path / "page"
+    page_dir.mkdir()
+    (page_dir / "index.html").write_text(
+        "<!doctype html><style>body{color:red}</style><script>document.body.dataset.ready='yes'</script>",
+        encoding="utf-8",
+    )
+    (page_dir / "private.txt").write_text("must not be served", encoding="utf-8")
+    artifact_dir = page_dir / "artifacts"
+    artifact_dir.mkdir()
+    digest = hashlib.sha256(PNG_1PX).hexdigest()
+    (artifact_dir / digest).write_bytes(PNG_1PX)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(_QuietHandler, directory=str(page_dir)))
+    server.daemon_threads = True
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(base + "/") as response:
+            page = response.read()
+            policy = response.headers["Content-Security-Policy"]
+            assert response.headers["X-Content-Type-Options"] == "nosniff"
+            assert b"document.body" in page
+            assert "default-src 'none'" in policy and "unsafe-inline" not in policy
+        with urlopen(base + f"/artifacts/{digest}") as response:
+            assert response.headers["Content-Type"] == "image/png"
+            assert "immutable" in response.headers["Cache-Control"]
+            assert response.read() == PNG_1PX
+        try:
+            urlopen(base + "/private.txt")
+            assert False, "arbitrary files must not be served"
+        except HTTPError as error:
+            assert error.code == 404
+        try:
+            urlopen(Request(base + "/private.txt", method="HEAD"))
+            assert False, "HEAD must not expose the static directory handler"
+        except HTTPError as error:
+            assert error.code == 405
+        try:
+            urlopen(base + "/artifacts/" + "0" * 64)
+            assert False, "unknown digest must not be served"
+        except HTTPError as error:
+            assert error.code == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
