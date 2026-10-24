@@ -216,3 +216,94 @@ def test_loop_apply_writes_source(tmp_path, monkeypatch):
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
     run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), apply_to_source=True)
     assert "exit 0" in doc_path.read_text() and "exit 1" not in doc_path.read_text()
+
+
+STALE_DOC = textwrap.dedent(
+    """\
+    # Starter page
+
+    Open http://localhost:5173/ in your browser. The page shows the heading "Vite + React"
+    and a button labelled "count is 0".
+    """
+)
+
+# Rewrites the stale heading the way the real agent should for the Vite catch.
+HEADING_AGENT = FIX_AGENT.replace('old.replace("exit 1", "exit 0")', 'old.replace(\'"Vite + React"\', \'"Get started"\')')
+
+
+class BatchingRunner(FakeBrowserRunner):
+    """Stands in for the Kane runner: answers from today's page and keeps every observation."""
+
+    PAGE = {"c01": "Get started", "c02": "Count is 0"}
+
+    def __init__(self):
+        super().__init__()
+        self.seen = {}
+
+    def observe(self, claim, base_url):
+        self.calls.append((claim.id, base_url))
+        for cid, text in self.PAGE.items():
+            self.seen[cid] = BrowserObservation(status="passed", observed={f"{cid}_label": text}, screenshot="/pack/annotated.png", note="kane: step passed, authored")
+        return self.seen[claim.id]
+
+    def cached(self, claim_id):
+        return self.seen.get(claim_id)
+
+
+def stale_claims(doc):
+    def b(cid, line, expects, deps):
+        return Claim(id=cid, kind="browser", span=Span(start_line=line, end_line=line, text=doc.lines[line - 1]),
+                     objective=f'Open http://localhost:5173/ and check for "{expects}".', expects=expects, store_as=f"{cid}_label", depends_on=deps)
+    return [b("c01", 3, "Vite + React", []), b("c02", 4, "count is 0", ["c01"])]
+
+
+def test_loop_fixes_stale_browser_step_and_rejudges_dependents(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # re-compile follows the new quote without a model
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("attest.pipeline.compile_doc", lambda doc, llm=None: stale_claims(doc))
+    doc_path = tmp_path / "starter.md"
+    doc_path.write_text(STALE_DOC, encoding="utf-8")
+    runner = BatchingRunner()
+    result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
+    assert [v.status for v in result.verdicts] == ["stale", "skipped"]
+
+    result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "heading", HEADING_AGENT))
+    c01 = next(c for c in result.claims if c.id == "c01")
+    assert c01.expects == "Get started" and '"Get started"' in c01.objective
+    assert result.by_id["c01"].status == "proven", result.by_id["c01"].reason
+    assert result.by_id["c02"].status == "proven" and "after loop on c01" in result.by_id["c02"].reason
+    assert result.prior["c02"].status == "skipped"
+    rows = [json.loads(l) for l in (tmp_path / "home" / "ledger.jsonl").read_text().splitlines()]
+    assert [r["status"] for r in rows if r["claim_id"] == "c01"] == ["stale", "proven"]
+    assert len({r["turn"] for r in rows}) == 1
+
+
+def test_brief_carries_kane_failure_record_and_screenshot():
+    doc = ingest_text("# t\nClick Create project.\n", source="x.md")
+    c = Claim(id="c01", kind="browser", span=Span(start_line=2, end_line=2, text=doc.lines[1]), objective="o", expects="Create project", store_as="c01_label")
+    note = ("kane: step failed, authored; AP determined agent is stuck | failure: Greeting transition: stuck | "
+            "root cause: waited for a change | suggested fix: inspect the page | pack: C:/x.evidence")
+    obs = BrowserObservation(status="failed", observed={"c01_label": ""}, screenshot="C:/kane/steps/9-1-5/annotated.png", note=note)
+    v = Verdict(claim_id="c01", status="broken", reason="broken: browser step failed", evidence=Evidence(claim_id="c01", kind="browser", observation=obs))
+    text = brief_text(build_brief(doc, c, v, [], "x.md"), c, "x.md")
+    assert "runner note: kane: step failed" in text
+    assert "- root cause: waited for a change" in text and "- suggested fix: inspect the page" in text
+    assert "pack:" not in text
+    assert "screenshot: C:/kane/steps/9-1-5/annotated.png" in text
+    assert len(text.splitlines()) < 60
+
+
+def test_checkout_applies_a_diff_with_miscounted_hunk_header():
+    # the real Codex patch for the GitHub card: header says 7 lines, the hunk has 4
+    lines = [f"line {n}" for n in range(1, 15)] + ["", '4. In the left-hand sidebar click "Security & analysis".', "", "5. Next step.", "", "6. More.", "", "7. End."]
+    doc = ingest_text("\n".join(lines) + "\n", source="card.md")
+    co = make_checkout(doc)
+    diff = (
+        "--- a/card.md\n+++ b/card.md\n@@ -15,7 +15,7 @@\n \n"
+        '-4. In the left-hand sidebar click "Security & analysis".\n'
+        '+4. In the left-hand sidebar click "Advanced Security".\n'
+        " \n"
+    )
+    ok, message = co.apply(diff)
+    assert ok, message
+    assert '"Advanced Security"' in co.doc_path.read_text(encoding="utf-8")
