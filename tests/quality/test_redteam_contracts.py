@@ -51,15 +51,8 @@ def test_browser_claim_with_shell_evidence_is_not_proven():
     assert result.status == "unverifiable"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known gap: FakeBrowserRunner can echo the expected label and judge() calls it proven; "
-        "Attest has no simulation/verification mode or receipt promotion boundary yet."
-    ),
-)
 def test_simulation_cannot_mint_a_proven_browser_verdict():
-    """This must pass only after simulated observations are barred from verification."""
+    """Simulated observations are barred from verification (fail-closed sim gate)."""
     claim = _browser_claim()
     observation = FakeBrowserRunner().observe(claim, base_url="https://example.invalid")
     evidence = Evidence(claim_id=claim.id, kind="browser", observation=observation)
