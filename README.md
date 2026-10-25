@@ -1,5 +1,11 @@
 # The Kane Factory, powered by SyberWork
 
+> **Hack Day submission (team Attest, receipt S-RKCK):** the final event-day commit is
+> [`f8c6b3f`](https://github.com/SyberLabs/attest/commit/f8c6b3f3353e20a84174f5b6b240fb42e88e2b32)
+> on the `event-day` branch, finalized before 18:00 PDT. The receipt lists an earlier commit on
+> the same branch (`28edeb5`) because the form's commit field was not updated; correction
+> requested in help ticket H-0014.
+
 Docs and specs make promises. The Kane Factory checks every promise against the running app in
 a real browser, sends what fails to an agent, and closes a case only when Kane has proven the fix.
 Attest is the factory's first station: point it at a README, a quickstart, an AI's how-to answer
