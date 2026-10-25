@@ -54,4 +54,7 @@ if (-not (Test-Live)) {
     }
 }
 # one tab per beat run: close the previous live tab before starting a beat
-Start-Process "http://localhost:4848/?t=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+# ATTEST_NO_TAB=1 when the caller already has the live page open (scripted recordings)
+if (-not $env:ATTEST_NO_TAB) {
+    Start-Process "http://localhost:4848/?t=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+}
