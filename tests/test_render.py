@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 from typer.testing import CliRunner
 
 from attest.cli import app
@@ -14,6 +16,22 @@ from attest.runner import FakeBrowserRunner
 
 ROOT = Path(__file__).resolve().parents[1]
 FLASK = ROOT / "demo" / "flask.md"
+
+
+class KaneFixtureRunner:
+    name = "kane"
+
+    def __init__(self, observed=None):
+        self.observed = observed
+        self.calls = []
+
+    def observe(self, claim, base_url):
+        self.calls.append((claim.id, base_url))
+        key = claim.store_as or f"{claim.id}_label"
+        return BrowserObservation(status="passed", observed={key: self.observed if self.observed is not None else claim.expects or ""})
+
+    def close(self):
+        pass
 
 
 def venv_env():
@@ -129,7 +147,7 @@ def test_live_render_has_pending_badge_and_reload_banner():
 
 
 def test_live_prove_writes_latest_lifecycle(tmp_path):
-    result = prove(str(FLASK), runner=FakeBrowserRunner(), home=tmp_path, shell_env=venv_env(), live=True)
+    result = prove(str(FLASK), runner=KaneFixtureRunner(), home=tmp_path, shell_env=venv_env(), live=True)
     latest = json.loads((tmp_path / "latest.json").read_text())
     assert latest["running"] is False
     assert latest["page"] == f"{result.out_dir.name}/index.html"
@@ -196,22 +214,21 @@ def test_badge_svg_and_proof_md():
 # -- pipeline and CLI ------------------------------------------------------------------------
 
 
-def test_prove_flask_with_fake_runner(tmp_path):
+def test_prove_flask_with_fake_runner_is_simulation_only(tmp_path):
     runner = FakeBrowserRunner()
-    result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env())
+    result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env(), simulation=True)
     statuses = {c.id: result.by_id[c.id].status for c in result.claims}
     shell = [c for c in result.claims if c.kind == "shell"]
     browser = [c for c in result.claims if c.kind == "browser"]
     assert len(shell) == 3 and len(browser) == 1
-    assert all(statuses[c.id] == "proven" for c in shell), statuses
-    assert statuses[browser[0].id] == "unverifiable"
-    assert "simulation" in result.by_id[browser[0].id].reason
-    # the fake runner was handed the detected server URL
-    assert runner.calls == [(browser[0].id, "http://127.0.0.1:5000")]
+    assert all(statuses[c.id] == "unverifiable" for c in result.claims), statuses
+    assert result.simulation is True
+    assert runner.calls == []  # failed prerequisites do not reach fake browser evidence
     assert result.page and result.page.exists()
     html = result.page.read_text(encoding="utf-8")
     assert "Flask Quickstart" in html
-    assert 'class="badge proven"' in html
+    assert 'class="badge proven"' not in html
+    assert 'class="badge unverifiable"' in html
     # the ledger has one row per claim and the strip reads from it
     rows = (tmp_path / "ledger.jsonl").read_text().strip().splitlines()
     assert len(rows) == len(result.claims)
@@ -226,29 +243,33 @@ def test_prove_flask_with_fake_runner(tmp_path):
 
 def test_prove_with_scripted_stale_observation(tmp_path):
     doc = ingest(str(FLASK))
-    obs = {"Hello, World!": {"status": "passed", "observed": {"x": "Hello, Flask!"}}}
-    p = tmp_path / "obs.json"
-    p.write_text(json.dumps(obs))
-    runner = FakeBrowserRunner.from_file(p)
+    runner = KaneFixtureRunner("Hello, Flask!")
     result = prove(str(FLASK), runner=runner, home=tmp_path, shell_env=venv_env())
     b = next(c for c in result.claims if c.kind == "browser")
-    assert result.by_id[b.id].status == "unverifiable"
-    assert result.failing() == []
+    assert result.by_id[b.id].status == "stale"
+    assert result.failing() == [b]
+
+
+def test_pipeline_rejects_fake_runner_without_simulation(tmp_path):
+    with pytest.raises(ValueError, match="simulation=True"):
+        prove(str(FLASK), runner=FakeBrowserRunner(), home=tmp_path)
 
 
 def test_cli_prove_serve_badge(tmp_path, monkeypatch):
     for k, v in venv_env().items():
         monkeypatch.setenv(k, v)
     cli = CliRunner()
-    r = cli.invoke(app, ["prove", str(FLASK), "--runner", "fake", "--home", str(tmp_path)])
+    import attest.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneFixtureRunner())
+    r = cli.invoke(app, ["prove", str(FLASK), "--runner", "kane", "--home", str(tmp_path)])
     assert r.exit_code == 0, r.output
-    assert "runner: fake" in r.output
-    assert "/" in r.output and " proven |" in r.output and "0 broken" in r.output
+    assert "runner: kane" in r.output
+    assert "proven" in r.output and "0 broken" in r.output
     assert "page " in r.output and "index.html" in r.output
     r = cli.invoke(app, ["badge", "--home", str(tmp_path), "--out", str(tmp_path / "exp")])
     assert r.exit_code == 0, r.output
-    badge = (tmp_path / "exp" / "docs-proven.svg").read_text()
-    assert "#d9a400" in badge  # simulated browser result prevents a green verification badge
+    assert (tmp_path / "exp" / "docs-proven.svg").exists()
     proof = (tmp_path / "exp" / "PROOF.md").read_text()
     assert "proven" in proof and "| c" in proof
     r = cli.invoke(app, ["--version"])

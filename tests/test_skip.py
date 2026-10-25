@@ -25,6 +25,8 @@ def _claims():
 
 
 class RecordingRunner(FakeBrowserRunner):
+    name = "kane"
+
     def __init__(self):
         super().__init__()
         self.prepared = None
@@ -76,14 +78,14 @@ def test_cli_accepts_repeated_and_comma_separated_skip_ids_and_rejects_unknown(t
     _compile(monkeypatch)
     doc = tmp_path / "card.md"
     doc.write_text("Card\n", encoding="utf-8")
-    args = ["prove", str(doc), "--runner", "fake", "--skip", "c01,c03", "--skip", "c02", "--home", str(tmp_path / "home")]
+    args = ["prove", str(doc), "--runner", "fake", "--simulation", "--skip", "c01,c03", "--skip", "c02", "--home", str(tmp_path / "home")]
 
     result = CliRunner().invoke(app, args)
 
     assert result.exit_code == 0
     assert "3 claims" in result.output
 
-    unknown = CliRunner().invoke(app, ["prove", str(doc), "--runner", "fake", "--skip", "c99", "--home", str(tmp_path / "other-home")])
+    unknown = CliRunner().invoke(app, ["prove", str(doc), "--runner", "fake", "--simulation", "--skip", "c99", "--home", str(tmp_path / "other-home")])
     assert unknown.exit_code == 2
     assert "unknown claim id(s) 'c99'" in unknown.output
     assert "valid ids: c01, c02, c03" in unknown.output
