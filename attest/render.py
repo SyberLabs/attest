@@ -183,6 +183,17 @@ def _env() -> Environment:
     return env
 
 
+
+def logo_uri() -> str:
+    """The Kane Factory logo as a data URI (pages live in changing folders); empty if missing."""
+    import base64
+
+    path = Path(__file__).parent / "assets" / "kane-factory.png"
+    try:
+        return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+    except OSError:
+        return ""
+
 def render_page(
     doc: Doc,
     claims: list[Claim],
@@ -225,6 +236,7 @@ def render_page(
     tmpl = _env().get_template("index.html.j2")
     return tmpl.render(
         **view,
+        logo_uri=logo_uri(),
         title=title or _title_of(doc),
         doc=doc,
         blocks=blks,

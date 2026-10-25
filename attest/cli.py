@@ -457,7 +457,17 @@ def serve(
     if live:
         directory = home
         home.mkdir(parents=True, exist_ok=True)
-        (home / "index.html").write_text(LIVE_WRAPPER, encoding="utf-8")
+        from .render import logo_uri
+
+        wrapper = LIVE_WRAPPER
+        logo = logo_uri()
+        if logo:
+            wrapper = wrapper.replace("<title>Attest live</title>", f'<title>Attest live</title><link rel="icon" type="image/png" href="{logo}">', 1)
+            start = wrapper.find('<div class="logo" aria-hidden="true">')
+            if start != -1:
+                end = wrapper.find("</div>", start) + len("</div>")
+                wrapper = wrapper[:start] + f'<div class="logo" aria-hidden="true" style="background:none;padding:0;overflow:hidden"><img src="{logo}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>' + wrapper[end:]
+        (home / "index.html").write_text(wrapper, encoding="utf-8")
     elif doc is None:
         directory = _latest_dir(home)
     else:
