@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import difflib
 import html
+import json
 import re
 from urllib.parse import urlsplit
 from dataclasses import dataclass, field
@@ -182,6 +183,17 @@ def _env() -> Environment:
     return env
 
 
+
+def logo_uri() -> str:
+    """The Kane Factory logo as a data URI (pages live in changing folders); empty if missing."""
+    import base64
+
+    path = Path(__file__).parent / "assets" / "kane-factory.png"
+    try:
+        return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+    except OSError:
+        return ""
+
 def render_page(
     doc: Doc,
     claims: list[Claim],
@@ -224,6 +236,7 @@ def render_page(
     tmpl = _env().get_template("index.html.j2")
     return tmpl.render(
         **view,
+        logo_uri=logo_uri(),
         title=title or _title_of(doc),
         doc=doc,
         blocks=blks,
@@ -240,7 +253,68 @@ def render_page(
         now=now,
         authority=authority or {},
         receipts=receipts or {},
+        receipt_views=receipt_views(receipts or {}),
     )
+
+
+_DECISION_WORDS = {
+    "implementation_required": "implementation required",
+    "doc_repair_allowed": "doc repair allowed",
+    "doc_repair_denied": "doc repair refused",
+}
+_DISPOSITION_WORDS = {"handoff_implementation": "handed off for implementation"}
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def receipt_views(receipts: dict) -> dict:
+    """Compact, display-only summaries of each claim's receipt and ticket, read from disk.
+
+    Presentation only: a missing or unreadable file yields no summary, never an error.
+    """
+    views = {}
+    for claim_id, ref in (receipts or {}).items():
+        if not isinstance(ref, dict) or not ref.get("path"):
+            continue
+        path = Path(ref["path"])
+        receipt = _read_json(path)
+        if not receipt:
+            continue
+        case_id = str(receipt.get("case_id") or ref.get("case_id") or path.stem)
+        auth = receipt.get("authority") or {}
+        evidence = receipt.get("evidence") or {}
+        proposal = receipt.get("proposal") or {}
+        app = receipt.get("app") or {}
+        patch_sha = str(proposal.get("patch_sha256") or app.get("patch_sha256") or "")
+        decision = str(auth.get("decision") or "")
+        disposition = str(receipt.get("disposition") or "")
+        view = {
+            "case_id": case_id,
+            "worker": str(receipt.get("worker") or proposal.get("agent") or ""),
+            "decision": _DECISION_WORDS.get(decision, decision.replace("_", " ")),
+            "decision_key": decision,
+            "rule": str(auth.get("rule") or ""),
+            "disposition": _DISPOSITION_WORDS.get(disposition, disposition.replace("_", " ")),
+            "disposition_key": disposition,
+            "patch": patch_sha[:12],
+            "before": str((evidence.get("before") or {}).get("status") or ""),
+            "after": str((evidence.get("after") or {}).get("status") or ""),
+            "ticket_title": "",
+            "acceptance": "",
+        }
+        ticket_ref = receipt.get("ticket") or {}
+        if ticket_ref or ref.get("ticket"):
+            ticket = _read_json(path.parent.parent / "tickets" / f"{case_id}.json")
+            view["ticket_title"] = str(ticket.get("title") or (ticket_ref.get("title") if isinstance(ticket_ref, dict) else "") or ref.get("ticket_title") or "")
+            view["acceptance"] = str(ticket.get("acceptance") or "")
+        views[claim_id] = view
+    return views
 
 
 # -- presentation helpers (layout only: nothing here judges or counts claims) -----------------
@@ -369,7 +443,7 @@ def runner_saw(v: Verdict | None) -> str:
 
 def _now_actor(now: str) -> str:
     low = now.lower()
-    if "agent" in low or "codex" in low:
+    if "agent" in low or "codex" in low or "openai" in low or "implementing" in low:
         return "agent"
     if "kane" in low:
         return "kane"

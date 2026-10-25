@@ -1,13 +1,13 @@
 {
-  "sha256": "3068226432650f375771824d44a8ea0d2c319bb61d2c32747221e3d1334fadc4",
+  "sha256": "0ef7c70433b96f32c02aff500f72d59033fa8cce170871487a81d2f086facc81",
   "source": "README.md",
   "claims": [
     {
       "id": "c01",
       "kind": "shell",
       "span": {
-        "start_line": 19,
-        "end_line": 19,
+        "start_line": 50,
+        "end_line": 50,
         "text": "git clone https://github.com/SyberLabs/attest.git"
       },
       "command": "git clone https://github.com/SyberLabs/attest.git",
@@ -20,8 +20,8 @@
       "id": "c02",
       "kind": "shell",
       "span": {
-        "start_line": 25,
-        "end_line": 25,
+        "start_line": 56,
+        "end_line": 56,
         "text": "cd attest && python -m pip install ."
       },
       "command": "cd attest && python -m pip install .",
@@ -36,8 +36,8 @@
       "id": "c03",
       "kind": "shell",
       "span": {
-        "start_line": 37,
-        "end_line": 37,
+        "start_line": 66,
+        "end_line": 66,
         "text": "attest prove demo/flask.md"
       },
       "command": "attest prove demo/flask.md",
@@ -52,8 +52,8 @@
       "id": "c04",
       "kind": "shell",
       "span": {
-        "start_line": 47,
-        "end_line": 47,
+        "start_line": 76,
+        "end_line": 76,
         "text": "attest serve"
       },
       "command": "attest serve",
@@ -68,13 +68,13 @@
       "id": "c05",
       "kind": "browser",
       "span": {
-        "start_line": 50,
-        "end_line": 51,
-        "text": "Open http://localhost:4848/ in your browser. The dark strip fixed across the top of the page\nis headed \"Ledger\" and shows the claim counts for this document."
+        "start_line": 79,
+        "end_line": 80,
+        "text": "Open http://localhost:4848/ in your browser. The header at the top of the page shows the score\nfor this document and, when every claim held, the label \"all proven\"."
       },
       "command": null,
-      "objective": "Open http://localhost:4848/ and check for the text Ledger",
-      "expects": "Ledger",
+      "objective": "Open http://localhost:4848/ in your browser and check that the header shows the label \"all proven\".",
+      "expects": "all proven",
       "store_as": "c05_label",
       "depends_on": [
         "c04"
@@ -84,12 +84,12 @@
       "id": "c06",
       "kind": "browser",
       "span": {
-        "start_line": 53,
-        "end_line": 56,
-        "text": "Each claim has a badge in the left gutter next to the lines it came from. Hover a badge to read\nthe reason sentence. Click a badge to open the evidence drawer: the command and output tail for a\nshell step, the expected label next to the observed label for a browser step, and the brief and\ndiff for a step the loop repaired."
+        "start_line": 82,
+        "end_line": 85,
+        "text": "Each claim has a badge in the left gutter next to the lines it came from. Hover a badge for the\nreason; click it to open the evidence drawer: the command and output tail for a shell step, the\nexpected label beside the observed label (and Kane's screenshot) for a browser step, and the\nbrief, diff, authority decision and receipt for a step the loop handled."
       },
       "command": null,
-      "objective": "Click a badge in the left gutter and open the evidence drawer",
+      "objective": "Hover a badge in the left gutter and click it to open the evidence drawer, then inspect the drawer contents.",
       "expects": null,
       "store_as": "c06_label",
       "depends_on": [

@@ -174,6 +174,7 @@ def prove(
     live: bool = False,
     on_start=None,
     simulation: bool = False,
+    app_dir: Path | None = None,
 ) -> ProveResult:
     rules = rules or load_rules()
     if runner is None:
@@ -183,6 +184,13 @@ def prove(
     if simulation and getattr(runner, "name", None) != "fake":
         raise ValueError("simulation=True is only valid with the fake browser runner")
     doc = ingest(source)
+    candidate = None
+    if app_dir is not None:
+        # spec mode: the spec's shell steps serve a fresh copy of the app, never the original
+        from .implement import make_candidate
+
+        candidate = make_candidate(Path(app_dir), doc.sha256, home)
+        shell_env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
     claims = compile_doc(doc, llm=llm)
     uncovered = _uncompiled_required_lines(doc, claims)
     if uncovered:
@@ -248,6 +256,7 @@ def prove(
         )
         result._kane_runs_count = run_count  # type: ignore[attr-defined]
         result._session = session  # type: ignore[attr-defined]
+        result.candidate = candidate  # type: ignore[attr-defined]
         render_result(result, home, runner.name)
         if live:
             _write_live_page(result, home, runner.name, "Proof complete", False)

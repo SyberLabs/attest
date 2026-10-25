@@ -1,0 +1,29 @@
+* { box-sizing: border-box; }
+body { margin: 0; display: flex; min-height: 100vh; font: 14px/1.4 "Segoe UI", system-ui, sans-serif; color: #1f2937; background: #f3f4f6; }
+.side { width: 210px; background: #111827; color: #d1d5db; padding: 20px 14px; display: flex; flex-direction: column; }
+.brand { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 24px; }
+.brand span { color: #60a5fa; }
+nav a { display: block; padding: 8px 10px; border-radius: 6px; color: #d1d5db; text-decoration: none; margin-bottom: 2px; }
+nav a.active, nav a:hover { background: #1f2937; color: #fff; }
+.me { margin-top: auto; font-size: 12px; color: #9ca3af; }
+main { flex: 1; padding: 24px 32px; }
+.top { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
+.top h1 { margin: 0; font-size: 24px; }
+.crumb { color: #6b7280; }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+.kpi, .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; }
+.kpi .label { color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.kpi .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+.card { margin-bottom: 18px; }
+.card h2 { margin: 0 0 12px; font-size: 15px; }
+form { display: flex; gap: 8px; }
+input { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font: inherit; }
+#deal-name { flex: 1; }
+button { padding: 8px 14px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #f0f1f3; }
+th { color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.num { text-align: right; }
+.pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.pill.open { background: #dbeafe; color: #1d4ed8; }
+.pill.won { background: #dcfce7; color: #15803d; }

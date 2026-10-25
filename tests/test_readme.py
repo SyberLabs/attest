@@ -30,7 +30,8 @@ def test_readme_compiles_to_shell_and_browser_claims_offline():
     serve = next(c for c in shell if "attest serve" in c.command)
     browser = [c for c in claims if c.kind == "browser"]
     assert len(browser) >= 1
-    ledger_claim = next(c for c in browser if c.expects == "Ledger")
+    # the page header's score label (the redesign replaced the old "Ledger" strip heading)
+    ledger_claim = next(c for c in browser if (c.expects or "").casefold() == "all proven")
     assert serve.id in ledger_claim.depends_on
     assert ledger_claim.store_as == f"{ledger_claim.id}_label"
     for c in claims:

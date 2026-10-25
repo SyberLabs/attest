@@ -252,3 +252,14 @@ def test_requote_follows_a_replaced_quote_without_a_model():
     assert requote_claim(old, old.span).expects == "Vite + React"
     two = Span(start_line=3, end_line=3, text='Shows "A" and "B".')
     assert requote_claim(old, two).expects == "Vite + React"
+
+
+def test_openai_options_follow_model_and_service_tier(monkeypatch):
+    from attest.compiler import openai_options
+
+    monkeypatch.delenv("ATTEST_OPENAI_SERVICE_TIER", raising=False)
+    monkeypatch.delenv("ATTEST_REASONING_EFFORT", raising=False)
+    assert openai_options("gpt-6-sol") == {"reasoning": {"effort": "medium"}}
+    assert openai_options("gpt-4.1") == {}
+    monkeypatch.setenv("ATTEST_OPENAI_SERVICE_TIER", "priority")
+    assert openai_options("gpt-6-sol")["service_tier"] == "priority"

@@ -167,6 +167,36 @@ def test_render_hides_grounding_heading_when_all_lines_are_unavailable():
     assert "Grounding" not in html
 
 
+def test_looped_drawer_shows_receipt_summary_inline_and_fails_soft(tmp_path):
+    import json
+
+    doc = ingest(str(FLASK))
+    f = doc.fences[2]
+    claim = Claim(id="c01", kind="shell", span=Span(start_line=f.start_line, end_line=f.end_line, text=f.text), command=f.text)
+    before = Verdict(claim_id="c01", status="broken", reason="failed", evidence=Evidence(claim_id="c01", kind="shell", command=f.text, exit_code=1))
+    after = Verdict(claim_id="c01", status="proven", reason="ok", evidence=Evidence(claim_id="c01", kind="shell", command=f.text, exit_code=0))
+    brief = Brief(claim_id="c01", verdict=before, doc_excerpt="excerpt", patch="--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n")
+    strip = {"claims": 1, "proven": 1, "stale": 0, "broken": 0, "unverifiable": 0, "skipped": 0, "turn": 1, "loops_attempted": 1, "loops_closed": 1}
+    receipt = {
+        "case_id": "abc-c01-1", "worker": "openai:gpt-test", "disposition": "repaired",
+        "authority": {"decision": "doc_repair_allowed", "rule": "docs may follow the app"},
+        "proposal": {"agent": "openai:gpt-test", "patch_sha256": "0123456789abcdef" * 4},
+        "evidence": {"before": {"status": "broken"}, "after": {"status": "proven"}},
+    }
+    path = tmp_path / "receipts" / "abc-c01-1.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(receipt), encoding="utf-8")
+    page = render_page(doc, [claim], [after], strip, briefs={"c01": brief}, prior_verdicts={"c01": before},
+                       authority={"c01": {"decision": "doc_repair_allowed"}}, receipts={"c01": {"case_id": "abc-c01-1", "path": str(path)}})
+    assert 'class="rcpt"' in page and "openai:gpt-test" in page and "doc repair allowed" in page
+    assert "docs may follow the app" in page and "repaired" in page and "0123456789ab" in page
+    assert "0123456789abc<" not in page and "../receipts/abc-c01-1.json" in page
+    # a missing receipt file falls back to the plain authority line
+    missing = render_page(doc, [claim], [after], strip, briefs={"c01": brief}, prior_verdicts={"c01": before},
+                          authority={"c01": {"decision": "doc_repair_allowed"}}, receipts={"c01": {"case_id": "gone", "path": str(tmp_path / "gone.json")}})
+    assert 'class="rcpt"' not in missing and "Authority: allowed" in missing
+
+
 def test_badge_svg_and_proof_md():
     svg = badge_svg(11, 12)
     assert svg.startswith("<svg") and "11/12 proven" in svg
