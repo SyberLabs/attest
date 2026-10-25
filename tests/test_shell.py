@@ -197,6 +197,23 @@ def test_recipe_only_session_executes_only_exact_approved_recipe(tmp_path):
         assert "no approved recipe" in blocked.stdout_tail
 
 
+class _ScriptedVerifierRunner:
+    """Returns scripted observations as a live verifier would; FakeBrowserRunner is simulation-only."""
+
+    name = "kane"
+
+    def __init__(self, observations):
+        self.observations = observations
+        self.calls = []
+
+    def observe(self, claim, base_url):
+        self.calls.append((claim.id, base_url))
+        return self.observations[claim.id]
+
+    def close(self):
+        pass
+
+
 def test_pipeline_judges_each_browser_claim_before_running_the_next(tmp_path):
     first = Claim(
         id="c01",
@@ -215,7 +232,7 @@ def test_pipeline_judges_each_browser_claim_before_running_the_next(tmp_path):
         store_as="delete_label",
         depends_on=["c01"],
     )
-    runner = FakeBrowserRunner({"c01": BrowserObservation(status="failed")})
+    runner = _ScriptedVerifierRunner({"c01": BrowserObservation(status="failed")})
     _, verdicts, session = execute([first, second], runner, Rules(), tmp_path)
     try:
         assert [claim_id for claim_id, _ in runner.calls] == ["c01"]
