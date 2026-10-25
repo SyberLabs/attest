@@ -197,7 +197,7 @@ def build_ticket(case_id: str, claim: Claim, verdict, doc, candidate: Candidate)
         "title": ticket_title(claim),
         "spec": {"source": doc.source, "lines": [claim.span.start_line, claim.span.end_line], "text": claim.span.text},
         "acceptance": claim.span.text.strip(),
-        "expects": claim.expects,
+        # no "expects" key: attest.ticket/v0 (SyberLabs/attest#11) does not have one and SyberWork rejects unknown fields
         "observed": observed_of(verdict),
         "app": {"root": candidate.posix, "files": app_files(candidate)},
         "output": "unified diff in git format with paths a/<file> and b/<file> relative to app.root",
