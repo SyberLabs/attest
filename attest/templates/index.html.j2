@@ -347,16 +347,20 @@
             <div class="ba">
               <div class="ba-card {{ before.status if before else 'unverifiable' }}">
                 <div class="ba-k">Before {% if before %}<span class="st {{ before.status }}">{{ icon(before.status) }}{{ before.status }}</span>{% endif %}</div>
-                {% if dv.said %}<div class="ba-row said"><span class="k">Doc said</span><span class="v">{{ dv.said }}</span></div>{% endif %}
+                {% if dv.said %}{% set said = dv.said ~ ('"' if dv.said.count('"') % 2 == 1 else '') %}<div class="ba-row said"><span class="k">Doc said</span><span class="v">{{ said }}</span></div>{% endif %}
                 {% if saw_before.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw_before.get(c.id) }}</span></div>{% endif %}
                 {% if before %}<div class="ba-why">{{ before.reason }}</div>{% endif %}
               </div>
               <div class="ba-arrow" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 8h11M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-              <div class="ba-card {{ v.status if v else 'unverifiable' }}">
-                <div class="ba-k">After {% if v %}<span class="st {{ v.status }}">{{ icon(v.status) }}{{ v.status }}</span>{% endif %}</div>
-                {% if dv.says %}<div class="ba-row"><span class="k">Doc says</span><span class="v">{{ dv.says }}</span></div>{% endif %}
+              {# mid-loop the claim has not been re-judged yet: its verdict is still the "before" one #}
+              {% set rechecking = before and v and v.reason == before.reason %}
+              <div class="ba-card {{ 'unverifiable' if rechecking else (v.status if v else 'unverifiable') }}">
+                <div class="ba-k">After {% if rechecking %}<span class="st unverifiable">Kane is re-checking</span>{% elif v %}<span class="st {{ v.status }}">{{ icon(v.status) }}{{ v.status }}</span>{% endif %}</div>
+                {% if dv.says %}{% set says = dv.says ~ ('"' if dv.says.count('"') % 2 == 1 else '') %}<div class="ba-row"><span class="k">Doc says</span><span class="v">{{ says }}</span></div>{% endif %}
+                {% if not rechecking %}
                 {% if saw.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw.get(c.id) }}</span></div>{% endif %}
                 {% if v %}<div class="ba-why">{{ v.reason }}</div>{% endif %}
+                {% endif %}
               </div>
             </div>
             <div class="diffbox">
