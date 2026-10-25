@@ -275,3 +275,19 @@ def test_multi_file_diff_applies_with_recount(tmp_path):
     ok, message = cand.apply("".join(chunks))
     assert ok, message
     assert (cand.root / "index.html").read_text(encoding="utf-8") == "<p>y</p>\n"
+
+
+def test_worker_command_rejects_bad_tickets_and_prints_the_diff(monkeypatch, capsys):
+    # the command SyberWork dispatch routes tickets to: ticket JSON on stdin, diff on stdout
+    import io
+
+    import attest.worker as worker
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("not json"))
+    assert worker.main() == 2
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"schema": "other"})))
+    assert worker.main() == 2
+    monkeypatch.setattr(worker, "_openai_worker", lambda ticket, timeout: "diff --git a/app.js b/app.js\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"schema": "attest.ticket/v0"})))
+    assert worker.main() == 0
+    assert capsys.readouterr().out.startswith("diff --git a/app.js")
