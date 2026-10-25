@@ -15,6 +15,27 @@ if (Test-Path ".env") {
 }
 # the loop agent: the OpenAI API writes the doc patch (attest.loop.call_openai_agent)
 $env:ATTEST_AGENT_CMD = "openai"
+# the doc agent and the spec worker both use gpt-6-sol on the priority ("fast") tier
+$env:ATTEST_AGENT_MODEL = "gpt-6-sol"
+$env:ATTEST_OPENAI_SERVICE_TIER = "priority"
+
+# The live tab shows the beat title and a countdown to the next beat from .attest\scene.json.
+$global:AttestScenePath = Join-Path $repo ".attest\scene.json"
+function Set-Scene([string]$title, [string]$next = "", [int]$seconds = 0) {
+    try {
+        $global:AttestSceneTitle = $title
+        $until = 0
+        if ($seconds -gt 0) { $until = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + $seconds }
+        $json = @{ title = $title; next = $next; until = $until } | ConvertTo-Json -Compress
+        $dir = Split-Path -Parent $global:AttestScenePath
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        $tmp = "$($global:AttestScenePath).tmp"
+        [System.IO.File]::WriteAllText($tmp, $json)
+        Move-Item -LiteralPath $tmp -Destination $global:AttestScenePath -Force
+    } catch {
+        # the scene title is decoration; never stop the demo for it
+    }
+}
 
 function Test-Live {
     try {
@@ -31,5 +52,9 @@ if (-not (Test-Live)) {
     while (-not (Test-Live) -and (Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 300
     }
-    Start-Process "http://localhost:4848/"
+}
+# one tab per beat run: close the previous live tab before starting a beat
+# ATTEST_NO_TAB=1 when the caller already has the live page open (scripted recordings)
+if (-not $env:ATTEST_NO_TAB) {
+    Start-Process "http://localhost:4848/?t=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
 }

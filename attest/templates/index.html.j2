@@ -7,12 +7,25 @@
 {%- else -%}<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 2.2"/></svg>
 {%- endif -%}
 {%- endmacro -%}
+{%- macro receipt_strip(rv, ref) -%}
+<div class="rcpt">
+  <dl class="rcpt-g">
+    {% if rv.worker %}<div><dt>Worker</dt><dd>{{ rv.worker }}</dd></div>{% endif %}
+    <div><dt>Authority</dt><dd>{{ rv.decision or 'none' }}{% if rv.rule %}<small>{{ rv.rule }}</small>{% endif %}</dd></div>
+    <div><dt>Disposition</dt><dd class="disp {{ rv.disposition_key }}">{{ rv.disposition or 'pending' }}</dd></div>
+    {% if rv.patch %}<div><dt>Patch sha256</dt><dd><code>{{ rv.patch }}</code></dd></div>{% endif %}
+    {% if rv.before or rv.after %}<div><dt>Status</dt><dd><span class="mini {{ rv.before }}">{{ rv.before or '?' }}</span> <span class="to" aria-label="then">&rarr;</span> <span class="mini {{ rv.after }}">{{ rv.after or '?' }}</span></dd></div>{% endif %}
+  </dl>
+  <div class="rcpt-f"><span>Receipt <code>{{ rv.case_id }}</code></span><span class="rcpt-links"><a href="../receipts/{{ rv.case_id }}.json">receipt</a>{% if ref.get('ticket') %} &middot; <a href="{{ ref.get('ticket') }}">ticket</a>{% endif %}</span></div>
+</div>
+{%- endmacro -%}
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} &middot; Attest</title>
+{% if logo_uri %}<link rel="icon" type="image/png" href="{{ logo_uri }}">{% endif %}
 <style>
   :root {
     --bg: #f6f8fa; --card: #ffffff; --fg: #1f2328; --muted: #59636e; --faint: #818b98;
@@ -184,6 +197,29 @@
   .diff .del { background: #ffebe9; color: #82071e; } .diff .del mark { background: #ffcecb; color: inherit; border-radius: 3px; padding: 0 1px; }
   .diff .hunk { color: #0550ae; background: #ddf4ff; } .diff .meta { color: var(--faint); }
   .nopatch { padding: 10px 12px; color: var(--muted); }
+  .impl { border: 1px solid var(--proven-line); background: #effcf2; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+  .impl.open { border-color: var(--broken-line); background: var(--broken-bg); }
+  .impl-k { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--agent); margin-bottom: 4px; }
+  .impl.open .impl-k { color: var(--broken); }
+  .impl-t { font-size: 15px; font-weight: 650; line-height: 1.3; word-break: break-word; }
+  .impl-n { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+  .impl-lbl { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--faint); margin-bottom: 1px; }
+  .impl-acc { margin-top: 8px; font-size: 13px; line-height: 1.45; word-break: break-word; }
+  .rcpt { border: 1px solid var(--line); border-radius: 10px; background: #fff; margin-bottom: 12px; overflow: hidden; }
+  .rcpt-g { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); margin: 0; }
+  .rcpt-g > div { padding: 8px 12px; min-width: 0; box-shadow: inset -1px 0 0 var(--line-soft), inset 0 -1px 0 var(--line-soft); }
+  .rcpt-g dt { color: var(--faint); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+  .rcpt-g dd { margin: 2px 0 0; font-size: 13px; font-weight: 600; word-break: break-word; }
+  .rcpt-g dd small { display: block; font-size: 11.5px; font-weight: 400; color: var(--muted); line-height: 1.35; margin-top: 1px; }
+  .rcpt-g code { font-size: 12px; }
+  .rcpt-g .disp.implemented, .rcpt-g .disp.repaired { color: var(--proven); }
+  .rcpt-g .disp.unresolved { color: var(--broken); } .rcpt-g .disp.handoff_implementation { color: var(--agent); }
+  .mini { font-size: 10.5px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+  .mini.proven { color: var(--proven); } .mini.stale { color: var(--stale); } .mini.broken { color: var(--broken); }
+  .to { color: var(--faint); font-weight: 400; }
+  .rcpt-f { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 5px 12px; margin-top: -1px; border-top: 1px solid var(--line-soft); background: var(--bg); font-size: 11.5px; color: var(--faint); }
+  .rcpt-f code { font-size: 11px; background: none; padding: 0; color: var(--muted); }
+  .rcpt-links a { color: var(--muted); } .rcpt-links a:hover { color: var(--accent); }
   footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 26px; }
 
   @media (max-width: 560px) {
@@ -193,13 +229,14 @@
     .ba { grid-template-columns: 1fr; gap: 6px; } .ba-arrow { transform: rotate(90deg); height: 20px; }
     .chips .meta { margin-left: 0; }
   }
+.logo.brand{background:none;padding:0;overflow:hidden}.logo.brand img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
 </style>
 </head>
 <body class="{{ 'live' if live else 'final' }}">
 <header class="top" id="ledger-strip">
   <div class="top-in">
     <div class="top-row">
-      <div class="logo" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3 8.6l3.2 3.2L13 4.6" fill="none" stroke="#4ac26b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      {% if logo_uri %}<div class="logo brand" aria-hidden="true"><img src="{{ logo_uri }}" alt=""></div>{% else %}<div class="logo" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3 8.6l3.2 3.2L13 4.6" fill="none" stroke="#4ac26b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>{% endif %}
       <div class="titles">
         <h1>{{ title }}</h1>
         <div class="sub">Attest proof of <b>{{ doc_name }}</b>{% if doc.commit %} &middot; commit {{ doc.commit[:7] }}{% endif %}</div>
@@ -265,29 +302,67 @@
             {% set closed = v and v.status == 'proven' %}
             <div class="fix-head">
               {% set refused = authority.get(c.id, {}).get('decision') == 'doc_repair_denied' %}
-              <span class="tag{% if not closed %} failed{% endif %}">{% if closed %}Caught and fixed{% elif refused %}Repair refused{% else %}Fix attempted{% endif %}</span>
+              {% set implementing = authority.get(c.id, {}).get('decision') == 'implementation_required' %}
+              <span class="tag{% if not closed %} failed{% endif %}">{% if implementing %}{% if closed %}Implemented{% else %}Ticket open{% endif %}{% elif closed %}Caught and fixed{% elif refused %}Repair refused{% else %}Fix attempted{% endif %}</span>
               <span class="line">Line {{ c.span.start_line }} <span>&middot; {{ c.kind }} claim &middot; {{ c.id }}</span></span>
               <button type="button" class="x" data-close="drawer-{{ c.id }}">close</button>
             </div>
             {% set auth = authority.get(c.id, {}) %}
             {% set receipt = receipts.get(c.id, {}) %}
-            <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}</p>
+            {% set rv = receipt_views.get(c.id) %}
+            {% if not rv %}
+            <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% elif auth.get('decision') == 'implementation_required' %}implementation required{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}{% if receipt.get('ticket') %} &middot; <a href="{{ receipt.get('ticket') }}">Ticket</a>{% endif %}</p>
+            {% elif auth.get('decision') != 'implementation_required' %}{{ receipt_strip(rv, receipt) }}{% endif %}
             {% if auth.get('decision') == 'doc_repair_denied' %}
               <div class="nopatch"><b>DOC REPAIR REFUSED: implementation handoff</b><br>The application must change, not the doc.</div>
-            {% else %}
+            {% elif auth.get('decision') == 'implementation_required' %}
+            <div class="impl{% if not closed %} open{% endif %}">
+              <div class="impl-k">Missing capability: {% if closed %}implemented by {{ auth.get('agent') or 'OpenAI' }}{% else %}ticket open{% endif %}</div>
+              {% if rv and rv.ticket_title %}
+              <div class="impl-t"><span class="impl-lbl">Ticket</span>{{ rv.ticket_title }}</div>
+              {% if rv.acceptance %}<div class="impl-acc"><span class="impl-lbl">Acceptance criterion</span>{{ rv.acceptance }}</div>{% endif %}
+              {% else %}
+              <div class="impl-t">{% if receipt.get('ticket') %}<a href="{{ receipt.get('ticket') }}">{{ receipt.get('ticket_title') }}</a>{% else %}{{ receipt.get('ticket_title') }}{% endif %}</div>
+              {% endif %}
+              <div class="impl-n">The spec is the contract: the doc stays as written and the app changed in a candidate copy.</div>
+            </div>
+            {% if rv %}{{ receipt_strip(rv, receipt) }}{% endif %}
             <div class="ba">
               <div class="ba-card {{ before.status if before else 'unverifiable' }}">
                 <div class="ba-k">Before {% if before %}<span class="st {{ before.status }}">{{ icon(before.status) }}{{ before.status }}</span>{% endif %}</div>
-                {% if dv.said %}<div class="ba-row said"><span class="k">Doc said</span><span class="v">{{ dv.said }}</span></div>{% endif %}
+                {% if c.expects %}<div class="ba-row"><span class="k">Spec expects</span><span class="v">{{ c.expects }}</span></div>{% endif %}
                 {% if saw_before.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw_before.get(c.id) }}</span></div>{% endif %}
                 {% if before %}<div class="ba-why">{{ before.reason }}</div>{% endif %}
               </div>
               <div class="ba-arrow" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 8h11M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
               <div class="ba-card {{ v.status if v else 'unverifiable' }}">
                 <div class="ba-k">After {% if v %}<span class="st {{ v.status }}">{{ icon(v.status) }}{{ v.status }}</span>{% endif %}</div>
-                {% if dv.says %}<div class="ba-row"><span class="k">Doc says</span><span class="v">{{ dv.says }}</span></div>{% endif %}
                 {% if saw.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw.get(c.id) }}</span></div>{% endif %}
                 {% if v %}<div class="ba-why">{{ v.reason }}</div>{% endif %}
+              </div>
+            </div>
+            <div class="diffbox">
+              <div class="diffbox-h"><span><b>App change</b> from {{ auth.get('agent') or 'OpenAI' }} &middot; applied to the candidate app, never the doc</span><span>{{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }}</span></div>
+              {% if brief.patch %}<pre class="diff">{% for r in dv.rows %}<span class="{{ r.kind }}">{{ r.html }}</span>{% endfor %}</pre>{% else %}<div class="nopatch">no patch</div>{% endif %}
+            </div>
+            {% else %}
+            <div class="ba">
+              <div class="ba-card {{ before.status if before else 'unverifiable' }}">
+                <div class="ba-k">Before {% if before %}<span class="st {{ before.status }}">{{ icon(before.status) }}{{ before.status }}</span>{% endif %}</div>
+                {% if dv.said %}{% set said = dv.said ~ ('"' if dv.said.count('"') % 2 == 1 else '') %}<div class="ba-row said"><span class="k">Doc said</span><span class="v">{{ said }}</span></div>{% endif %}
+                {% if saw_before.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw_before.get(c.id) }}</span></div>{% endif %}
+                {% if before %}<div class="ba-why">{{ before.reason }}</div>{% endif %}
+              </div>
+              <div class="ba-arrow" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 8h11M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              {# mid-loop the claim has not been re-judged yet: its verdict is still the "before" one #}
+              {% set rechecking = before and v and v.reason == before.reason %}
+              <div class="ba-card {{ 'unverifiable' if rechecking else (v.status if v else 'unverifiable') }}">
+                <div class="ba-k">After {% if rechecking %}<span class="st unverifiable">Kane is re-checking</span>{% elif v %}<span class="st {{ v.status }}">{{ icon(v.status) }}{{ v.status }}</span>{% endif %}</div>
+                {% if dv.says %}{% set says = dv.says ~ ('"' if dv.says.count('"') % 2 == 1 else '') %}<div class="ba-row"><span class="k">Doc says</span><span class="v">{{ says }}</span></div>{% endif %}
+                {% if not rechecking %}
+                {% if saw.get(c.id) %}<div class="ba-row"><span class="k">{{ 'Kane saw' if c.kind == 'browser' else 'Runner saw' }}</span><span class="v">{{ saw.get(c.id) }}</span></div>{% endif %}
+                {% if v %}<div class="ba-why">{{ v.reason }}</div>{% endif %}
+                {% endif %}
               </div>
             </div>
             <div class="diffbox">
@@ -338,7 +413,7 @@
             {% endif %}
           </div>
           {% if brief %}
-            <details><summary>Brief sent to the agent ({{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }})</summary><pre><code>{{ brief.doc_excerpt }}</code></pre></details>
+            <details><summary>{% if authority.get(c.id, {}).get('decision') == 'implementation_required' %}Ticket sent to the implementation agent{% else %}Brief sent to the agent{% endif %} ({{ brief.attempts }} attempt{{ '' if brief.attempts == 1 else 's' }})</summary><pre><code>{{ brief.doc_excerpt }}</code></pre></details>
             {% set grounding = grounding_lines.get(c.id, []) %}{% if grounding %}<details open><summary>Grounding</summary><ul class="ground">{% for g in grounding %}<li>{{ g }}</li>{% endfor %}</ul></details>{% endif %}
           {% endif %}
         </div>

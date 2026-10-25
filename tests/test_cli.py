@@ -160,3 +160,15 @@ def test_live_wrapper_has_terminal_pane_that_polls_live_log(tmp_path, monkeypatc
     assert 'fetch("live.log",{cache:"no-store"})' in page and "setInterval(tail,1000)" in page
     assert '<iframe id="page">' in page
     assert "http" not in page.split("<script>")[0].replace("http-equiv", "")  # offline: no external assets
+
+
+def test_live_wrapper_has_factory_stage_bar_and_scene():
+    from attest.cli import LIVE_WRAPPER as page
+
+    assert 'id="stages"' in page
+    for stage in ("Spec", "Kane", "Ticket", "Worker", "Kane re-check", "Outcome"):
+        assert f'"{stage}"' in page
+    assert "Kane is checking" in page and "Issuing ticket" in page and "re-checking" in page and "Proof complete" in page
+    assert 'fetch("scene.json",{cache:"no-store"})' in page and 'id="next"' in page
+    assert "prefers-reduced-motion" in page
+    assert page.isascii() and "—" not in page

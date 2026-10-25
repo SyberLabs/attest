@@ -1,0 +1,105 @@
+{
+  "sha256": "40b13fa346413c470dbd37b9c7a18bff54fda81052a60be289fd83d3c59c594e",
+  "source": "README.md",
+  "claims": [
+    {
+      "id": "c01",
+      "kind": "shell",
+      "span": {
+        "start_line": 44,
+        "end_line": 44,
+        "text": "git clone https://github.com/SyberLabs/attest.git"
+      },
+      "command": "git clone https://github.com/SyberLabs/attest.git",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": []
+    },
+    {
+      "id": "c02",
+      "kind": "shell",
+      "span": {
+        "start_line": 50,
+        "end_line": 50,
+        "text": "cd attest && python -m pip install ."
+      },
+      "command": "cd attest && python -m pip install .",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c01"
+      ]
+    },
+    {
+      "id": "c03",
+      "kind": "shell",
+      "span": {
+        "start_line": 60,
+        "end_line": 60,
+        "text": "attest prove demo/flask.md"
+      },
+      "command": "attest prove demo/flask.md",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c02"
+      ]
+    },
+    {
+      "id": "c04",
+      "kind": "shell",
+      "span": {
+        "start_line": 70,
+        "end_line": 70,
+        "text": "attest serve"
+      },
+      "command": "attest serve",
+      "objective": null,
+      "expects": null,
+      "store_as": null,
+      "depends_on": [
+        "c03"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "browser",
+      "span": {
+        "start_line": 73,
+        "end_line": 74,
+        "text": "Open http://localhost:4848/ in your browser. The header at the top of the page shows the score\nfor this document and, when every claim held, the label \"all proven\"."
+      },
+      "command": null,
+      "objective": "Open http://localhost:4848/ in your browser and check that the header shows the label \"all proven\".",
+      "expects": "all proven",
+      "store_as": "c05_label",
+      "depends_on": [
+        "c04"
+      ]
+    },
+    {
+      "id": "c06",
+      "kind": "browser",
+      "span": {
+        "start_line": 76,
+        "end_line": 79,
+        "text": "Each claim has a badge in the left gutter next to the lines it came from. Hover a badge for the\nreason; click it to open the evidence drawer: the command and output tail for a shell step, the\nexpected label beside the observed label (and Kane's screenshot) for a browser step, and the\nbrief, diff, authority decision and receipt for a step the loop handled."
+      },
+      "command": null,
+      "objective": "Hover a badge in the left gutter and click it to open the evidence drawer, then inspect the drawer contents.",
+      "expects": null,
+      "store_as": "c06_label",
+      "depends_on": [
+        "c04",
+        "c05"
+      ]
+    }
+  ],
+  "meta": {
+    "mode": "llm",
+    "attempts": 1
+  }
+}

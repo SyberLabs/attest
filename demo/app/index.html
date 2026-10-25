@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Acme CRM</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<aside class="side">
+  <div class="brand">Acme <span>CRM</span></div>
+  <nav>
+    <a class="active" href="#">Deals</a>
+    <a href="#">Contacts</a>
+    <a href="#">Accounts</a>
+    <a href="#">Reports</a>
+  </nav>
+  <div class="me">Signed in as <b>Dana Reyes</b><br>Sales, West</div>
+</aside>
+<main>
+  <header class="top">
+    <h1>Deals</h1>
+    <span class="crumb">Pipeline / Q4 2026</span>
+  </header>
+  <section class="kpis">
+    <div class="kpi"><div class="label">Open pipeline</div><div class="value" id="kpi-open">$0</div></div>
+    <div class="kpi"><div class="label">Won this quarter</div><div class="value" id="kpi-won">$0</div></div>
+    <div class="kpi"><div class="label">Open deals</div><div class="value" id="kpi-count">0</div></div>
+  </section>
+  <section class="card">
+    <h2>New deal</h2>
+    <form id="deal-form">
+      <input id="deal-name" placeholder="Deal name" aria-label="Deal name">
+      <input id="deal-amount" placeholder="Amount" aria-label="Amount" inputmode="numeric">
+      <button type="submit">Add deal</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Pipeline</h2>
+    <table>
+      <thead><tr><th>Deal</th><th>Account owner</th><th class="num">Amount</th><th>Status</th></tr></thead>
+      <tbody id="deals"></tbody>
+    </table>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
