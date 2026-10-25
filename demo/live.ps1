@@ -52,5 +52,6 @@ if (-not (Test-Live)) {
     while (-not (Test-Live) -and (Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 300
     }
-    Start-Process "http://localhost:4848/"
 }
+# one tab per beat run: close the previous live tab before starting a beat
+Start-Process "http://localhost:4848/?t=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"

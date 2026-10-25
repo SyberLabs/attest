@@ -1,0 +1,9 @@
+{
+  "default": "attest-openai",
+  "workers": {
+    "attest-openai": {
+      "type": "command",
+      "cmd": ["{python}", "-m", "attest.worker"]
+    }
+  }
+}
