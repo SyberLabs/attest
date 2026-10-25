@@ -99,7 +99,9 @@ iframe{display:block;border:0;width:100%;height:100%;background:var(--bg)}
 <section class="doc"><iframe id="page"></iframe></section>
 </div>
 <script>
-// the factory stages, lit from the latest.json "now" text (presentation only)
+// the factory stages, lit from the latest.json "now" text (presentation only).
+// The doc frame reloads when the page path changes or a run starts or ends: a spec renders to
+// the same path every run, and only the live render refreshes itself.
 const STAGES=["Spec","Kane","Ticket","Worker","Kane re-check","Outcome"];
 const CHECK='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ol=document.getElementById("stages");document.getElementById("page").title="live document";
@@ -133,7 +135,7 @@ function advance(now,running){
     if(i===cur)li.setAttribute("aria-current","step");else li.removeAttribute("aria-current");
   });
 }
-let seen="";async function poll(){try{let j=await fetch("latest.json",{cache:"no-store"}).then(r=>r.json());document.getElementById("strip").className="bar"+(j.running?" on":"");document.getElementById("state").textContent=j.running?"live":"done";document.getElementById("now").textContent=j.now||"";advance(j.now,j.running);if(j.page&&j.page!==seen){seen=j.page;document.querySelector("iframe").src=j.page+"?v="+Date.now();}}catch(e){}}poll();setInterval(poll,1500);
+let seen="";async function poll(){try{let j=await fetch("latest.json",{cache:"no-store"}).then(r=>r.json());document.getElementById("strip").className="bar"+(j.running?" on":"");document.getElementById("state").textContent=j.running?"live":"done";document.getElementById("now").textContent=j.now||"";advance(j.now,j.running);let key=j.page+"|"+!!j.running;if(j.page&&key!==seen){seen=key;document.querySelector("iframe").src=j.page+"?v="+Date.now();}}catch(e){}}poll();setInterval(poll,1500);
 // scene.json (written by the demo scripts): the beat title and the countdown to the next beat
 let scene={};
 function drawScene(){
