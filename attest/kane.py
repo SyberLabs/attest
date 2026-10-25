@@ -102,6 +102,7 @@ def retarget(text: str, base_url: str | None) -> str:
 
 
 _CLICKS = re.compile(r"\b(?:click|clicks|select|choose|tap|press|open)\b", re.I)
+_CLICKED = re.compile(r"\b(?:click|clicks|select|choose|tap|press)\s+(?:on\s+)?(?:the\s+)?(?:[\w-]+\s+){0,3}?\"([^\"]+)\"", re.I)
 
 
 def _compound(action: str) -> bool:
@@ -119,8 +120,12 @@ def step_body(claim: Claim, base_url: str | None = None) -> str:
     if claim.expects and claim.expects.startswith(("http://", "https://")):
         parts.append(f"Store the URL of the current page as '{key}'.")
     elif claim.expects and re.search(r"\b(?:click|clicks|select|choose|tap|press|toggle|check the box)\b", action, re.I):
-        if re.search(r"changes? to", claim.objective or "", re.I):
-            parts.append(f"Store the exact visible text of that control after the click as '{key}'.")
+        # only labels right after a click verb are controls; other quotes are text to type
+        labels = [q.casefold() for q in _CLICKED.findall(action)]
+        if claim.expects.casefold() not in labels:
+            # the doc promises an outcome of the click ("count is 1", a status "Won"), not the
+            # control's own label ("Mark as won"): read the page after acting
+            parts.append(f"Store the exact visible text on the page that is closest to \"{claim.expects}\" after the click as '{key}'.")
         elif _compound(action):
             # the target only exists after an earlier click (a menu item): read it last
             parts.append(f"Store the exact visible text of the last menu item, link or button you clicked as '{key}'.")
@@ -467,6 +472,11 @@ class KaneBrowserRunner:
             wrapper += ["--commit", sha]
         return wrapper + ["--"] + cmd
 
+    def forget(self, claim_ids) -> None:
+        """Drop cached observations so the next observe() runs Kane again (the app changed)."""
+        for cid in claim_ids:
+            self.results.pop(cid, None)
+
     def cached(self, claim_id: str) -> BrowserObservation | None:
         """The latest observation for a claim, from whichever file run produced it."""
         hit = self.results.get(claim_id)
@@ -486,7 +496,8 @@ class KaneBrowserRunner:
             cmd += ["--cdp-endpoint", self.cdp_endpoint]
         if self.report:
             cmd = self._reported(cmd, f"attest: prove {self.label} {', '.join(c.id for c in group)}")
-        self.log(f"kane: testmd run {path.name} ({len(group)} step(s), url {url})")
+        # no URL in this line: a shell runner proving a doc that runs attest would take it for a server announcing itself
+        self.log(f"kane: testmd run {path.name} ({len(group)} step(s))")
         started = time.time()
         run = self._execute(cmd, timeout_s=STEP_TIMEOUT_S * len(group) + 180)
         self.runs.append(run)

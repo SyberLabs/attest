@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "fixture_id": "descriptive_doc_stale_not_protected",
+  "title": "Stale descriptive documentation is not a protected requirement",
+  "scenario": "A descriptive guide names an old settings label, while a fake current observation shows the renamed label. This belongs to Maintain Docs, not Reconcile Spec.",
+  "expected_mode": "maintain_docs",
+  "claims": [
+    {
+      "claim_id": "doc-settings-001",
+      "claim_kind": "descriptive_claim",
+      "text": "The settings page is named 'Preferences'.",
+      "protected": false,
+      "descriptive": true,
+      "evidence_pointers": ["fake://docs/operator-guide.md#settings-name"]
+    },
+    {
+      "claim_id": "obs-settings-001",
+      "claim_kind": "observed_behavior",
+      "text": "The current settings page is labelled 'Settings'.",
+      "protected": false,
+      "descriptive": false,
+      "evidence_pointers": ["fake://runs/run-0002/ui-observation.json#/settings-label"]
+    }
+  ],
+  "expected": {
+    "diagnosis_side": "not_applicable",
+    "repair": "handoff",
+    "promotion_allowed": false,
+    "rationale": "The stale statement is descriptive and unprotected; route it to Maintain Docs rather than treating it as a Reconcile Spec conflict."
+  }
+}
