@@ -121,3 +121,17 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Credits: 1200 at 10:12; 891.58 at 11:08 (308.42 spent before plan activation); 100,885.42 after activation at about 11:50; 99,928.89 at 14:08 (956.53 spent since). About 1,265 credits spent today in total.
 - Kane run reports on the event proof page: https://kaneclihack.sh/t/attest/proof (KR-7 onwards, all with commit SHAs).
 - Tests: 179 passed, 1 skipped.
+
+### 14:40 to 16:30 the Kane Factory
+
+- Direction change (Mateo): "The Kane Factory, powered by SyberWork". Modular loop: Spec -> Kane -> SyberWork -> worker -> Kane (loop if needed) -> Outcome. SyberWork is the vendor-neutral middle; companies plug in their own agents. OpenAI is the default worker. Codex CLI is no longer used anywhere in the loop.
+- Presentation: one live tab (`attest serve --live`, `prove --live`) with the terminal beside the doc, plain-English narration, a redesigned report (score header, caught-and-fixed and repair-refused drawers). Built by a Claude Opus subagent; reviewed fixes: banner timing, live screenshots, before/after screenshot files, the live state after a loop, browser caching (`Cache-Control: no-store`), Windows `os.replace` on files the server is reading.
+- Authority gate (`attest.policy.yaml`): protected promises are never repaired in the doc; the loop issues an implementation handoff. Receipts (`attest.receipt/v0`) for every loop case. Live: counter app adds two while the doc promises "increments by one" -> refused, receipt `handoff_implementation`.
+- Number guard in `label_match`: "count is 1" vs "count is 2" scored 0.90 and would have passed the counter bug; different numbers now cap at 0.5. Tuning corpus still clean at 0.80.
+- Doc agent is the OpenAI API (`ATTEST_AGENT_CMD=openai`). It answered in the `*** Begin Patch` format until the instructions showed the exact unified diff format.
+- Spec mode (`--app`): a failing spec claim becomes an `attest.ticket/v0`; the worker (`ATTEST_WORKER_CMD`, default the OpenAI API) implements it in a git-initialised candidate copy of the app; Kane re-checks. The built-in worker uses structured output (whole files) and Attest builds the diff with difflib: hand-written hunks failed because the model copied JSON-escaped quotes into context lines and padded seed data to make the spec pass.
+- Live result (Acme CRM, `demo/spec.md` + `demo/app`): Kane found "Mark as won" missing, the OpenAI worker implemented it, Kane re-checked: proven (`c05_label = "Won"`), receipt `0ca486124ac8-c05-33`, disposition `implemented`. The original `demo/app` stays unchanged so the demo repeats.
+- Kane phrasing fixes found on the way: a click whose promised text is an outcome is read after the click ("Mark as won" contains "won"); only labels right after a click verb count as the clicked control (typed text is not a button).
+- Self-check after the README rewrite: 6/6. It caught a real bug first: the shell runner took a URL in Attest's own Kane log line for a server announcing itself.
+- SyberWork (Reason fleet): #89 receipt bridge accepts today's real receipts, including the spec-mode one (e94552d); #90 dispatch worker CLI in progress. Coordination: SyberLabs/attest #10 (overview), #11 (contract), #12 (rebase order for #13-#20, reviewed), SyberLabs/SyberWork #90, #91.
+- Freeze on `main` lifted (Mateo). The submission pins to the tag `event-day`.

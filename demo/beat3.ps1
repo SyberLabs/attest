@@ -6,6 +6,7 @@ param(
 )
 
 . "$PSScriptRoot\live.ps1"
+Set-Scene "Procedural Truth on GitHub"
 Write-Host "Beat 3: prove a Procedural Truth answer"
 if ($Ask) {
     & $attest ask $Ask --card $Card

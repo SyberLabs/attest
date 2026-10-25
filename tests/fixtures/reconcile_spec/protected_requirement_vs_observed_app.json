@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "fixture_id": "protected_requirement_vs_observed_app",
+  "title": "Protected requirement conflicts with observed application behavior",
+  "scenario": "A protected TLS requirement says every endpoint requires TLS, while a captured observation reports an HTTP endpoint. The available fake evidence does not establish which side is stale, so diagnosis remains ambiguous and is handed off.",
+  "expected_mode": "reconcile_spec",
+  "claims": [
+    {
+      "claim_id": "req-tls-001",
+      "claim_kind": "protected_requirement",
+      "text": "All service endpoints must require TLS.",
+      "protected": true,
+      "descriptive": false,
+      "evidence_pointers": ["fake://specs/security-baseline.md#tls"]
+    },
+    {
+      "claim_id": "obs-endpoint-001",
+      "claim_kind": "observed_behavior",
+      "text": "The observed endpoint accepted an HTTP request without TLS.",
+      "protected": false,
+      "descriptive": false,
+      "evidence_pointers": ["fake://runs/run-0001/http-probe.json#/endpoint"]
+    }
+  ],
+  "expected": {
+    "diagnosis_side": "ambiguous",
+    "repair": "handoff",
+    "promotion_allowed": false,
+    "rationale": "A mismatch alone cannot establish whether the protected requirement or observed application state is authoritative; do not repair either side automatically."
+  }
+}

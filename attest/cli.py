@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import http.server
 import os
 import re
@@ -25,34 +26,127 @@ STATUS_MARK = {"proven": "ok", "stale": "~ ", "broken": "x ", "unverifiable": "-
 # the single tab served by `serve --live`: the terminal (live.log) beside the live document page
 LIVE_WRAPPER = r'''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Attest live</title>
 <style>
+:root{--bg:#f6f8fa;--card:#fff;--fg:#1f2328;--muted:#59636e;--faint:#818b98;--line:#d1d9e0;--line-soft:#e9eef3;
+--proven:#1a7f37;--proven-bg:#dafbe1;--proven-line:#4ac26b;--live:#0969da;--live-bg:#ddf4ff;--agent:#8250df;--agent-bg:#fbefff;
+--term:#0d1117;--term-h:#161b22;--term-line:#30363d;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,"Noto Sans",Helvetica,Arial,sans-serif;
+--mono:ui-monospace,"Cascadia Mono","Cascadia Code",SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:#0d1117;color:#1f2328;font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Helvetica,Arial,sans-serif;overflow:hidden}
-.strip{height:30px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#1f2328;color:#e6edf3;white-space:nowrap;overflow:hidden;border-bottom:1px solid #30363d}
-.strip b{font-weight:750;letter-spacing:.2px}.dot{width:8px;height:8px;border-radius:50%;background:#8b949e;flex:none}
-.on .dot{background:#3fb950;box-shadow:0 0 0 0 rgba(63,185,80,.6);animation:p 1.6s ease-out infinite}@keyframes p{to{box-shadow:0 0 0 7px rgba(63,185,80,0)}}
-.state{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#8b949e}.on .state{color:#3fb950}
-.now{color:#c9d1d9;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.panes{display:grid;grid-template-columns:38% minmax(0,1fr);height:calc(100vh - 30px)}
-.term{display:flex;flex-direction:column;min-width:0;min-height:0;background:#0d1117;border-right:1px solid #30363d}
-.term-h{flex:none;height:30px;display:flex;align-items:center;gap:7px;padding:0 12px;background:#161b22;border-bottom:1px solid #30363d;color:#8b949e;font-size:12px}
-.term-h i{width:10px;height:10px;border-radius:50%;background:#30363d;display:block}
-.term-h span{margin-left:6px;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
-#log{flex:1;min-height:0;margin:0;padding:10px 12px 18px;overflow:auto;color:#c9d1d9;font:12.5px/1.5 ui-monospace,"Cascadia Mono","Cascadia Code",Consolas,"Liberation Mono",Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+html,body{margin:0;height:100%;overflow:hidden}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:13px/1.4 var(--sans);-webkit-font-smoothing:antialiased}
+/* top bar: scene, what is happening now, the factory stages, the next beat */
+.bar{flex:none;display:flex;align-items:center;gap:18px;min-height:54px;padding:7px 16px;background:var(--card);border-bottom:1px solid var(--line);box-shadow:0 1px 0 rgba(31,35,40,.04),0 6px 16px -12px rgba(31,35,40,.25);position:relative;z-index:2}
+.logo{flex:none;width:30px;height:30px;border-radius:8px;background:var(--fg);display:grid;place-items:center}
+.logo svg{width:18px;height:18px}
+.scene{flex:1 1 auto;min-width:0}
+.scene-t{font-size:15.5px;font-weight:650;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scene-t .brand{color:var(--faint);font-weight:600}
+.sub{display:flex;align-items:center;gap:7px;margin-top:2px;min-width:0;color:var(--muted);font-size:12.5px}
+.dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.state{flex:none;font-size:10.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--faint)}
+.on .dot{background:var(--proven-line);animation:p 1.6s ease-out infinite}.on .state{color:var(--proven)}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(74,194,107,.55)}100%{box-shadow:0 0 0 6px rgba(74,194,107,0)}}
+.now{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stages{flex:none;display:flex;align-items:center;margin:0;padding:0;list-style:none}
+.stages li{display:flex;align-items:center;gap:6px;color:var(--faint);font-size:12px;font-weight:600;white-space:nowrap;transition:color .3s,opacity .3s}
+.stages li+li::before{content:"";width:16px;height:2px;border-radius:1px;background:var(--line);margin:0 6px 0 2px;transition:background .3s}
+.stages .n{flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line);background:var(--card);display:grid;place-items:center;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;transition:background .3s,border-color .3s,color .3s}
+.stages .n svg{display:none;width:12px;height:12px}
+.stages li.done{color:var(--fg)}
+.stages li.done .n{background:var(--proven);border-color:var(--proven);color:#fff}
+.stages li.done .n b{display:none}.stages li.done .n svg{display:block}
+.stages li.done::before,.stages li.active::before{background:var(--proven-line)}
+.stages li.active{color:var(--live);font-weight:700}
+.stages li.active .n{background:var(--live);border-color:var(--live);color:#fff;animation:ring 1.6s ease-out infinite}
+.stages li.active.agent{color:var(--agent)}
+.stages li.active.agent .n{background:var(--agent);border-color:var(--agent);animation-name:ring-a}
+.stages li.final{color:var(--proven);font-weight:700}
+.stages li.skip{opacity:.45}.stages li.skip .n{border-style:dashed}
+@keyframes ring{0%{box-shadow:0 0 0 0 rgba(9,105,218,.45)}100%{box-shadow:0 0 0 7px rgba(9,105,218,0)}}
+@keyframes ring-a{0%{box-shadow:0 0 0 0 rgba(130,80,223,.45)}100%{box-shadow:0 0 0 7px rgba(130,80,223,0)}}
+.next{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:300px;height:26px;padding:0 10px;border-radius:13px;border:1px solid var(--line);background:var(--bg);color:var(--muted);font-size:12px;white-space:nowrap}
+.next[hidden]{display:none}
+.next b{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg);font-weight:600}
+.next .s{flex:none;font-variant-numeric:tabular-nums;color:var(--fg);font-weight:700}
+/* panes: the terminal on the left, the live document on the right */
+.panes{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:36% minmax(0,1fr)}
+.term{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--term);border-right:1px solid var(--line)}
+.term-h{flex:none;height:30px;display:flex;align-items:center;gap:7px;padding:0 12px;background:var(--term-h);border-bottom:1px solid var(--term-line);color:#8b949e;font-size:12px}
+.term-h i{width:10px;height:10px;border-radius:50%;background:var(--term-line);display:block}
+.term-h span{margin-left:6px;font-family:var(--mono)}
+#log{flex:1;min-height:0;margin:0;padding:10px 12px 18px;overflow:auto;color:#c9d1d9;font:12.5px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word}
 #log div{min-height:1.5em;padding-left:4ch;text-indent:-4ch}
 .cmd{color:#f0f6fc;font-weight:700}.ok{color:#3fb950;font-weight:600}.warn{color:#d29922;font-weight:600}.bad{color:#f85149;font-weight:600}
 .grey{color:#8b949e}.dim{color:#6e7681}.add{color:#3fb950;background:rgba(46,160,67,.12)}.del{color:#f85149;background:rgba(248,81,73,.12)}
-.agent{color:#bc8cff;font-weight:600}.head{color:#7ee787;font-weight:700}
-.doc{min-width:0;min-height:0;background:#fff}
-iframe{display:block;border:0;width:100%;height:100%;background:#fff}
-@media (max-width:900px){.panes{grid-template-columns:1fr;grid-template-rows:38% minmax(0,1fr)}.term{border-right:0;border-bottom:1px solid #30363d}}
+.agent-l{color:#bc8cff;font-weight:600}.head{color:#7ee787;font-weight:700}
+.doc{min-width:0;min-height:0;background:var(--bg)}
+iframe{display:block;border:0;width:100%;height:100%;background:var(--bg)}
+@media (max-width:1180px){.stages li span.l{display:none}.stages li.active span.l,.stages li.final span.l{display:inline}.stages li+li::before{width:12px}}
+@media (max-width:900px){
+.bar{flex-wrap:wrap;gap:8px 12px}.scene{flex:1 1 200px}.stages{order:3;flex:1 1 100%}
+.stages li span.l{display:inline}.stages li{font-size:11px}.stages li+li::before{width:8px;margin:0 4px 0 2px}
+.panes{grid-template-columns:1fr;grid-template-rows:36% minmax(0,1fr)}.term{border-right:0;border-bottom:1px solid var(--line)}}
+@media (max-width:720px){.stages li span.l{display:none}.stages li.active span.l,.stages li.final span.l{display:inline}.next{max-width:200px}}
+@media (prefers-reduced-motion:reduce){.on .dot,.stages li.active .n{animation:none}.stages li,.stages .n,.stages li+li::before{transition:none}}
 </style>
-<div class="strip" id="strip"><span class="dot"></span><b>Attest</b><span class="state" id="state">waiting</span><span class="now" id="now">waiting for a proof run</span></div>
+<header class="bar" id="strip">
+<div class="logo" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3 8.6l3.2 3.2L13 4.6" fill="none" stroke="#4ac26b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+<div class="scene"><div class="scene-t" id="scene"><span class="brand">Attest</span> live</div><div class="sub" role="status" aria-live="polite"><span class="dot"></span><span class="state" id="state">waiting</span><span class="now" id="now">waiting for a proof run</span></div></div>
+<ol class="stages" id="stages" aria-label="Factory stages"></ol>
+<span class="next" id="next" hidden>Next: <b id="next-t"></b> in <span class="s" id="next-s"></span></span>
+</header>
 <div class="panes">
 <section class="term" id="terminal" aria-label="terminal"><div class="term-h"><i></i><i></i><i></i><span>attest prove --live</span></div><pre id="log"><div class="dim">waiting for `attest prove --live` ...</div></pre></section>
 <section class="doc"><iframe id="page"></iframe></section>
 </div>
 <script>
-let seen="";async function poll(){try{let j=await fetch("latest.json",{cache:"no-store"}).then(r=>r.json());document.getElementById("strip").className="strip"+(j.running?" on":"");document.getElementById("state").textContent=j.running?"live":"done";document.getElementById("now").textContent=j.now||"";if(j.page&&j.page!==seen){seen=j.page;document.querySelector("iframe").src=j.page+"?v="+Date.now();}}catch(e){}}poll();setInterval(poll,1500);
+// the factory stages, lit from the latest.json "now" text (presentation only).
+// The doc frame reloads when the page path changes or a run starts or ends: a spec renders to
+// the same path every run, and only the live render refreshes itself.
+const STAGES=["Spec","Kane","Ticket","Worker","Kane re-check","Outcome"];
+const CHECK='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ol=document.getElementById("stages");document.getElementById("page").title="live document";
+STAGES.forEach((name,i)=>{const li=document.createElement("li");li.innerHTML='<span class="n"><b>'+(i+1)+'</b>'+CHECK+'</span><span class="l"></span>';li.querySelector(".l").textContent=name;li.title=name;ol.appendChild(li);});
+let cur=-1,done=new Set();
+function stageOf(now,running){
+  if(!running||/Proof complete/.test(now))return 5;
+  if(/re-checking/.test(now))return 4;
+  if(/implementing|agent to fix/.test(now))return 3;
+  if(/Issuing ticket|Asking the agent/.test(now))return 2;
+  if(/Kane is checking/.test(now))return 1;
+  if(/Preparing|Running|Reading line/.test(now))return 0;
+  return -1;
+}
+function advance(now,running){
+  now=now||"";
+  let s=stageOf(now,running);
+  if(s<0)return;
+  if(/Preparing claims/.test(now)||(s<=1&&cur===5)){done.clear();cur=-1;}
+  if(s<=1&&cur>s&&cur<5)s=cur;
+  for(const x of Array.from(done))if(x>=s)done.delete(x);
+  if(s<5){if(s>=1)done.add(0);if(s>=2)done.add(1);if(s>=3)done.add(2);if(s>=4)done.add(3);}
+  if(s===5){done.add(0);done.add(1);if(cur>=0&&cur<5)done.add(cur);}
+  cur=s;
+  ol.querySelectorAll("li").forEach((li,i)=>{
+    let c="";
+    if(i===cur)c=cur===5?"done final":"active"+(i===2||i===3?" agent":"");
+    else if(done.has(i))c="done";
+    else if(cur===5)c="skip";
+    li.className=c;
+    if(i===cur)li.setAttribute("aria-current","step");else li.removeAttribute("aria-current");
+  });
+}
+let seen="";async function poll(){try{let j=await fetch("latest.json",{cache:"no-store"}).then(r=>r.json());document.getElementById("strip").className="bar"+(j.running?" on":"");document.getElementById("state").textContent=j.running?"live":"done";document.getElementById("now").textContent=j.now||"";advance(j.now,j.running);let key=j.page+"|"+!!j.running;if(j.page&&key!==seen){seen=key;document.querySelector("iframe").src=j.page+"?v="+Date.now();}}catch(e){}}poll();setInterval(poll,1500);
+// scene.json (written by the demo scripts): the beat title and the countdown to the next beat
+let scene={};
+function drawScene(){
+  const t=document.getElementById("scene"),title=String(scene.title||"");
+  if(t.dataset.title!==title){t.dataset.title=title;if(title){t.textContent=title;}else{t.innerHTML='<span class="brand">Attest</span> live';}document.title=title?title+" - Attest":"Attest live";}
+  const left=Math.ceil((Number(scene.until)||0)-Date.now()/1000),chip=document.getElementById("next");
+  if(scene.next&&left>0){document.getElementById("next-t").textContent=String(scene.next);document.getElementById("next-s").textContent=left+" s";chip.hidden=false;}else{chip.hidden=true;}
+}
+async function pollScene(){try{const r=await fetch("scene.json",{cache:"no-store"});if(r.ok){const j=await r.json();if(j&&typeof j==="object")scene=j;}}catch(e){}drawScene();}
+pollScene();setInterval(pollScene,1000);setInterval(drawScene,250);
 function kind(line){
   const t=line.trim(), d=line.replace(/^\s*\| ?/,"");
   const piped=d!==line;
@@ -69,7 +163,8 @@ function kind(line){
   if(t.startsWith("STALE"))return "warn";
   if(t.startsWith("BROKEN"))return "bad";
   if(t.startsWith("SKIPPED")||t.startsWith("UNVERIFIABLE")||t.startsWith("PARTIAL"))return "grey";
-  if(t.startsWith("AGENT")||t.startsWith("THE LOOP"))return "agent";
+  if(t.startsWith("AGENT")||t.startsWith("WORKER")||t.startsWith("THE LOOP"))return "agent-l";
+  if(t.startsWith("TICKET"))return "warn";
   if(t.startsWith("ATTEST"))return "head";
   if(t.startsWith("..."))return "grey";
   return "";
@@ -236,9 +331,12 @@ def prove_cmd(
     keep_scratch: bool = typer.Option(False, "--keep-scratch", help="Leave the scratch directory in place."),
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
     live: bool = typer.Option(False, "--live", help="Update a live page while claims run."),
+    app_dir: Path | None = typer.Option(None, "--app", help="Spec mode: the doc is the contract for this app directory; failing claims become tickets the implementation agent closes in a copy of the app (implies --loop)."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
     tee = None
+    if app_dir is not None:
+        loop = True
     if live:
         # the live page shows this terminal beside the document
         tee = _Tee(sys.stdout, home / "live.log", f"$ attest prove {_ascii(source)}")
@@ -252,14 +350,18 @@ def prove_cmd(
                 _log(c, v)
             def before(c):
                 _step(c)
-            result = prove(source, runner=br, home=home, log=narrate, keep_servers=loop, stop_before=stop_before, skip=skip_ids, live=live, on_start=before)
+            result = prove(source, runner=br, home=home, log=narrate, keep_servers=loop, stop_before=stop_before, skip=skip_ids, live=live, on_start=before, app_dir=app_dir)
         except ValueError as e:
             raise typer.BadParameter(str(e)) from e
         if loop and result.failing():
             from .loop import run_loop
 
             n_failing = len(result.failing())
-            _section(f"THE LOOP   {n_failing} claim{'' if n_failing == 1 else 's'} to fix: the coding agent patches the doc, Kane re-checks")
+            if app_dir is not None:
+                _section(f"THE LOOP   {n_failing} capabilit{'y' if n_failing == 1 else 'ies'} missing: tickets go to the worker, Kane re-checks")
+                typer.echo(typer.style(f"   app copy  {getattr(result, 'candidate').posix}", dim=True))
+            else:
+                _section(f"THE LOOP   {n_failing} claim{'' if n_failing == 1 else 's'} to fix: the coding agent patches the doc, Kane re-checks")
             def loop_update(message):
                 if live:
                     from .pipeline import _write_live_page
@@ -281,7 +383,7 @@ def prove_cmd(
             # the loop left the live state at "Proof updated"; mark the run done
             from .pipeline import _write_live_page
             _write_live_page(result, home, br.name, "Proof complete", False)
-        for line in _summary_lines(result, home):
+        for line in _summary_lines(result, home, spec=app_dir is not None):
             typer.echo(line)
         typer.echo(f"   {typer.style('page', dim=True)}      {result.page}")
         typer.echo("")
@@ -296,6 +398,34 @@ def prove_cmd(
             tee.close()
 
 
+@app.command("reconcile-spec")
+def reconcile_spec_cmd(
+    diagnosis: Path = typer.Argument(..., help="JSON diagnosis input; see docs/RECONCILE-SPEC.md."),
+    out: Path | None = typer.Option(None, "--out", help="Directory for the Markdown and JSON handoff artifacts."),
+    apply: bool = typer.Option(False, "--apply", help="Always refused in this mode; writes a refusal handoff without changing protected text."),
+    home: Path = typer.Option(ATTEST_DIR, "--home", help="Default artifact root when --out is not supplied."),
+) -> None:
+    """Record a protected-requirement conflict and produce a human handoff; never repair contracts."""
+    from .reconcile_spec import ReconcileRequest, ReconcileSpec, write_handoff
+
+    try:
+        input_bytes = diagnosis.read_bytes()
+        request = ReconcileRequest.model_validate_json(input_bytes)
+    except (OSError, ValueError) as exc:
+        typer.echo(f"invalid Reconcile Spec JSON: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    input_sha = hashlib.sha256(input_bytes).hexdigest()[:16]
+    output_dir = out or home / "reconcile-spec" / input_sha
+    handoff = ReconcileSpec().diagnose(request, apply_requested=apply)
+    markdown_path, json_path = write_handoff(handoff, output_dir)
+    typer.echo(f"handoff: {markdown_path}")
+    typer.echo(f"json: {json_path}")
+    if apply:
+        typer.echo("refused: Reconcile Spec cannot apply or promote protected-contract text", err=True)
+        raise typer.Exit(2)
+
+
 def _header(source: str, runner_name: str) -> None:
     name = Path(source).name if "://" not in source else source
     typer.echo("")
@@ -303,7 +433,7 @@ def _header(source: str, runner_name: str) -> None:
     typer.echo(typer.style(f"   {RULE}", dim=True))
 
 
-def _summary_lines(result, home: Path) -> list[str]:
+def _summary_lines(result, home: Path, spec: bool = False) -> list[str]:
     from .ledger import Ledger
 
     s = Ledger(home / "ledger.jsonl").summary(result.doc.sha256, result.turn)
@@ -329,7 +459,8 @@ def _summary_lines(result, home: Path) -> list[str]:
     ])
     lines = ["", typer.style(f"   {RULE}", dim=True), f"   {typer.style(f'{word:<8}', fg=color, bold=True)}  {counts}"]
     if s.get("loops_attempted"):
-        lines.append(f"   {typer.style('loop', dim=True)}      {s['loops_closed']}/{s['loops_attempted']} fixed by the agent and re-proven")
+        done = "implemented in the app and re-proven" if spec else "fixed by the agent and re-proven"
+        lines.append(f"   {typer.style('loop', dim=True)}      {s['loops_closed']}/{s['loops_attempted']} {done}")
     extra = f"{s['claims']} claims | turn {s['turn']}"
     if s.get("kane_steps"):
         extra += f" | {s['kane_steps']} Kane steps ({s['authored']} authored, {s['replayed']} replayed)"
@@ -357,7 +488,17 @@ def serve(
     if live:
         directory = home
         home.mkdir(parents=True, exist_ok=True)
-        (home / "index.html").write_text(LIVE_WRAPPER, encoding="utf-8")
+        from .render import logo_uri
+
+        wrapper = LIVE_WRAPPER
+        logo = logo_uri()
+        if logo:
+            wrapper = wrapper.replace("<title>Attest live</title>", f'<title>Attest live</title><link rel="icon" type="image/png" href="{logo}">', 1)
+            start = wrapper.find('<div class="logo" aria-hidden="true">')
+            if start != -1:
+                end = wrapper.find("</div>", start) + len("</div>")
+                wrapper = wrapper[:start] + f'<div class="logo" aria-hidden="true" style="background:none;padding:0;overflow:hidden"><img src="{logo}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>' + wrapper[end:]
+        (home / "index.html").write_text(wrapper, encoding="utf-8")
     elif doc is None:
         directory = _latest_dir(home)
     else:
