@@ -128,7 +128,7 @@ def test_claim_json_schema_requires_span():
 def test_observation_receipt_evidence_takes_the_observed_build():
     vid = uuid4()
     build = "b" * 64
-    ev = BrowserObservation(status="passed", build_digest=build).receipt_evidence(
+    ev = BrowserObservation(status="passed", build_digest=build, kane_run_id="run-1").receipt_evidence(
         source_version_id=vid, content_sha256="0" * 64, kane_run_id="run-1"
     )
     assert (ev.kind, ev.build_digest, ev.kane_run_id, ev.complete, ev.simulated) == ("browser", build, "run-1", True, False)
@@ -139,6 +139,18 @@ def test_observation_receipt_evidence_takes_the_observed_build():
         assert not BrowserObservation(status=status, build_digest=build).receipt_evidence(
             source_version_id=vid, content_sha256="0" * 64, kane_run_id="run-1"
         ).complete
+
+
+def test_observation_receipt_evidence_takes_the_observed_kane_run():
+    args = {"source_version_id": uuid4(), "content_sha256": "0" * 64}
+    obs = BrowserObservation(status="passed", build_digest="b" * 64, kane_run_id="run-1")
+    assert obs.receipt_evidence(**args, kane_run_id="run-1").kane_run_id == "run-1"
+    assert obs.receipt_evidence(**args, kane_run_id=None).kane_run_id is None  # the caller may leave it unbound
+    with pytest.raises(ValueError, match="made by Kane run run-1, not run-2"):
+        obs.receipt_evidence(**args, kane_run_id="run-2")
+    # An observation that names no run gives evidence that names none, whatever the caller says.
+    unnamed = obs.model_copy(update={"kane_run_id": None})
+    assert unnamed.receipt_evidence(**args, kane_run_id="run-1").kane_run_id is None
 
 
 def test_observation_receipt_evidence_is_never_complete_for_simulated_or_unbound_observations():

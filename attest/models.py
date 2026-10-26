@@ -125,29 +125,47 @@ class BrowserObservation(BaseModel):
     # App/build identity the page was observed on (proposals.current_build_digest), as
     # the runner measured it around its own run. None: the runner cannot say.
     build_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    # Kane session id of the run whose evidence pack backs this observation, stamped by the
+    # runner. None: unbound, simulated, or not observed by Kane.
+    kane_run_id: str | None = Field(default=None, min_length=1)
+
+    @property
+    def simulation_only(self) -> bool:
+        """Produced by simulation. Read from the note prefix too, because a stored observation loses its subclass."""
+        from .runner import SIMULATION_NOTE_PREFIX, SimulationBrowserObservation  # runner imports models
+
+        return isinstance(self, SimulationBrowserObservation) or (self.note or "").startswith(SIMULATION_NOTE_PREFIX)
+
+    @property
+    def unbound(self) -> bool:
+        """No run record (for Kane, an evidence pack naming the run's session) backs it."""
+        from .runner import UNBOUND_NOTE_PREFIX
+
+        return (self.note or "").startswith(UNBOUND_NOTE_PREFIX)
 
     def receipt_evidence(self, *, source_version_id: UUID, content_sha256: str, kane_run_id: str | None) -> ReceiptEvidence:
-        """This observation as receipt evidence. Its build is the one the runner measured, never the caller's.
+        """This observation as receipt evidence. Its build and Kane run are the ones the runner recorded, never the caller's.
 
         Only a passed observation is complete. An observation with no build gives evidence that no
         VerifiedRunReceipt accepts, and one from another build fails any receipt for this build.
         As in the verdict, a simulation-only observation is simulated and an unbound one (no
-        evidence pack names its run) is incomplete. Both are read from the note prefix too,
-        because a stored observation loses its subclass.
-        """
-        from .runner import SIMULATION_NOTE_PREFIX, UNBOUND_NOTE_PREFIX, SimulationBrowserObservation  # runner imports models
+        evidence pack names its run) is incomplete.
 
-        note = self.note or ""
-        simulated = isinstance(self, SimulationBrowserObservation) or note.startswith(SIMULATION_NOTE_PREFIX)
-        unbound = note.startswith(UNBOUND_NOTE_PREFIX)
+        ``kane_run_id`` is the run the caller binds the observation to. It must be the run the
+        observation names; None leaves the evidence unbound. An observation that names no run
+        gives evidence that names none, whatever the caller says.
+        """
+        if kane_run_id is not None and self.kane_run_id is not None and kane_run_id != self.kane_run_id:
+            raise ValueError(f"observation was made by Kane run {self.kane_run_id}, not {kane_run_id}")
+        simulated = self.simulation_only
         return ReceiptEvidence(
             kind="browser",
             source_version_id=source_version_id,
             content_sha256=content_sha256,
-            complete=self.status == "passed" and not simulated and not unbound,
+            complete=self.status == "passed" and not simulated and not self.unbound,
             simulated=simulated,
             build_digest=self.build_digest,
-            kane_run_id=kane_run_id,
+            kane_run_id=self.kane_run_id if kane_run_id is not None else None,
         )
 
 
