@@ -6,10 +6,10 @@
     "R1",
     "R8"
   ],
-  "status": "xfail",
+  "status": "active",
   "theme": "caller_success_or_evidence_fields",
   "title": "A ticket carrying caller-supplied success, evidence or verified fields",
-  "gap": "attest.worker checks only the schema tag and dispatches the ticket; it does not reject caller-supplied success, evidence or verified fields (implement.py notes SyberWork rejects unknown ticket fields, so Attest's ingress is the weaker side).",
+  "closed": "attest.worker refuses (exit 2, no worker call) any ticket with a top-level key outside attest.ticket/v0, including caller-supplied success, verified and evidence.",
   "input": {
     "extra_fields": {
       "success": true,
@@ -22,6 +22,8 @@
   },
   "expected": {
     "exit_code": 2,
-    "worker_calls": 0
+    "worker_calls": 0,
+    "control_exit_code": 0,
+    "control_worker_calls": 1
   }
 }
