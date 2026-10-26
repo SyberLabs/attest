@@ -24,7 +24,6 @@ from __future__ import annotations
 import difflib
 import hashlib
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from uuid import uuid4
@@ -43,6 +42,7 @@ from attest.proposals import create_repair_proposal, current_build_digest
 from attest.receipts import RunReceipt, VerifiedRunReceipt
 from attest.storage import SQLiteWorkflowStore
 from attest.workflow import WorkflowError, promote_workflow, resume_workflow
+from tests.kane_replay import as_written, written_test_file
 
 KANE_FIX = Path(__file__).resolve().parents[1] / "fixtures" / "kane"
 
@@ -88,7 +88,8 @@ class DeterministicCompiler:
 
 
 class RecordedKaneCli:
-    """Replaces only the kane-cli subprocess: a recorded NDJSON run plus the pack it wrote.
+    """Replaces only the kane-cli subprocess: a recorded NDJSON run plus the pack it wrote,
+    sealed for the test file the runner wrote (``tests/kane_replay.py``).
 
     ``during`` runs inside the call, as a redeploy would land while Kane is running.
     """
@@ -99,7 +100,8 @@ class RecordedKaneCli:
     def __call__(self, cmd, timeout_s):
         self.calls += 1
         self.runner.evidence_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy(KANE_FIX / f"{self.fixture}.pack.zip", self.runner.evidence_dir / f"{self.fixture}.evidence")
+        as_written(KANE_FIX / f"{self.fixture}.pack.zip", self.runner.evidence_dir / f"{self.fixture}.evidence",
+                   written_test_file(cmd).read_bytes())
         if self.during:
             self.during()
         run = parse_events((KANE_FIX / f"{self.fixture}.ndjson").read_text(encoding="utf-8").splitlines())
