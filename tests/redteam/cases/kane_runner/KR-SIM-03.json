@@ -10,7 +10,7 @@
   "status": "active",
   "theme": "stale_or_wrong_app_version",
   "title": "Replayed-from-cache step against a changed app version",
-  "closed": "#41 binds validation evidence to the approved build (validation build_digest, rechecked after the run and at promote) and to a Kane run started during this validation (kane_runs; a cached observation is <id>:stale_kane_run). Receipts reject evidence from another build or Kane run, and a VerifiedRunReceipt needs both bindings. The binding sits on the receipt and the validation record, not on BrowserObservation itself.",
+  "closed": "#41 binds validation evidence to the approved build (validation build_digest, rechecked after the run and at promote) and to a Kane run started during this validation (kane_runs; a cached observation is <id>:stale_kane_run). Receipts reject evidence from another build or Kane run, and a VerifiedRunReceipt needs both bindings. #44 puts the build on BrowserObservation itself: KaneBrowserRunner stamps the build it measured around its own run (None if it changed or could not be measured), validation fails <id>:observation_build_mismatch / <id>:observation_build_missing, and promotion refuses evidence observed on another build. BrowserObservation.receipt_evidence fills a receipt's evidence build from the observation, so a receipt made from a cached observation names the build Kane saw.",
   "input": {
     "fixture": "witness_stale",
     "browser_claims": ["c07", "c08"],
@@ -20,7 +20,12 @@
   "expected": {
     "cached_replay": {
       "state": "rejected",
-      "failed": ["c07:stale_kane_run", "c08:stale_kane_run"],
+      "failed": [
+        "c07:stale_kane_run",
+        "c08:stale_kane_run",
+        "c07:observation_build_mismatch",
+        "c08:observation_build_mismatch"
+      ],
       "kane_calls_during_validation": 0
     },
     "receipt_rejections": {
@@ -30,7 +35,11 @@
       "evidence_from_earlier_run": "Kane run this receipt did not start",
       "evidence_run_stripped": "bound to a fresh Kane run id"
     },
-    "build_change_during_run": {"state": "unresolved", "reason": "build identity changed during validation"},
+    "build_change_during_run": {
+      "state": "unresolved",
+      "reason": "build identity changed during validation",
+      "receipt": "every evidence record to name its app/build version"
+    },
     "build_change_before_promote": "build identity changed after approval",
     "control": {"state": "promoted"}
   }

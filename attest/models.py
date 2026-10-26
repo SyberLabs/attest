@@ -12,6 +12,7 @@ Nothing in this module knows about any particular browser tool.
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -124,6 +125,21 @@ class BrowserObservation(BaseModel):
     # App/build identity the page was observed on (proposals.current_build_digest), as
     # the runner measured it around its own run. None: the runner cannot say.
     build_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+
+    def receipt_evidence(self, *, source_version_id: UUID, content_sha256: str, kane_run_id: str | None) -> ReceiptEvidence:
+        """This observation as receipt evidence. Its build is the one the runner measured, never the caller's.
+
+        Only a passed observation is complete. An observation with no build gives evidence that no
+        VerifiedRunReceipt accepts, and one from another build fails any receipt for this build.
+        """
+        return ReceiptEvidence(
+            kind="browser",
+            source_version_id=source_version_id,
+            content_sha256=content_sha256,
+            complete=self.status == "passed",
+            build_digest=self.build_digest,
+            kane_run_id=kane_run_id,
+        )
 
 
 class Evidence(BaseModel):

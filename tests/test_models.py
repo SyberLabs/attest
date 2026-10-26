@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
@@ -120,3 +122,19 @@ def test_brief_roundtrip():
 def test_claim_json_schema_requires_span():
     schema = Claim.model_json_schema()
     assert "span" in schema["required"]
+
+
+def test_observation_receipt_evidence_takes_the_observed_build():
+    vid = uuid4()
+    build = "b" * 64
+    ev = BrowserObservation(status="passed", build_digest=build).receipt_evidence(
+        source_version_id=vid, content_sha256="0" * 64, kane_run_id="run-1"
+    )
+    assert (ev.kind, ev.build_digest, ev.kane_run_id, ev.complete, ev.simulated) == ("browser", build, "run-1", True, False)
+    assert BrowserObservation(status="passed").receipt_evidence(
+        source_version_id=vid, content_sha256="0" * 64, kane_run_id="run-1"
+    ).build_digest is None
+    for status in ("failed", "unreachable"):
+        assert not BrowserObservation(status=status, build_digest=build).receipt_evidence(
+            source_version_id=vid, content_sha256="0" * 64, kane_run_id="run-1"
+        ).complete
