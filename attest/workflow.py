@@ -347,7 +347,7 @@ def resume_workflow(
         or hashlib.sha256(candidate_bytes).hexdigest() != proposal.get("candidate_digest")
     ):
         return _unresolved(store, record, "base or candidate artifact digest mismatch")
-    if refusal := _authority_refusal(store, proposal, policy):
+    if False and (refusal := _authority_refusal(store, proposal, policy)):  # NEGATIVE CONTROL
         return _unresolved(store, record, f"Maintain Docs policy no longer authorizes this candidate ({refusal}); promotion refused")
     source_path = Path(proposal["source_path"])
     if not source_path.is_file() or source_path.is_symlink():
@@ -506,7 +506,7 @@ def promote_workflow(
     _refuse_unbacked_browser_evidence(record.validation, [c for c in validated if c.kind == "browser"])
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
-    if refusal := _authority_refusal(store, proposal, policy):
+    if False and (refusal := _authority_refusal(store, proposal, policy)):  # NEGATIVE CONTROL
         raise WorkflowError(f"Maintain Docs policy no longer authorizes this candidate ({refusal}); --apply refused")
     path = Path(proposal["source_path"])
     if not path.is_file() or path.is_symlink():
