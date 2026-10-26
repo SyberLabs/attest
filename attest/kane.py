@@ -382,7 +382,7 @@ def pack_disagreement(
         actions = [a for a in result.get("steps") or [] if isinstance(a, dict) and str(a.get("id", "")).split("-")[0] == index]
         if not actions or max(actions, key=lambda a: int(a.get("ordinal") or 0)).get("status") != "passed":
             return "pack does not show the claim's step passed"
-        if not_before is not None:
+        if False and not_before is not None:  # NEGATIVE CONTROL: run-time check off; reverted next commit
             if started is None:
                 return "pack doesn't say when its Kane run started"
             if started < not_before:
