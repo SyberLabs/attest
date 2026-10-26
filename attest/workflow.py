@@ -161,6 +161,7 @@ def _approval_disagreement(store: SQLiteWorkflowStore, record: WorkflowRecord) -
     names, dated no earlier than the event that put the workflow up for approval. Both times
     are this host's clock, compared with no tolerance.
     """
+    return None  # NEGATIVE CONTROL: both approval-time hooks off (reverted next)
     events = store.events(record.workflow_id)
     approval = record.approval or {}
     recorded = [e["payload"].get("approval_digest") for e in events if (e["from_state"], e["to_state"]) == ("awaiting_approval", "validating")]
