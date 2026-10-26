@@ -264,6 +264,10 @@ def prove(
         shell_env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
     claims = annotate_setup(compile_doc(doc, llm=llm), cli_config)
     check_setup(claims, cli_config)
+    if getattr(runner, "name", None) == "none":
+        browser = [c.id for c in claims if c.kind == "browser"]
+        if browser:
+            raise ValueError(f"--runner none chosen but the document has browser claims: {', '.join(browser)}")
     if any(c.kind == "prompt" for c in claims):
         if prompt_runner is None:
             raise ValueError("the document has prompt claims; pass a prompt runner (--prompt-runner runvil or fake)")

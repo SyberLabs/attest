@@ -244,12 +244,16 @@ def _runner(name: str, fake_observations: Path | None, headless: bool = False, r
         if fake_observations:
             return FakeBrowserRunner.from_file(fake_observations)
         return FakeBrowserRunner()
+    if name == "none":
+        from .runner import NoBrowserRunner
+
+        return NoBrowserRunner()
     if name == "kane":
         from .kane import KaneBrowserRunner
         from .verdict import load_rules
 
         return KaneBrowserRunner(headless=headless, max_steps=load_rules().kane_max_steps, report=report, cdp_endpoint=cdp_endpoint, log=typer.echo)
-    raise typer.BadParameter(f"unknown runner {name!r}; use fake or kane")
+    raise typer.BadParameter(f"unknown runner {name!r}; use kane, none or fake")
 
 
 def _prompt_runner(name: str | None, prompt_observations: Path | None):
@@ -349,7 +353,7 @@ def _main(version: bool = typer.Option(False, "--version", help="Show the versio
 @app.command("prove")
 def prove_cmd(
     source: str = typer.Argument(..., help="Path or URL of the document to prove."),
-    runner: str = typer.Option("kane", "--runner", help="Browser runner: kane (default) or fake (offline)."),
+    runner: str = typer.Option("kane", "--runner", help="Browser runner: kane (default), none (docs with no browser steps) or fake (offline)."),
     headless: bool = typer.Option(False, "--headless", help="Kane runs Chrome without a window (automated runs only)."),
     report: bool = typer.Option(False, "--report", help="File each Kane run with the event's `kanehack report`."),
     cdp_endpoint: str | None = typer.Option(None, "--cdp-endpoint", help="Attach Kane to an existing Chrome debugging endpoint."),

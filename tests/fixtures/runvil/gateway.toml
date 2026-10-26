@@ -1,8 +1,14 @@
-# Loopback-only gateway config for the Gateway guide's first chapter (tests/test_cli_config.py).
+# Gateway config for the Gateway guide's first chapter. Valid for the real runvil-gateway
+# (the shape of runvil's own .github/fixtures/workshop-package-smoke/gateway.toml) and read
+# by tests/fixtures/runvil/fake_gateway.py, which only looks at `bind`.
 # Profile "main", bind 127.0.0.1:8081, as the chapter's examples assume.
+config-version = 0
+
 [server]
 bind = "127.0.0.1:8081"
+api_key = "secret-key"
 trust_loopback = true
-key = "secret-key"
 
-[profiles.main]
+[[profile]]
+name = "main"
+models = []

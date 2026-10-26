@@ -303,3 +303,48 @@ def test_runvil_runner_timeout_is_never_evidence(tmp_path, monkeypatch):
     obs = runner.run(slow)
     assert obs.status == "refused" and "did not answer within 1s" in (obs.message or "")
     assert judge(slow, Evidence(claim_id="c01", kind="prompt", prompt=obs)).status == "unverifiable"
+
+
+# -- --runner none: command and prompt docs need no browser tool ---------------------------------
+
+
+def test_runner_none_proves_a_doc_without_browser_steps_and_refuses_one_with_them(tmp_path):
+    from attest.runner import NoBrowserRunner
+
+    plain = tmp_path / "plain.md"
+    plain.write_text("```bash\necho hi\n```\n", encoding="utf-8")
+    result = prove(str(plain), runner=NoBrowserRunner(), home=tmp_path / "home")
+    assert result.by_id["c01"].status == "proven"
+    browser_doc = tmp_path / "browser.md"
+    browser_doc.write_text("```bash\necho hi\n```\n", encoding="utf-8")
+    from attest import pipeline
+
+    real_compile = pipeline.compile_doc
+
+    def with_browser(doc, llm=None):
+        claims = real_compile(doc, llm=llm)
+        extra = Claim(id="c02", kind="browser", span=claims[0].span, objective="Open the page", expects="hi", store_as="c02_label")
+        return [*claims, extra]
+
+    pipeline.compile_doc = with_browser
+    try:
+        with pytest.raises(ValueError, match="--runner none chosen but the document has browser claims: c02"):
+            prove(str(browser_doc), runner=NoBrowserRunner(), home=tmp_path / "home")
+    finally:
+        pipeline.compile_doc = real_compile
+    with pytest.raises(RuntimeError, match="--runner none"):
+        NoBrowserRunner().observe(extra_claim(), None)
+
+
+def extra_claim():
+    return Claim(id="c09", kind="browser", span=Span(start_line=1, end_line=1, text="x"), objective="Open it", expects="x", store_as="c09_label")
+
+
+def test_cli_runner_none_needs_no_kane(tmp_path):
+    from attest.cli import app
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("```bash\necho hi\n```\n", encoding="utf-8")
+    r = CliRunner().invoke(app, ["prove", str(doc), "--runner", "none", "--home", str(tmp_path / "home")])
+    assert r.exit_code == 0, r.output
+    assert "runner: none" in r.output and "1/1 proven" in r.output
