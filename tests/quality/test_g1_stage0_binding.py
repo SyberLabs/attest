@@ -2,7 +2,8 @@
 
 Evidence bound to the wrong app/build version, or to no version, and evidence bound
 to the wrong Kane run, to no run, or to an earlier run must not yield a verified
-receipt, a validated workflow or a promotion. Each negative case strips or swaps one
+receipt, a validated workflow or a promotion. That holds for the browser observation
+itself too: one that names another build, or none, fails the same way. Each negative case strips or swaps one
 binding and asserts the product fails closed; the ``control`` cases keep every
 binding intact and must still verify, so a product that refuses everything fails.
 
@@ -42,7 +43,7 @@ from attest.models import (
     RunReceipt,
     VerifiedRunReceipt,
 )
-from attest.proposals import create_repair_proposal
+from attest.proposals import create_repair_proposal, current_build_digest
 from attest.receipts import ReceiptEvidence
 from attest.storage import SQLiteWorkflowStore, canonical_json
 from attest.verdict import judge
@@ -274,8 +275,12 @@ def _git(root: Path, *args: str) -> None:
                    cwd=root, check=True, capture_output=True)
 
 
-def approved_repair(tmp_path: Path, git: bool = False):
-    """A host-created proposal relabelling c08, approved by a human, awaiting validation."""
+def approved_repair(tmp_path: Path, git: bool = False, before=None):
+    """A host-created proposal relabelling c08, approved by a human, awaiting validation.
+
+    ``before(source)`` runs once the doc exists, before the proposal is made: whatever it
+    deploys is the build the proposal is approved on.
+    """
     repo = tmp_path / "repo"
     repo.mkdir()
     source = repo / "greeting.md"
@@ -284,6 +289,8 @@ def approved_repair(tmp_path: Path, git: bool = False):
         _git(repo, "init", "-q")
         _git(repo, "add", "greeting.md")
         _git(repo, "commit", "-q", "-m", "baseline")
+    if before:
+        before(source)
     llm = DeterministicCompiler()
     baseline = compile_doc(ingest_text(BASE_DOC, source=str(source)), llm=llm, use_cache=False)
     target = next(claim for claim in baseline if claim.id == "c08")
@@ -319,6 +326,8 @@ def test_control_fresh_kane_run_on_the_approved_build_validates_and_promotes(tmp
     sid = session_of("witness_stale")
     assert validation["kane_runs"] == {"c07": sid, "c08": sid}
     assert validation["build_digest"] == validated.proposal["build_digest"]
+    assert {cid: validation["evidence"][cid]["observation"]["build_digest"] for cid in ("c07", "c08")} == {
+        "c07": validation["build_digest"], "c08": validation["build_digest"]}
     assert validation["statuses"]["c08"] == "proven" and len(cli.calls) == 1
     promoted = promote_workflow(store, workflow_id)
     assert promoted.state == "promoted"
@@ -433,3 +442,187 @@ def test_kane_run_unbound_observation_is_never_proven(tmp_path, monkeypatch):
     restored = obs.model_copy(update={"status": "passed"})
     verdict = judge(c07.model_copy(update={"depends_on": []}), Evidence(claim_id="c07", kind="browser", observation=restored))
     assert verdict.status == "unverifiable" and "not bound" in verdict.reason
+
+
+# -- browser observations name the build they were observed on -------------------------
+#
+# The checks above bind the receipt and the validation record. These bind the
+# observation itself: KaneBrowserRunner measures current_build_digest before and after
+# its own kane-cli run, and validation, promotion and receipts compare that build, not
+# one copied from the proposal.
+
+
+def build_of(source: Path) -> str:
+    return current_build_digest(source, hashlib.sha256(source.read_bytes()).hexdigest())
+
+
+def observe_browser_claims(runner, source: Path) -> dict:
+    claims = compile_doc(ingest_text(CANDIDATE_DOC, source=str(source)), llm=DeterministicCompiler(), use_cache=False)
+    runner.prepare(claims, str(source))
+    return {c.id: runner.observe(c, None) for c in claims if c.kind == "browser"}
+
+
+def deploy(source: Path, text: str = "// redeployed\n") -> None:
+    (source.parent / "app.js").write_text(text, encoding="utf-8")
+
+
+def observed_then_redeployed(runner):
+    """``before`` hook: Kane observes on the committed build A, then build B is deployed (and approved)."""
+    seen = {}
+
+    def hook(source: Path) -> None:
+        seen["build_a"] = build_of(source)
+        seen["observations"] = observe_browser_claims(runner, source)
+        deploy(source)
+
+    return hook, seen
+
+
+def test_observation_build_kane_runner_records_the_build_it_observed(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = approved_repair(tmp_path, git=True)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+
+    observations = observe_browser_claims(runner, source)
+
+    assert {cid: obs.status for cid, obs in observations.items()} == {"c07": "passed", "c08": "passed"}
+    assert {obs.build_digest for obs in observations.values()} == {build_of(source)}
+    assert build_of(source) == store.get(workflow_id).proposal["build_digest"]
+
+
+def test_observation_build_redeploy_during_the_kane_run_names_no_build(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, _, _, _ = approved_repair(tmp_path, git=True)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, side_effect=lambda: deploy(source))
+
+    observations = observe_browser_claims(runner, source)
+
+    assert all(obs.build_digest is None for obs in observations.values())
+    assert all("build: unknown or changed during this Kane run" in obs.note for obs in observations.values())
+
+
+def test_observation_build_runner_without_a_local_doc_names_no_build(tmp_path, monkeypatch):
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    claims = compile_doc(ingest_text(CANDIDATE_DOC, source="greeting.md"), llm=DeterministicCompiler(), use_cache=False)
+    runner.prepare(claims, "https://docs.example.test/greeting")
+    c07 = next(c for c in claims if c.id == "c07")
+    assert runner.observe(c07, None).build_digest is None
+
+
+@pytest.mark.parametrize(
+    "build, failure",
+    [(None, "observation_build_missing"), (digest("a build nobody approved"), "observation_build_mismatch")],
+    ids=["omitted-build", "wrong-build"],
+)
+def test_observation_build_omitted_or_wrong_fails_validation(tmp_path, monkeypatch, build, failure):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    # A fresh, pack-bound Kane run whose observations name no build, or another one.
+    observe = runner.observe
+    runner.observe = lambda claim, base_url: observe(claim, base_url).model_copy(update={"build_digest": build})
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
+
+    assert outcome.state == "rejected"
+    validation = outcome.validation
+    sid = session_of("witness_stale")
+    # Every other binding holds: the observation's build is the only reason.
+    assert len(cli.calls) == 1 and validation["kane_runs"] == {"c07": sid, "c08": sid}
+    assert validation["statuses"]["c07"] == validation["statuses"]["c08"] == "proven"
+    assert validation["failed_claims"] == [f"c07:{failure}", f"c08:{failure}"]
+    with pytest.raises(WorkflowError):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_observation_build_cached_from_an_earlier_build_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    hook, seen = observed_then_redeployed(runner)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True, before=hook)
+    build_b = store.get(workflow_id).proposal["build_digest"]
+    assert build_b != seen["build_a"] and len(cli.calls) == 1
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
+
+    assert len(cli.calls) == 1  # the runner served build A's cached observations
+    assert outcome.state == "rejected"
+    validation = outcome.validation
+    assert validation["evidence"]["c07"]["observation"]["build_digest"] == seen["build_a"]
+    assert {"c07:observation_build_mismatch", "c08:observation_build_mismatch"} <= set(validation["failed_claims"])
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda v: v["evidence"]["c08"]["observation"].update(build_digest=digest("some other build")),
+        lambda v: v["evidence"]["c08"]["observation"].pop("build_digest"),
+        lambda v: v["evidence"].pop("c08"),
+    ],
+    ids=["swapped-observation-build", "omitted-observation-build", "dropped-evidence"],
+)
+def test_observation_build_promotion_refuses_evidence_not_observed_on_the_approved_build(tmp_path, monkeypatch, change):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path)  # unversioned: binds path + source digest
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    assert resume_workflow(store, workflow_id, runner=runner, llm=llm).state == "validated"
+    _tamper_validation(store, workflow_id, change)
+
+    with pytest.raises(WorkflowError, match="not observed on the approved app/build version"):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def _receipt_from_observations(build: str, observations: dict, run: str, cls=VerifiedRunReceipt):
+    """A receipt that would verify, whose browser evidence carries each observation's own build."""
+    fields = receipt_fields(build_digest=build, kane_run_ids=(run,))
+    fields["evidence"] = tuple(
+        evidence_for(fields, build_digest=obs.build_digest, kane_run_id=run) for obs in observations.values()
+    )
+    return cls(**fields)
+
+
+@pytest.mark.parametrize(
+    "case, rejection",
+    [
+        ("redeployed-mid-run", "verified receipts require every evidence record to name its app/build version"),
+        ("cached-from-earlier-build", "receipt evidence belongs to a different app/build version"),
+    ],
+    ids=["redeployed-mid-run", "cached-from-earlier-build"],
+)
+def test_observation_build_receipt_from_an_unbound_or_earlier_observation_does_not_verify(tmp_path, monkeypatch, case, rejection):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    if case == "redeployed-mid-run":
+        source, store, workflow_id, _ = approved_repair(tmp_path, git=True)
+        runner, _ = kane_runner(tmp_path / "kane", monkeypatch, side_effect=lambda: deploy(source, "// mid-run\n"))
+        observations = observe_browser_claims(runner, source)
+        (source.parent / "app.js").unlink()  # back on the approved tree: only the observations are off
+        assert build_of(source) == store.get(workflow_id).proposal["build_digest"]
+    else:
+        runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+        hook, seen = observed_then_redeployed(runner)
+        source, store, workflow_id, _ = approved_repair(tmp_path, git=True, before=hook)
+        observations = seen["observations"]
+    approved = store.get(workflow_id).proposal["build_digest"]
+    run = session_of("witness_stale")
+
+    with pytest.raises(ValidationError, match=re.escape(rejection)):
+        _receipt_from_observations(approved, observations, run)
+    if case == "cached-from-earlier-build":
+        with pytest.raises(ValidationError, match=re.escape(rejection)):
+            _receipt_from_observations(approved, observations, run, cls=RunReceipt)
+
+
+def test_control_receipt_from_observations_on_the_approved_build_verifies(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = approved_repair(tmp_path, git=True)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    observations = observe_browser_claims(runner, source)
+    approved = store.get(workflow_id).proposal["build_digest"]
+
+    receipt = _receipt_from_observations(approved, observations, runner.run_ids["c07"])
+
+    assert receipt.build_digest == approved
+    assert [item.build_digest for item in receipt.evidence] == [approved, approved]

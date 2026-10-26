@@ -5,9 +5,10 @@ Runs ``tests/quality/test_g1_stage0_binding.py`` and passes only when every test
 ran and passed. A skipped, xfailed, xpassed, failed or errored test fails the gate, and
 so does an empty section. Sections come from the test name prefix:
 
-``version``   ``test_version_*``   wrong or omitted app/build version
-``kane-run``  ``test_kane_run_*``  wrong, omitted or stale Kane run id
-``control``   ``test_control_*``   intact bindings still verify (refuse-everything fails)
+``version``            ``test_version_*``            wrong or omitted app/build version
+``kane-run``           ``test_kane_run_*``           wrong, omitted or stale Kane run id
+``observation-build``  ``test_observation_build_*``  browser observation names another build, or none
+``control``            ``test_control_*``            intact bindings still verify (refuse-everything fails)
 
 A green result covers only those tests. It is not a coverage figure, and nothing here
 runs live Kane.
@@ -24,7 +25,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TESTS = "tests/quality/test_g1_stage0_binding.py"
-SECTIONS = {"version": "test_version_", "kane-run": "test_kane_run_", "control": "test_control_"}
+SECTIONS = {
+    "version": "test_version_",
+    "kane-run": "test_kane_run_",
+    "observation-build": "test_observation_build_",
+    "control": "test_control_",
+}
 
 
 def junit_outcomes(xml_path: Path) -> dict[str, str]:

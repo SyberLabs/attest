@@ -25,6 +25,7 @@ from .contracts import (
     ExecutionState,
     RepairProposal,
     RepairState,
+    SHA256_PATTERN,
 )
 from .receipts import ReceiptEvidence, RunReceipt, VerifiedRunReceipt
 from .snapshots import RepositorySnapshot, SourceVersion
@@ -120,6 +121,9 @@ class BrowserObservation(BaseModel):
     observed: dict[str, str] = Field(default_factory=dict)
     screenshot: str | None = None
     note: str | None = None
+    # App/build identity the page was observed on (proposals.current_build_digest), as
+    # the runner measured it around its own run. None: the runner cannot say.
+    build_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
 
 
 class Evidence(BaseModel):

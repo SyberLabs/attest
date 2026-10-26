@@ -2,7 +2,7 @@
 
 **Status:** KR-SIM-03 is `active` (R1, R3, R5). The proof is local, offline, on recorded Kane captures. No coverage figure is claimed and no check is required on `main`.
 
-#40 left KR-SIM-03 as a stub: "needs an app/build version on `BrowserObservation` and the receipt". #41 added the bindings, on the receipt and on the validation record. `BrowserObservation` itself still has no build field. The case tests the bindings where #41 put them.
+#40 left KR-SIM-03 as a stub: "needs an app/build version on `BrowserObservation` and the receipt". #41 added the bindings, on the receipt and on the validation record. `BrowserObservation` itself still has no build field. The case tests the bindings where #41 put them. (The branch stacked on #42, `feat/browser-observation-build-binding`, adds `BrowserObservation.build_digest`. With it, step 2 also fails with `<id>:observation_build_mismatch`. The case asserts only that its listed failures are present, so it passes unchanged.)
 
 ## The case
 
