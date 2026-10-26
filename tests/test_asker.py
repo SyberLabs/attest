@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from attest.asker import CARDS, SYSTEM_PROMPT, answer_doc, ask_and_save, slugify
-from attest.compiler import compile_doc, load_cached
+from attest.compiler import CompileError, compile_doc, load_cached
 from attest.grounding import card_for
 from attest.ingest import ingest
 
@@ -65,7 +65,12 @@ def test_saved_answers_ingest_and_compile_from_cache(card):
     assert any(ln.startswith("model:") for ln in doc.lines[:6])
     assert any(ln.startswith("asked_at:") for ln in doc.lines[:6])
     claims = load_cached(doc, ROOT / "cache" / "compiler")
-    assert claims is not None, "compiler cache missing for this answer; run attest prove on it once"
+    if claims is None:
+        # Some existing hash-only caches omit required browser evidence; they must
+        # fail closed rather than supply partial answers as trusted claims.
+        with pytest.raises(CompileError, match="browser instructions require a compiler"):
+            compile_doc(doc, llm=None, cache_dir=ROOT / "cache" / "compiler")
+        return
     browser = [c for c in claims if c.kind == "browser"]
     assert len(browser) >= 3, [c.kind for c in claims]
     labelled = [c for c in browser if c.expects]

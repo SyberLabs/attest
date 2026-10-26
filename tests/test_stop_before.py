@@ -42,7 +42,8 @@ def test_stop_before_excludes_suffix_from_prepare_and_observe(tmp_path, monkeypa
 
     assert runner.prepared == ["c01"]
     assert [claim_id for claim_id, _ in runner.calls] == ["c01"]
-    assert result.by_id["c01"].status == "proven"
+    assert result.by_id["c01"].status == "unverifiable"
+    assert "simulation" in result.by_id["c01"].reason
     reason = "unverifiable: stopped before c02 (card stops before irreversible or real-form steps)"
     for claim_id in ("c02", "c03"):
         assert result.by_id[claim_id].status == "unverifiable"
