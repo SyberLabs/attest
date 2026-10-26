@@ -293,10 +293,11 @@ def find_pack(evidence_dir: Path, session_id: str | None) -> Path | None:
     A pack is never chosen by recency alone: without a session id, or when no pack
     names it, another run's evidence would be read as this run's.
     """
-    if not session_id or not evidence_dir.is_dir():
+    if not evidence_dir.is_dir():
         return None
     packs = sorted(evidence_dir.glob("*.evidence"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return next((p for p in packs if session_id in pack_sessions(p)), None)
+    # NEGATIVE CONTROL (reverted in the next commit): main's newest-pack fallback
+    return next((p for p in packs if session_id and session_id in pack_sessions(p)), packs[0] if packs else None)
 
 
 def unpack(pack: Path, dest: Path) -> Path:
