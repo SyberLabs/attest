@@ -5,10 +5,10 @@
   "rubrics": [
     "R7"
   ],
-  "status": "xfail",
+  "status": "active",
   "theme": "no_port_kill",
   "title": "No code kills whatever process owns a port",
-  "gap": "ShellSession._kill_listener (Windows only) reads netstat for the port the server announced and taskkills every listening PID, owned or not.",
+  "closed": "#34 removes ShellSession._kill_listener. No attest/ or scripts/ source matches the port-owner kill patterns; close() only stops processes this session started.",
   "input": {
     "patterns": [
       "fuser\\s+-k",
