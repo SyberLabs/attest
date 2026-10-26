@@ -172,6 +172,9 @@ def resume_workflow(
         prepare = getattr(runner, "prepare", None)
         if prepare is not None:
             prepare(claims, str(source_path))
+        # No executor means an empty allow-list: every shell claim fails closed.
+        if recipe_executor is None:
+            recipe_executor = ApprovedRecipeExecutor({})
         scratch = new_scratch("attest-validate-")
         session = None
         try:
@@ -192,6 +195,7 @@ def resume_workflow(
                 "successful": not failed,
                 "runner": runner.name,
                 "shell_mode": "recipes_only",
+                "recipe_digest": recipe_executor.digest,
                 "candidate_digest": proposal["candidate_digest"],
                 "statuses": statuses,
                 "failed_claims": failed,

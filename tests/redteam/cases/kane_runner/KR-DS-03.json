@@ -6,10 +6,10 @@
     "R3",
     "R5"
   ],
-  "status": "xfail",
+  "status": "active",
   "theme": "stale_or_wrong_app_version",
   "title": "No evidence pack names the run's session",
-  "gap": "find_pack falls back to the newest pack when a session id is given and no pack names it, so another run's evidence can be read.",
+  "closed": "#41's find_pack returns None unless a pack's result.yaml names the session id. It does not fall back to the newest pack.",
   "input": {
     "pack_fixture": "author_pass",
     "session_id": "no-such-session"

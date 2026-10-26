@@ -147,3 +147,10 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 
 - Leftover from #18: "workflow validation ignores --recipes-only". `resume_workflow` called `execute()` without `recipes_only`, so an approved candidate's shell steps (model-authored text) ran through the compatibility shell with the full host environment. Validation now always passes `recipes_only=True`; the caller can supply an `ApprovedRecipeExecutor`, and an unapproved shell step gets exit 126 and the workflow is rejected. The receipt records `shell_mode: recipes_only`.
 - `attest resume` has no recipe configuration yet, so from the CLI every shell claim fails closed. Browser-only workflows are unaffected.
+
+## Oct 26: `attest resume --recipes`
+
+- Follow-up to the recipes-only validation gate (#25). `attest resume <id> --recipes FILE` loads a trusted allow-list, `recipes: {<exact command>: [argv...]}` in YAML or JSON, into an `ApprovedRecipeExecutor`. A shell claim runs only when its whole command is a key, and then as that fixed argv with no shell and the curated recipes-only environment. Without `--recipes`, or for any command not listed, the claim gets exit 126 and the workflow is rejected, as before.
+- The file is explicit operator input only; nothing is loaded from `--home` or from beside the document, so a proposal cannot supply its own allow-list. The loader refuses rather than guesses: a symlink or non-file, duplicate keys (YAML and JSON both keep the last one silently, so a strict loader is used), unknown top-level keys, non-string argv parts. It loads before the runner starts, so a bad file exits 2 and the workflow stays `validating`.
+- The validation receipt records `recipe_digest` (sha256 of the canonical allow-list; the empty list when none was given), so a promotion shows which allow-list proved its shell steps.
+- `attest prove --recipes-only` still has no way to supply recipes; out of scope here.

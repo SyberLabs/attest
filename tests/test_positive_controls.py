@@ -38,6 +38,7 @@ from attest import workflow as workflow_mod
 from attest.approvals import ApprovalError, approve_workflow
 from attest.cli import app
 from attest.compiler import ClaimSet, LLMClaim
+from attest.execution.recipes import ApprovedRecipeExecutor
 from attest.kane import KaneBrowserRunner, parse_events
 from attest.loop import run_loop
 from attest.models import BrowserObservation
@@ -160,7 +161,9 @@ def _run_md_control(tmp_path: Path, monkeypatch) -> None:
         assert approved.approval[field] == approved.proposal[field]
 
     # 3. Validate: a fresh run of the candidate proves every required claim.
-    validated = resume_workflow(store, workflow_id, runner=ShellOnlyKaneRunner())
+    # #25 runs validation recipes-only. The allowed repair is this exact command.
+    ready = ApprovedRecipeExecutor({"echo ready && exit 0": [sys.executable, "-c", "print('ready')"]})
+    validated = resume_workflow(store, workflow_id, runner=ShellOnlyKaneRunner(), recipe_executor=ready)
     assert validated.state == "validated"
     validation = validated.validation
     assert validation["successful"] is True and validation["runner"] == "kane"

@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from attest.approvals import ApprovalError, approve_workflow
 from attest.compiler import ClaimSet, CompileError, compile_doc, fences_by_regex
 from attest.contracts import RepairProposal
+from attest.execution.recipes import ApprovedRecipeExecutor
 from attest.execution.sandbox import safe_pack_path
 from attest.ingest import ingest_text, sha256_of
 from attest.loop import run_loop
@@ -84,9 +85,12 @@ def test_allowed_repair_promotes_end_to_end(rt_case, tmp_path):
     source, store, record = propose(tmp_path, i["base"], i["candidate"], plan=i["plan"])
     assert record.state == "awaiting_approval"
     approve_workflow(store, record.workflow_id, i["approver"])
-    validated = resume_workflow(store, record.workflow_id, runner=KaneTestRunner())
+    # #25 validates shell claims recipes-only. This control's candidate is the
+    # approved command, so the resume has to name that recipe or it fails closed.
+    ready = ApprovedRecipeExecutor({"echo ready && exit 0": [sys.executable, "-c", "print('ready')"]})
+    validated = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready)
     assert validated.state == "validated" and validated.validation["successful"] is True
-    promoted = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), apply=True)
+    promoted = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, apply=True)
 
     assert promoted.state == x["final_state"]
     assert sha256_of(source.read_text(encoding="utf-8")) == record.proposal[x["source_matches"]]
