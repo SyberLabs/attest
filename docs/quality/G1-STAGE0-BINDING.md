@@ -41,6 +41,10 @@ FACTORY §3 lists G1 as Measured (scoped) through #27, but names a gap that #27 
   - Green on `d1efc22`: [run 40367290086](https://github.com/SyberLabs/attest/actions/runs/40367290086), 153 passed (version 13, kane-run 36, observation-build 24, record 18, pack 18, wording 9, run-time 7, run-reuse 10, control 18). `tests / pytest` gave 762 passed, 4 skipped, 2 xfailed ([run 40367290164](https://github.com/SyberLabs/attest/actions/runs/40367290164)).
   - Fails closed on `3670665`: [run 40367371511](https://github.com/SyberLabs/attest/actions/runs/40367371511). That commit made `_reused_kane_runs` return nothing, which turns off both the validation and the promotion hook. All 10 run-reuse cases failed, 143 passed (all 18 controls among them), and the job failed with `section [run-reuse] has no passing test`. `tests / pytest` gave 10 failed, 752 passed ([run 40367371562](https://github.com/SyberLabs/attest/actions/runs/40367371562)). G2, G3, G4, G5 and G7 stayed green.
   - Green again on the revert `7efbc43` (same tree as `d1efc22`): [run 40367387217](https://github.com/SyberLabs/attest/actions/runs/40367387217), 153 passed. `tests / pytest` gave 762 passed, 4 skipped, 2 xfailed ([run 40367387365](https://github.com/SyberLabs/attest/actions/runs/40367387365)).
+- **`approval-time` section: the approval a pack's run is read against is the one its event recorded** (PR #68, stacked on #66): **Measured (scoped)** from hosted Actions output on PR #68. New section `approval-time` with 11 cases; `control` goes from 18 to 20. PR #68 targets #66's branch, so its runs are on the merge with `feat/g1-next-after-58` at `fb8e93f`, which #66's own runs show green.
+  - Green on `88033ed`: [run 40376081063](https://github.com/SyberLabs/attest/actions/runs/40376081063), 166 passed (version 13, kane-run 36, observation-build 24, record 18, pack 18, wording 9, run-time 7, run-reuse 10, approval-time 11, control 20). `tests / pytest` gave 776 passed, 4 skipped, 2 xfailed ([run 40376081141](https://github.com/SyberLabs/attest/actions/runs/40376081141)).
+  - Fails closed on `15a45aa`: [run 40376103766](https://github.com/SyberLabs/attest/actions/runs/40376103766). That commit made `_approval_disagreement` return nothing, which turns off both the validation and the promotion hook. All 11 approval-time cases failed, 155 passed (all 20 controls among them), and the job failed with `section [approval-time] has no passing test`. `tests / pytest` gave 11 failed, 765 passed ([run 40376103795](https://github.com/SyberLabs/attest/actions/runs/40376103795)). G2, G3, G4, G5 and G7 stayed green.
+  - Green again on the revert `4e91d69` (same tree as `88033ed`): [run 40376191266](https://github.com/SyberLabs/attest/actions/runs/40376191266), 166 passed. `tests / pytest` gave 776 passed, 4 skipped, 2 xfailed ([run 40376190817](https://github.com/SyberLabs/attest/actions/runs/40376190817)).
 
 ## What the gate checks
 
@@ -223,7 +227,7 @@ Deliberate choices:
 - **A resealed record keeps its original receipt in the store.** So a resealed record that still binds any run its original receipt names is refused here too. That only adds refusals, and a record validation sealed itself is never affected.
 - **Cost.** Each validation and promotion reads every stored record and every artifact containing `"receipt_digest":`. The store is local, and there is no index.
 
-### The approval is the one its event recorded (stacked on #66)
+### The approval is the one its event recorded (PR #68, stacked on #66)
 
 Since #58 each pack's run must start no earlier than the approval's `approved_at`. The approval digest covers that time, but it was only checked against the approval's own fields. On #66's tip (`fb8e93f`) a writer who backdated `approved_at` and recomputed the digest moved that bound back, on both paths. Validation then accepted a Kane command whose pack ran on event day, after the backdated time and two days before the real approval, and promoted. A record resealed to the new digest (artifact and event too) that launders a real Kane run of the candidate taken before the proposal onto c07 and c08 promoted too.
 
@@ -234,6 +238,8 @@ What tells the real approval apart is already in the store. `approve_workflow` w
 - **Promotion** (`_refuse_unrecorded_approval`, both paths) refuses with `<reason>; --apply refused` right after `verify_approval`. No existing case rewrites the approval or its events, so no existing message changes.
 
 Not re-landed or changed: the pack reader, `PACK_BEFORE_APPROVAL`, the wording check, run reuse, `attest/approvals.py`. No clock-skew tolerance was added.
+
+New cases: 13 (approval-time 11, control 2). I ran them against #66's tip (`fb8e93f`) `attest/`. 11 of the 13 fail there: 6 validations end `promoted` instead of `unresolved`, 4 promotions don't raise, and the reader case can't import the new names. The 2 controls pass there. Mutation check (local, one at a time, over the approval-time and control cases): validation hook off, 6 cases red; promotion hook off, 4; approval event digest not read, 7 (3 of them by message only, since the time bound still refuses a backdate to before the proposal); time bound not read, 5; `<` made `<=`, 1 (the reader's same-instant step). No control fails under any of these.
 
 Deliberate choices:
 
