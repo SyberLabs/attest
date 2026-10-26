@@ -4,7 +4,12 @@ FACTORY-REDTEAM-AND-RUBRICS §3 G7: block merge when "a deadline, cleanup, or is
 
 **Check:** `g7-kane-resource / G7 Kane resource` (`.github/workflows/g7-kane-resource.yml`). It is a separate workflow, so it doesn't touch `tests.yml` (G8/G1) or the G5 workflow.
 
-**Status:** Proposed. Update this line only from hosted run output.
+**Status:** Measured (attest, scoped), from hosted run output only:
+
+- Fails closed: [run 40298686065](https://github.com/SyberLabs/attest/actions/runs/40298686065) on `653ea0e` (gate only, product unchanged from `main` b0989ac). The port-kill scan failed on `attest/shell.py:348` and `:353` (`ShellSession._kill_listener`). The tests step gave 50 passed and 1 failed (`test_product_paths_have_no_port_kill_code`).
+- Green: [run 40298849014](https://github.com/SyberLabs/attest/actions/runs/40298849014) on `b15868b`, after `_kill_listener` was removed. The scan read 32 files with 0 hits. The tests step gave 51 cases passed and 0 skipped, with every section non-empty (deadline 8 ids, cleanup 5, isolation 7, port-kill 7, control 3, gate 4).
+
+The scope is the listed ids and the scanned paths only. See "Not covered" below. No coverage percentage is claimed.
 
 ## What fails the job
 
