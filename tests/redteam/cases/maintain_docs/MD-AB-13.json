@@ -1,0 +1,52 @@
+{
+  "id": "MD-AB-13",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "path_escape",
+  "title": "A directory on the approved source path swapped for a symlink into a clone at the same commit (before validation, after it, or during --apply) is never validated or written through; refused with a stable code",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approver": "reviewer",
+    "source": "docs/guide.md",
+    "swaps": [
+      {
+        "when": "before_validation",
+        "swap": "symlink_to_clone",
+        "code": "source_redirected"
+      },
+      {
+        "when": "after_validation",
+        "swap": "symlink_to_clone",
+        "code": "source_redirected"
+      },
+      {
+        "when": "during_apply",
+        "swap": "symlink_to_clone",
+        "code": "source_redirected"
+      },
+      {
+        "when": "during_apply",
+        "swap": "replaced_by_copy",
+        "code": "source_moved"
+      }
+    ]
+  },
+  "expected": {
+    "clone_build_matches": true,
+    "resume_state": "unresolved",
+    "reason_prefix": "source path refused",
+    "validated_state": "validated",
+    "promote_error": "source path refused \\({code}\\)",
+    "cli_exit": 2,
+    "cli_output": "resume failed closed: source path refused ({code})",
+    "control_state": "promoted",
+    "nothing_written_outside": true
+  }
+}

@@ -7,6 +7,8 @@ import pytest
 
 from attest.approvals import ApprovalError, approve_workflow
 from attest.compiler import CompileError, fences_by_regex
+from attest.docs_source import SOURCE_PATH_CODES, SourceDir, SourcePathError
+from attest import docs_source
 from attest.execution.recipes import ApprovedRecipeExecutor
 from attest.ingest import ingest_text, sha256_of
 from attest.models import Claim, Span
@@ -51,13 +53,14 @@ def allowed_fixture(
     tmp_path,
     candidate="# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
     base="# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    store_dir=None,
 ):
     source = tmp_path / "guide.md"
     source.write_text(base, encoding="utf-8")
     doc = ingest_text(base, source=str(source))
     claims = fences_by_regex(doc)
     target = claims[0]
-    store = SQLiteWorkflowStore(tmp_path / "workflow.sqlite3")
+    store = SQLiteWorkflowStore((store_dir or tmp_path) / "workflow.sqlite3")
     record = create_repair_proposal(
         store,
         source_path=source,
@@ -571,3 +574,120 @@ def test_resume_of_a_validated_record_without_its_approve_event_is_refused(tmp_p
         resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner())
     assert store.get(proposal.workflow_id).state == "validated"
     assert source.read_text(encoding="utf-8") == base
+
+
+def _docs_behind_a_link(tmp_path):
+    """An approved proposal for docs/guide.md (unversioned), with the store outside docs."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    source, store, proposal = allowed_fixture(docs, store_dir=tmp_path)
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "guide.md").write_bytes(source.read_bytes())
+    return docs, source, store, proposal, outside
+
+
+def _swap_for_link(docs, outside):
+    moved = docs.with_name("docs.approved")
+    docs.rename(moved)
+    try:
+        docs.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:  # Windows without Developer Mode or admin cannot create symlinks
+        pytest.skip(f"cannot create a symlink here ({exc})")
+    return moved
+
+
+def test_unversioned_source_behind_a_symlinked_directory_is_refused_with_a_stable_code(tmp_path):
+    # Before #63's successor this was refused only because the unversioned build identity
+    # names the resolved path ("build identity changed"); now the path check says why.
+    docs, source, store, proposal, outside = _docs_behind_a_link(tmp_path)
+    base = outside.joinpath("guide.md").read_text(encoding="utf-8")
+    moved = _swap_for_link(docs, outside)
+    result = resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY, apply=True)
+    assert result.state == "unresolved"
+    assert result.validation["reason"].startswith("source path refused (source_redirected)")
+    assert (outside / "guide.md").read_text(encoding="utf-8") == base
+    assert (moved / "guide.md").read_text(encoding="utf-8") == base
+
+
+def test_unversioned_validated_record_behind_a_symlinked_directory_is_not_applied(tmp_path):
+    docs, source, store, proposal, outside = _docs_behind_a_link(tmp_path)
+    base = source.read_text(encoding="utf-8")
+    assert resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY).state == "validated"
+    _swap_for_link(docs, outside)
+    with pytest.raises(WorkflowError, match=r"source path refused \(source_redirected\).*--apply refused"):
+        promote_workflow(store, proposal.workflow_id)
+    assert store.get(proposal.workflow_id).state == "validated"
+    assert (outside / "guide.md").read_text(encoding="utf-8") == base
+
+
+def test_source_path_refusals_have_stable_codes(tmp_path):
+    real = tmp_path / "real.md"
+    real.write_text("x\n", encoding="utf-8")
+
+    def code(path):
+        with pytest.raises(SourcePathError) as caught:
+            with SourceDir(path) as source:
+                source.read()
+        assert caught.value.code in SOURCE_PATH_CODES
+        assert str(caught.value).startswith(f"source path refused ({caught.value.code}): ")
+        return caught.value.code
+
+    assert code("real.md") == "source_not_canonical"
+    assert code(f"{tmp_path}/sub/../real.md") == "source_not_canonical"
+    assert code(f"{tmp_path}/./real.md") == "source_not_canonical"
+    assert code(tmp_path / "absent.md") == "source_missing"
+    assert code(tmp_path / "absent" / "real.md") == "source_missing"
+    (tmp_path / "dir.md").mkdir()
+    assert code(tmp_path / "dir.md") == "source_missing"
+    try:
+        (tmp_path / "link.md").symlink_to(real)
+        (tmp_path / "linked").symlink_to(tmp_path, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"cannot create a symlink here ({exc})")
+    assert code(tmp_path / "link.md") == "source_symlink"
+    assert code(tmp_path / "linked" / "real.md") == "source_redirected"
+    # the wording older refusals had is kept for the file itself
+    with pytest.raises(SourcePathError, match="source file is missing or is a symlink"):
+        SourceDir(tmp_path / "link.md").__enter__()
+    with SourceDir(real) as source:
+        assert source.read() == b"x\n"
+
+
+@pytest.mark.skipif(not docs_source._PINNED, reason="no O_NOFOLLOW / dir_fd here: the path is checked, not pinned")
+def test_a_directory_swapped_after_the_last_check_is_still_not_written_through(tmp_path, monkeypatch):
+    # The last path check and the rename are two calls. A swap between them is not
+    # refused, but the rename is relative to the directory held open since the source
+    # was read: the candidate lands in the approved directory, never behind the link.
+    docs, source, store, proposal, outside = _docs_behind_a_link(tmp_path)
+    base = source.read_text(encoding="utf-8")
+    resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY)
+    checked = SourceDir.still_named
+    moved = []
+
+    def check_then_swap(self):
+        checked(self)
+        moved.append(_swap_for_link(docs, outside))
+
+    monkeypatch.setattr(SourceDir, "still_named", check_then_swap)
+    assert promote_workflow(store, proposal.workflow_id).state == "promoted"
+    assert (outside / "guide.md").read_text(encoding="utf-8") == base
+    assert hashlib.sha256((moved[0] / "guide.md").read_bytes()).hexdigest() == proposal.proposal["candidate_digest"]
+    assert sorted(p.name for p in moved[0].iterdir()) == ["guide.md"]
+
+
+def test_a_directory_swapped_while_validation_runs_leaves_the_workflow_unresolved(tmp_path):
+    docs, source, store, proposal, outside = _docs_behind_a_link(tmp_path)
+    base = source.read_text(encoding="utf-8")
+
+    class SwappingRunner(KaneTestRunner):
+        def prepare(self, claims, source="doc"):
+            super().prepare(claims, source)
+            _swap_for_link(docs, outside)
+
+    result = resume_workflow(store, proposal.workflow_id, runner=SwappingRunner(), recipe_executor=READY, apply=True)
+    assert result.state == "unresolved"
+    assert result.validation["reason"].startswith("source path refused (source_redirected)")
+    assert "after validation ran" in result.validation["reason"]
+    assert (outside / "guide.md").read_text(encoding="utf-8") == base

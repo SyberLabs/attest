@@ -461,6 +461,130 @@ def test_record_validated_without_the_approve_event_is_refused_at_apply(rt_case,
     assert source.read_text(encoding="utf-8") == i["candidate"]
 
 
+def _git(cwd: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", "-c", "user.name=attest", "-c", "user.email=attest@example.test", "-c", "init.defaultBranch=main",
+                    *args], cwd=cwd, check=True, capture_output=True)
+
+
+def _approved_in_a_clone_pair(root: Path, i: dict):
+    """An approved proposal for <repo>/docs/guide.md, and a clone of that repository at the same commit.
+
+    The store lives outside both, so swapping the docs directory moves nothing Attest owns.
+    """
+    repo = root / "repo"
+    source = repo / i["source"]
+    source.parent.mkdir(parents=True)
+    source.write_text(i["base"], encoding="utf-8", newline=chr(10))
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    _git(root, "clone", "-q", str(repo), "clone")
+    store = SQLiteWorkflowStore(root / "home" / "workflow.sqlite3")
+    claims = fences_by_regex(ingest_text(i["base"], source=str(source)))
+    record = create_repair_proposal(store, source_path=source, base_text=i["base"], candidate_text=i["candidate"],
+                                    diff=make_diff(i["base"], i["candidate"]), target_claim=claims[0],
+                                    baseline_claims=claims, plan="Repair only c01; preserve all promises.")
+    assert record.state == "awaiting_approval"
+    approve_workflow(store, record.workflow_id, i["approver"])
+    return repo, root / "clone", source, store, record.workflow_id
+
+
+def _swap_docs_dir(repo: Path, clone: Path, i: dict, swap: str) -> Path:
+    """Move the approved docs directory aside and put a link to the clone's (or a real copy) in its place."""
+    docs = (repo / i["source"]).parent
+    moved = docs.with_name(docs.name + ".approved")
+    docs.rename(moved)
+    if swap == "symlink_to_clone":
+        docs.symlink_to(clone / docs.relative_to(repo), target_is_directory=True)
+    elif swap == "replaced_by_copy":
+        docs.mkdir()
+        (docs / Path(i["source"]).name).write_bytes((moved / Path(i["source"]).name).read_bytes())
+    else:
+        raise AssertionError(f"unknown swap {swap!r}")
+    return moved
+
+
+@case("MD-AB-13")
+def test_symlinked_directory_on_the_source_path_is_never_validated_or_written_through(rt_case, tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    import attest.cli as cli_module
+    from attest.docs_source import SOURCE_PATH_CODES
+    from attest.proposals import current_build_digest
+
+    i, x = rt_case["input"], rt_case["expected"]
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
+    name = Path(i["source"]).name
+    for n, item in enumerate(i["swaps"]):
+        assert item["code"] in SOURCE_PATH_CODES
+        root = tmp_path / f"{n}-{item['when']}"
+        try:
+            repo, clone, source, store, wid = _approved_in_a_clone_pair(root, i)
+            probe = root / "probe"
+            probe.symlink_to(clone, target_is_directory=True)
+        except OSError as exc:  # Windows without Developer Mode or admin cannot create symlinks
+            pytest.skip(f"cannot create a symlink here ({exc})")
+        # The clone is at the approved commit: through a link, its source bytes and build
+        # identity are the approved ones, so only the path check can tell them apart.
+        clone_source = clone / i["source"]
+        proposal = store.get(wid).proposal
+        built = current_build_digest(probe / i["source"], proposal["source_digest"])
+        assert (built == proposal["build_digest"]) is x["clone_build_matches"]
+        assert hashlib.sha256(clone_source.read_bytes()).hexdigest() == proposal["source_digest"]
+        marker = root / "ran"
+
+        if item["when"] == "before_validation":
+            moved = _swap_docs_dir(repo, clone, i, item["swap"])
+            result = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker), apply=True)
+            assert result.state == x["resume_state"], item
+            assert result.validation["reason"].startswith(f"{x['reason_prefix']} ({item['code']})"), (item, result.validation)
+            assert "statuses" not in result.validation and not marker.exists(), item
+        else:
+            validated = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker))
+            assert validated.state == x["validated_state"], item
+            error = x["promote_error"].format(code=item["code"])
+            if item["when"] == "after_validation":
+                moved = _swap_docs_dir(repo, clone, i, item["swap"])
+                with pytest.raises(WorkflowError, match=error):
+                    promote_workflow(store, wid)
+                with pytest.raises(WorkflowError, match=error):
+                    resume_workflow(store, wid, runner=KaneTestRunner(), apply=True)
+                out = CliRunner().invoke(cli_module.app, ["resume", wid, "--apply", "--home", str(store.path.parent)])
+                assert out.exit_code == x["cli_exit"], (item, out.output)
+                assert x["cli_output"].format(code=item["code"]) in out.output, (item, out.output)
+            else:
+                # The swap lands after --apply has opened the approved directory and checked
+                # the source and the build, and before the candidate is renamed into place.
+                swapped = []
+
+                def build_then_swap(path, source_digest=None):
+                    digest = current_build_digest(path, source_digest)
+                    swapped.append(_swap_docs_dir(repo, clone, i, item["swap"]))
+                    return digest
+
+                with monkeypatch.context() as during:
+                    during.setattr(workflow_module, "current_build_digest", build_then_swap)
+                    with pytest.raises(WorkflowError, match=error):
+                        promote_workflow(store, wid)
+                moved = swapped[0]
+            assert store.get(wid).state == x["validated_state"], item
+
+        assert x["nothing_written_outside"] and clone_source.read_text(encoding="utf-8") == i["base"], item
+        assert (moved / name).read_text(encoding="utf-8") == i["base"], item
+        assert (repo / i["source"]).read_text(encoding="utf-8") == i["base"], item
+        assert not [p.name for p in moved.iterdir() if p.name != name], item  # no staged file left behind
+
+    # negative control: the same pair, nothing swapped, validates and promotes in place
+    repo, clone, source, store, wid = _approved_in_a_clone_pair(tmp_path / "control", i)
+    marker = tmp_path / "control" / "ran"
+    promoted = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker), apply=True)
+    assert promoted.state == x["control_state"] and marker.exists()
+    assert source.read_text(encoding="utf-8") == i["candidate"]
+    assert (clone / i["source"]).read_text(encoding="utf-8") == i["base"]
+
+
 # -- DS: digest swap / identity confusion ----------------------------------------------
 
 

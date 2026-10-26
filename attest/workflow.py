@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
-import stat
-import tempfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +13,7 @@ from typing import Any
 from .app_promotion import SPEC_APP_KIND, promote_app_workflow, resume_app_workflow
 from .approvals import ApprovalError, verify_approval
 from .compiler import _validate_compiled_claims, compile_doc
+from .docs_source import SourceDir, SourcePathError
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest_text, sha256_of
 from .kane import PACK_WORDING, pack_disagreement
@@ -417,14 +415,18 @@ def resume_workflow(
     if refusal := _authority_refusal(store, proposal, policy):
         return _unresolved(store, record, f"Maintain Docs policy no longer authorizes this candidate ({refusal}); promotion refused")
     source_path = Path(proposal["source_path"])
-    if not source_path.is_file() or source_path.is_symlink():
-        return _unresolved(store, record, "source file is missing or is a symlink")
+    # Read through the stored path with no symlink on it: a directory swapped for a link to
+    # a clone at the same commit would match the source digest and the build identity.
     try:
-        source_text = source_path.read_text(encoding="utf-8")
+        with SourceDir(source_path) as source:
+            source_bytes = source.read()
+        source_text = source_bytes.decode("utf-8")
+    except SourcePathError as exc:
+        return _unresolved(store, record, str(exc))
     except (OSError, UnicodeError) as exc:
         return _unresolved(store, record, f"cannot read source for digest check: {exc}")
     if (
-        hashlib.sha256(source_path.read_bytes()).hexdigest() != proposal.get("source_digest")
+        hashlib.sha256(source_bytes).hexdigest() != proposal.get("source_digest")
         or sha256_of(source_text) != proposal.get("base_digest")
     ):
         return _unresolved(store, record, "source changed after approval; promotion refused")
@@ -499,6 +501,11 @@ def resume_workflow(
                 session.close()
             if scratch.exists():
                 shutil.rmtree(scratch, ignore_errors=True)
+        try:
+            with SourceDir(source_path):
+                pass
+        except SourcePathError as exc:
+            return _unresolved(store, record, f"{exc} after validation ran; promotion refused")
         if current_build_digest(source_path, proposal["source_digest"]) != proposal.get("build_digest"):
             return _unresolved(store, record, "build identity changed during validation; promotion refused")
         if not validation_data["successful"]:
@@ -576,9 +583,17 @@ def promote_workflow(
     if refusal := _authority_refusal(store, proposal, policy):
         raise WorkflowError(f"Maintain Docs policy no longer authorizes this candidate ({refusal}); --apply refused")
     path = Path(proposal["source_path"])
-    if not path.is_file() or path.is_symlink():
-        raise WorkflowError("source file is missing or is a symlink")
-    original = path.read_bytes()
+    try:
+        with SourceDir(path) as source:
+            return _write_candidate(store, workflow_id, proposal, source)
+    except SourcePathError as exc:
+        raise WorkflowError(f"{exc}; --apply refused") from exc
+
+
+def _write_candidate(store: SQLiteWorkflowStore, workflow_id: str, proposal: dict[str, Any], source: SourceDir) -> WorkflowRecord:
+    """Promote through the approved source's directory, held open with no symlink on its path."""
+    path = source.path
+    original = source.read()
     try:
         current_text = original.decode("utf-8")
     except UnicodeError as exc:
@@ -593,22 +608,14 @@ def promote_workflow(
     candidate = store.get_artifact(proposal["artifact_digests"]["candidate"])
     if hashlib.sha256(candidate).hexdigest() != proposal.get("candidate_digest"):
         raise WorkflowError("candidate digest mismatch; --apply refused")
-    mode = stat.S_IMODE(path.stat().st_mode)
-    fd, staged_name = tempfile.mkstemp(prefix=f".{path.name}.attest-", dir=path.parent)
-    staged = Path(staged_name)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(candidate)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(staged, mode)
+    mode = source.mode()
+
+    def unchanged() -> None:
         # Recheck immediately before the atomic replacement.
-        current = path.read_bytes()
-        if hashlib.sha256(current).hexdigest() != proposal["source_digest"]:
+        if hashlib.sha256(source.read()).hexdigest() != proposal["source_digest"]:
             raise WorkflowError("source changed during promotion; --apply refused")
-        os.replace(staged, path)
-    finally:
-        staged.unlink(missing_ok=True)
+
+    source.replace(candidate, mode, prefix="attest-", before=unchanged)
     try:
         return store.transition(
             workflow_id,
@@ -618,12 +625,10 @@ def promote_workflow(
         )
     except Exception:
         # Never leave an unrecorded promotion if the durable state write fails.
-        if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == proposal["candidate_digest"]:
-            fd, rollback_name = tempfile.mkstemp(prefix=f".{path.name}.attest-rollback-", dir=path.parent)
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(original)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.chmod(rollback_name, mode)
-            os.replace(rollback_name, path)
+        try:
+            promoted = hashlib.sha256(source.read()).hexdigest() == proposal["candidate_digest"]
+        except (SourcePathError, OSError):
+            promoted = False
+        if promoted:
+            source.replace(original, mode, prefix="attest-rollback-")
         raise
