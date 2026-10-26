@@ -12,15 +12,11 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 CandidateSide = Literal["doc_wrong", "app_wrong", "both", "ambiguous"]
 AuthorityStatus = Literal["present", "missing", "conflicting"]
 EvidenceKind = Literal["runtime", "receipt", "source", "document", "other"]
-HandoffState = Literal["ready", "blocked"]
-
-# at least one non-whitespace character: a blank pointer or requirement is not one
-_NOT_BLANK = r"\S"
 
 
 class EvidencePointer(BaseModel):
@@ -29,7 +25,7 @@ class EvidencePointer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: EvidenceKind
-    pointer: str = Field(min_length=1, pattern=_NOT_BLANK)
+    pointer: str = Field(min_length=1)
     description: str = ""
 
 
@@ -39,9 +35,9 @@ class ConflictClaim(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     claim_id: str = Field(pattern=r"^c\d{2,}$")
-    protected_requirement_id: str = Field(min_length=1, pattern=_NOT_BLANK)
+    protected_requirement_id: str = Field(min_length=1)
     authority_reference: str | None = None
-    protected_text: str = Field(min_length=1, pattern=_NOT_BLANK)
+    protected_text: str = Field(min_length=1)
     observed_text: str | None = None
     candidate_side: CandidateSide = "ambiguous"
     evidence: list[EvidencePointer] = Field(default_factory=list)
@@ -53,18 +49,9 @@ class ReconcileRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    source_doc: str = Field(min_length=1, pattern=_NOT_BLANK)
+    source_doc: str = Field(min_length=1)
     authority_status: AuthorityStatus
     conflicts: list[ConflictClaim] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def _unique_claim_ids(self) -> "ReconcileRequest":
-        seen: set[str] = set()
-        for conflict in self.conflicts:
-            if conflict.claim_id in seen:
-                raise ValueError(f"duplicate claim_id {conflict.claim_id!r}")
-            seen.add(conflict.claim_id)
-        return self
 
 
 class ConflictDiagnosis(BaseModel):
@@ -94,24 +81,10 @@ class ReconcileHandoff(BaseModel):
     authority_state: AuthorityStatus
     evidence_state: Literal["provided", "incomplete", "missing"]
     repair_state: Literal["refused", "handoff"]
-    handoff_state: HandoffState
-    blocking_reasons: list[str]
     apply_requested: bool
     conflicts: list[ConflictDiagnosis]
     authority_note: str
     repair_note: str
-
-    @model_validator(mode="after")
-    def _ready_only_when_complete(self) -> "ReconcileHandoff":
-        # A consumer re-reading the JSON gets the same guarantee as the CLI: a handoff is
-        # ready only with authority present, a pointer on every conflict and no reasons.
-        if self.handoff_state == "ready" and (
-            self.blocking_reasons or self.authority_state != "present" or self.evidence_state != "provided"
-        ):
-            raise ValueError("a ready handoff needs present authority, provided evidence and no blocking reasons")
-        if self.handoff_state == "blocked" and not self.blocking_reasons:
-            raise ValueError("a blocked handoff must name its blocking reasons")
-        return self
 
 
 _OWNER_BY_SIDE = {
@@ -134,11 +107,8 @@ class ReconcileSpec:
     can_promote_protected_text = False
 
     def diagnose(self, request: ReconcileRequest, *, apply_requested: bool = False) -> ReconcileHandoff:
-        blocking = _blocking_reasons(request)
         authority_state = request.authority_status
-        if authority_state == "present" and any(r.endswith(_CONFLICTING_AUTHORITY) for r in blocking):
-            authority_state = "conflicting"
-        elif authority_state == "present" and any(r.endswith(":authority_reference_missing") for r in blocking):
+        if authority_state == "present" and any(not c.authority_reference for c in request.conflicts):
             authority_state = "missing"
 
         pointer_counts = [len(c.evidence) for c in request.conflicts]
@@ -185,8 +155,6 @@ class ReconcileSpec:
             authority_state=authority_state,
             evidence_state=evidence_state,
             repair_state=repair_state,
-            handoff_state="blocked" if blocking else "ready",
-            blocking_reasons=blocking,
             apply_requested=apply_requested,
             conflicts=diagnoses,
             authority_note=(
@@ -201,99 +169,6 @@ class ReconcileSpec:
                 else "Diagnosis only: route this conflict to the recommended owner; no change was applied."
             ),
         )
-
-
-# Reasons whose suffix makes the request's authority conflicting rather than missing.
-_CONFLICTING_AUTHORITY = (
-    ":authority_reference_mismatch",
-    ":authority_reference_conflict",
-    ":protected_text_conflict",
-)
-
-# A claim that the requirement no longer binds. Reconcile Spec has no change-decision
-# input, so such a claim is never backed by an approved decision here; it blocks the
-# handoff instead of being routed as an ordinary conflict.
-_SUPERSESSION = re.compile(r"\bsuper[sc]ed", re.IGNORECASE)
-
-
-def _blank(value: str | None) -> bool:
-    return value is None or not value.strip()
-
-
-def _blocking_reasons(request: ReconcileRequest) -> list[str]:
-    """Why this handoff cannot be routed as complete, in a stable order.
-
-    Every check reads only the submitted request; no pointer is dereferenced.
-    """
-    reasons: list[str] = []
-    if request.authority_status != "present":
-        reasons.append(f"request:authority_{request.authority_status}")
-
-    texts: dict[str, set[str]] = {}
-    references: dict[str, set[str]] = {}
-    for conflict in request.conflicts:
-        cid = conflict.claim_id
-        requirement = conflict.protected_requirement_id.strip()
-        reference = conflict.authority_reference
-        if _blank(reference):
-            reasons.append(f"{cid}:authority_reference_missing")
-        else:
-            _, hash_, fragment = reference.strip().partition("#")
-            if hash_ and fragment.strip().casefold() != requirement.casefold():
-                reasons.append(f"{cid}:authority_reference_mismatch")
-            references.setdefault(requirement, set()).add(reference.strip())
-        texts.setdefault(requirement, set()).add(conflict.protected_text)
-
-        if not conflict.evidence:
-            reasons.append(f"{cid}:evidence_missing")
-
-        claimed = [conflict.observed_text, reference]
-        for pointer in conflict.evidence:
-            claimed += [pointer.pointer, pointer.description]
-        if any(value and _SUPERSESSION.search(value) for value in claimed):
-            reasons.append(f"{cid}:supersession_without_change_decision")
-
-    for requirement, seen in texts.items():
-        if len(seen) > 1:
-            reasons.append(f"{requirement}:protected_text_conflict")
-    for requirement, seen in references.items():
-        if len(seen) > 1:
-            reasons.append(f"{requirement}:authority_reference_conflict")
-    return reasons
-
-
-def handoff_package_problems(request: ReconcileRequest, markdown_path: Path, json_path: Path) -> list[str]:
-    """Check a written handoff package against the request it came from.
-
-    The package must carry, for every conflict, the protected text bytes and every
-    evidence pointer as submitted, in both the JSON and the Markdown. Anything
-    missing is a problem; the caller fails closed on any.
-    """
-    problems: list[str] = []
-    try:
-        written = ReconcileHandoff.model_validate_json(json_path.read_bytes())
-        markdown = markdown_path.read_text(encoding="utf-8")
-    except (OSError, ValueError) as exc:
-        return [f"package:unreadable:{type(exc).__name__}"]
-    by_id = {c.claim_id: c for c in written.conflicts}
-    lines = set(markdown.splitlines())
-    for conflict in request.conflicts:
-        cid = conflict.claim_id
-        got = by_id.get(cid)
-        if got is None:
-            problems.append(f"{cid}:conflict_missing")
-            continue
-        if got.protected_text != conflict.protected_text:
-            problems.append(f"{cid}:protected_text_altered")
-        if [(e.kind, e.pointer) for e in got.evidence] != [(e.kind, e.pointer) for e in conflict.evidence]:
-            problems.append(f"{cid}:json_evidence_pointers_altered")
-        if f"## Conflict {cid}" not in lines:
-            problems.append(f"{cid}:markdown_conflict_missing")
-        if any(not any(line.startswith(f"- `{e.kind}` {_inline_code(e.pointer)}") for line in lines) for e in conflict.evidence):
-            problems.append(f"{cid}:markdown_evidence_pointers_missing")
-    if len(written.conflicts) != len(request.conflicts):
-        problems.append("package:conflict_count_mismatch")
-    return problems
 
 
 # every character str.splitlines() breaks on: a code span cannot hold one, and the next
@@ -332,20 +207,11 @@ def render_handoff_markdown(handoff: ReconcileHandoff) -> str:
         f"- Authority: `{handoff.authority_state}`",
         f"- Evidence: `{handoff.evidence_state}`",
         f"- Repair: `{handoff.repair_state}`",
-        f"- Handoff: `{handoff.handoff_state}`",
         "",
         f"> {handoff.authority_note}",
         f"> {handoff.repair_note}",
         "",
     ]
-    if handoff.blocking_reasons:
-        lines += [
-            "**Blocked:** this handoff is incomplete and must not be routed as a resolved diagnosis. "
-            "A claim that the requirement was superseded is not authority without an approved change decision.",
-            "",
-            *(f"- {_inline_code(reason)}" for reason in handoff.blocking_reasons),
-            "",
-        ]
     for conflict in handoff.conflicts:
         lines += [
             f"## Conflict {conflict.claim_id}",

@@ -457,7 +457,7 @@ def reconcile_spec_cmd(
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Default artifact root when --out is not supplied."),
 ) -> None:
     """Record a protected-requirement conflict and produce a human handoff; never repair contracts."""
-    from .reconcile_spec import ReconcileRequest, ReconcileSpec, handoff_package_problems, write_handoff
+    from .reconcile_spec import ReconcileRequest, ReconcileSpec, write_handoff
 
     try:
         input_bytes = diagnosis.read_bytes()
@@ -472,16 +472,9 @@ def reconcile_spec_cmd(
     markdown_path, json_path = write_handoff(handoff, output_dir)
     typer.echo(f"handoff: {markdown_path}")
     typer.echo(f"json: {json_path}")
-    problems = handoff_package_problems(request, markdown_path, json_path)
-    if problems:
-        typer.echo(f"failed: the handoff package does not carry the request ({', '.join(problems)})", err=True)
-        raise typer.Exit(1)
-    if handoff.repair_state == "refused":
+    if apply:
         typer.echo("refused: Reconcile Spec cannot apply or promote protected-contract text", err=True)
         raise typer.Exit(2)
-    if handoff.handoff_state == "blocked":
-        typer.echo(f"blocked: handoff incomplete, stopped for human review ({', '.join(handoff.blocking_reasons)})", err=True)
-        raise typer.Exit(3)
 
 
 def _header(source: str, runner_name: str) -> None:
