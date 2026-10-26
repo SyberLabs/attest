@@ -1,0 +1,14 @@
+{
+  "id": "KR-PI-04",
+  "component": "kane_runner",
+  "category": "PI",
+  "rubrics": [
+    "R6"
+  ],
+  "status": "stub",
+  "theme": null,
+  "title": "Doc-supplied objective carries instructions into the Kane test file",
+  "gap": "no invariant yet for which objective text may reach step_body; needs a policy for objective sanitization.",
+  "input": {},
+  "expected": {}
+}

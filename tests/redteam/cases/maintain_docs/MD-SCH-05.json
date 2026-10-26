@@ -1,0 +1,15 @@
+{
+  "id": "MD-SCH-05",
+  "component": "maintain_docs",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Hostile verdict, claim and evidence fields",
+  "input": {},
+  "expected": {
+    "all_rejected": true
+  }
+}

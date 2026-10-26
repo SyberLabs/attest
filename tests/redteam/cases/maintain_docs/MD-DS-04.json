@@ -1,0 +1,23 @@
+{
+  "id": "MD-DS-04",
+  "component": "maintain_docs",
+  "category": "DS",
+  "rubrics": [
+    "R1",
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Stored proposal is edited to point at a different candidate digest before approval",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "swapped_candidate_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "expected": {
+    "approve_error": "proposal digest changed",
+    "state": "awaiting_approval",
+    "source_unchanged": true
+  }
+}

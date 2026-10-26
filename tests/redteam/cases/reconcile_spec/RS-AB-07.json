@@ -1,0 +1,25 @@
+{
+  "id": "RS-AB-07",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R4"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Handoff schema cannot express an applied or promoted repair",
+  "input": {
+    "forbidden_repair_states": [
+      "applied",
+      "promoted",
+      "validated",
+      "approved"
+    ]
+  },
+  "expected": {
+    "public_methods": [
+      "diagnose"
+    ]
+  }
+}

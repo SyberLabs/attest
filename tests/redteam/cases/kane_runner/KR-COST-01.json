@@ -1,0 +1,20 @@
+{
+  "id": "KR-COST-01",
+  "component": "kane_runner",
+  "category": "COST",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "xfail",
+  "theme": "deadline_exceeded",
+  "title": "Silent Kane process outlives its deadline",
+  "gap": "KaneBrowserRunner._execute checks its deadline only when a line of output arrives, so a silent process runs past the deadline and is reported with its own exit code.",
+  "input": {
+    "timeout_s": 0.3,
+    "sleep_s": 3
+  },
+  "expected": {
+    "max_elapsed_s": 2.0,
+    "exit_code": 3
+  }
+}

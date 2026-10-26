@@ -1,0 +1,21 @@
+{
+  "id": "MD-DS-05",
+  "component": "maintain_docs",
+  "category": "DS",
+  "rubrics": [
+    "R1",
+    "R3"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Source re-saved with CRLF line endings after approval (same normalized text, different bytes)",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approver": "reviewer"
+  },
+  "expected": {
+    "state": "unresolved",
+    "reason_contains": "source changed after approval"
+  }
+}

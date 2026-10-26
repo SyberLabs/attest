@@ -1,0 +1,19 @@
+{
+  "id": "RS-COST-01",
+  "component": "reconcile_spec",
+  "category": "COST",
+  "rubrics": [
+    "R1",
+    "R7"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Large request is diagnosed without fetching any pointer",
+  "input": {
+    "conflicts": 2000
+  },
+  "expected": {
+    "max_seconds": 20,
+    "repair_state": "handoff"
+  }
+}

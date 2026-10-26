@@ -1,0 +1,352 @@
+"""Reconcile Spec red-team cases (FACTORY §1).
+
+Inputs and expected invariants live in cases/reconcile_spec/<ID>.json. Under
+Reconcile Spec, R4 means repair_state is always refused or handoff.
+"""
+
+from __future__ import annotations
+
+import builtins
+import copy
+import hashlib
+import json
+import re
+import socket
+import time
+
+import pytest
+from pydantic import ValidationError
+from typer.testing import CliRunner
+
+from attest.cli import app
+from attest.reconcile_spec import (
+    ReconcileHandoff,
+    ReconcileRequest,
+    ReconcileSpec,
+    render_handoff_markdown,
+    write_handoff,
+)
+
+from ._harness import case
+
+REPAIR_STATES = {"refused", "handoff"}
+
+
+def diagnose(request: dict, *, apply_requested: bool = False):
+    handoff = ReconcileSpec().diagnose(ReconcileRequest.model_validate(request), apply_requested=apply_requested)
+    assert handoff.repair_state in REPAIR_STATES  # R1/R4 on every case
+    return handoff
+
+
+def _cli(tmp_path, payload: dict, *extra: str):
+    path = tmp_path / "request.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return CliRunner().invoke(app, ["reconcile-spec", str(path), "--out", str(tmp_path / "out"), *extra])
+
+
+# -- AB: authority bypass ------------------------------------------------------------
+
+
+@case("RS-AB-01")
+def test_weakening_fix_is_refused_and_handed_off(rt_case, tmp_path):
+    request, x = rt_case["input"]["request"], rt_case["expected"]
+    handoff = diagnose(request)
+    conflict = handoff.conflicts[0]
+
+    assert handoff.repair_state == x["repair_state"]
+    assert conflict.protected_edit_refused is x["protected_edit_refused"]
+    assert conflict.protected_text == request["conflicts"][0]["protected_text"]
+    assert conflict.recommended_owner == x["recommended_owner"]
+    markdown, _ = write_handoff(handoff, tmp_path)
+    assert x["markdown_contains"] in markdown.read_text(encoding="utf-8")
+
+
+@case("RS-AB-02")
+def test_missing_authority_stops_for_review(rt_case):
+    x = rt_case["expected"]
+    handoff = diagnose(rt_case["input"]["request"])
+    assert handoff.authority_state == x["authority_state"]
+    assert handoff.repair_state == x["repair_state"]
+    assert x["note_contains"] in handoff.authority_note
+
+
+@case("RS-AB-03")
+def test_conflicting_authority_stops_for_review(rt_case):
+    x = rt_case["expected"]
+    handoff = diagnose(rt_case["input"]["request"])
+    assert handoff.authority_state == x["authority_state"]
+    assert handoff.repair_state == x["repair_state"]
+    assert x["note_contains"] in handoff.authority_note
+
+
+@case("RS-AB-04")
+def test_claimed_authority_without_reference_is_downgraded(rt_case):
+    x = rt_case["expected"]
+    request = rt_case["input"]["request"]
+    assert request["authority_status"] == "present"
+    handoff = diagnose(request)
+    assert handoff.authority_state == x["authority_state"]
+    assert handoff.repair_state == x["repair_state"]
+
+
+@case("RS-AB-05")
+def test_apply_is_always_refused(rt_case, tmp_path):
+    request, x = rt_case["input"]["request"], rt_case["expected"]
+    handoff = diagnose(request, apply_requested=True)
+    assert handoff.repair_state == x["repair_state"]
+    assert all(c.protected_edit_refused is x["protected_edit_refused"] for c in handoff.conflicts)
+
+    result = _cli(tmp_path, request, "--apply")
+    assert result.exit_code == x["exit_code"]
+    assert x["stderr_contains"] in result.output
+    written = json.loads((tmp_path / "out" / "reconcile-spec.json").read_text(encoding="utf-8"))
+    assert written["repair_state"] == x["repair_state"]
+    assert written["apply_requested"] is True
+
+
+@case("RS-AB-06")
+def test_ambiguous_side_is_never_auto_resolved(rt_case):
+    x = rt_case["expected"]
+    handoff = diagnose(rt_case["input"]["request"])
+    assert handoff.evidence_state == "provided" and handoff.authority_state == "present"
+    conflict = handoff.conflicts[0]
+    assert conflict.candidate_side == x["candidate_side"]
+    assert conflict.recommended_owner == x["recommended_owner"]
+    assert handoff.repair_state == x["repair_state"]
+
+
+@case("RS-AB-07")
+def test_handoff_cannot_express_applied_or_promoted_repair(rt_case):
+    i, x = rt_case["input"], rt_case["expected"]
+    spec = ReconcileSpec()
+    assert spec.can_apply_protected_text is False and spec.can_promote_protected_text is False
+    public = sorted(n for n in dir(spec) if not n.startswith("_") and callable(getattr(spec, n)))
+    assert public == x["public_methods"]
+
+    valid = diagnose({
+        "source_doc": "docs/r.md", "authority_status": "present",
+        "conflicts": [{"claim_id": "c01", "protected_requirement_id": "R-1", "protected_text": "Must hold."}],
+    }).model_dump()
+    for state in i["forbidden_repair_states"]:
+        with pytest.raises(ValidationError):
+            ReconcileHandoff.model_validate({**valid, "repair_state": state})
+
+
+# -- PI: prompt injection ------------------------------------------------------------
+
+
+@case("RS-PI-01")
+def test_injected_superseded_claim_changes_nothing(rt_case, tmp_path):
+    request, x = rt_case["input"]["request"], rt_case["expected"]
+    handoff = diagnose(request)
+    conflict = handoff.conflicts[0]
+    assert handoff.repair_state == x["repair_state"]
+    assert conflict.protected_text == request["conflicts"][0]["protected_text"]
+    assert conflict.protected_requirement_id == x["protected_requirement_id"]
+    assert conflict.authority_reference == x["authority_reference"]
+    assert conflict.proposed_protected_text is None
+    _, machine = write_handoff(handoff, tmp_path)
+    assert json.loads(machine.read_text(encoding="utf-8"))["conflicts"][0]["protected_text"] == conflict.protected_text
+
+
+@case("RS-PI-02")
+def test_multiline_fields_stay_inside_their_code_span(rt_case):
+    i, x = rt_case["input"], rt_case["expected"]
+    base = {
+        "source_doc": "docs/requirements.md",
+        "authority_status": "present",
+        "conflicts": [{
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "Admins must use MFA.",
+            "evidence": [{"kind": "runtime", "pointer": "artifacts/run-17/a.png", "description": "Observed"}],
+        }],
+    }
+    leaked = []
+    for field in i["multiline_fields"]:
+        request = copy.deepcopy(base)
+        holder = request if field == "source_doc" else request["conflicts"][0]
+        if field in {"pointer", "description"}:
+            holder = holder["evidence"][0]
+        holder[field] = f"{holder[field]}\n{i['second_line']}"
+        markdown = render_handoff_markdown(diagnose(request))
+        headings = [line for line in markdown.splitlines() if line.startswith("#")]
+        if headings != x["headings"]:
+            leaked.append(field)
+    assert leaked == []
+
+
+@case("RS-PI-03")
+def test_state_words_in_observed_text_do_not_set_states(rt_case):
+    x = rt_case["expected"]
+    handoff = diagnose(rt_case["input"]["request"])
+    assert handoff.authority_state == x["authority_state"]
+    assert handoff.repair_state == x["repair_state"]
+    assert handoff.evidence_state == x["evidence_state"]
+
+
+@case("RS-PI-04")
+def test_fence_and_heading_in_protected_text_stay_fenced(rt_case):
+    x = rt_case["expected"]
+    markdown = render_handoff_markdown(diagnose(rt_case["input"]["request"]))
+    fence: str | None = None
+    seen_inside = []
+    for line in markdown.splitlines():
+        opener = re.fullmatch(r"(`{3,})\w*", line)
+        if fence is None and opener:
+            fence = opener.group(1)
+        elif fence is not None and re.fullmatch(r"`{3,}", line) and len(line) >= len(fence):
+            fence = None
+        elif line == x["injected_line"]:
+            seen_inside.append(fence is not None)
+    assert seen_inside and all(flag is x["inside_fence"] for flag in seen_inside)
+
+
+# -- DS: identity confusion ----------------------------------------------------------
+
+
+@case("RS-DS-01")
+def test_conflicts_keep_their_own_identity(rt_case):
+    handoff = diagnose(rt_case["input"]["request"])
+    got = [[c.claim_id, c.protected_requirement_id, c.authority_reference, c.recommended_owner] for c in handoff.conflicts]
+    assert got == rt_case["expected"]["pairs"]
+
+
+@case("RS-DS-02")
+def test_protected_text_bytes_survive_handoff_round_trip(rt_case, tmp_path):
+    request, x = rt_case["input"]["request"], rt_case["expected"]
+    original = request["conflicts"][0]["protected_text"]
+    handoff = diagnose(request)
+    _, machine = write_handoff(handoff, tmp_path)
+    written = json.loads(machine.read_text(encoding="utf-8"))["conflicts"][0]
+
+    digest = lambda s: hashlib.sha256(s.encode("utf-8")).hexdigest()  # noqa: E731
+    assert digest(written["protected_text"]) == digest(original)
+    # NFC vs NFD look identical but are a different protected text: still refused.
+    assert written["protected_edit_refused"] is x["protected_edit_refused"]
+    assert handoff.repair_state == x["repair_state"]
+
+
+@case("RS-DS-03")
+def test_mismatched_authority_reference_is_not_trusted(rt_case):
+    x = rt_case["expected"]
+    handoff = diagnose(rt_case["input"]["request"])
+    assert handoff.repair_state == x["repair_state"]
+    assert x["note_contains"] in handoff.authority_note
+
+
+# -- SIM: fake evidence --------------------------------------------------------------
+
+
+@case("RS-SIM-01")
+def test_receipt_pointer_claiming_verified_is_only_an_observation(rt_case):
+    x = rt_case["expected"]
+    handoff = diagnose(rt_case["input"]["request"])
+    assert handoff.execution_state == x["execution_state"]
+    assert handoff.repair_state == x["repair_state"]
+    states = {handoff.execution_state, handoff.comparison_state, handoff.authority_state, handoff.evidence_state, handoff.repair_state}
+    assert not states & {"verified", "reconciled", "proven", "applied", "promoted"}
+
+
+@case("RS-SIM-02")
+def test_document_pointers_do_not_count_as_app_execution(rt_case):
+    x = rt_case["expected"]
+    handoff = diagnose(rt_case["input"]["request"])
+    assert handoff.execution_state == x["execution_state"]
+    assert handoff.repair_state == x["repair_state"]
+
+
+# -- SCH: malformed or hostile schema ------------------------------------------------
+
+
+@case("RS-SCH-01")
+def test_smuggled_fields_are_rejected(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    base = {"source_doc": "docs/r.md", "authority_status": "present",
+            "conflicts": [{"claim_id": "c01", "protected_requirement_id": "R-1", "protected_text": "Must hold."}]}
+    top = {**base, **i["extra_top"]}
+    nested = copy.deepcopy(base)
+    nested["conflicts"][0].update(i["extra_conflict"])
+    for payload in (top, nested):
+        with pytest.raises(ValidationError):
+            ReconcileRequest.model_validate(payload)
+        result = _cli(tmp_path, payload)
+        assert result.exit_code == x["exit_code"]
+        assert x["stderr_contains"] in result.output
+    assert not (tmp_path / "out").exists()
+
+
+@case("RS-SCH-02")
+def test_malformed_request_shapes_are_rejected(rt_case):
+    def base():
+        return {"source_doc": "docs/r.md", "authority_status": "present",
+                "conflicts": [{"claim_id": "c01", "protected_requirement_id": "R-1", "protected_text": "Must hold.",
+                               "evidence": [{"kind": "runtime", "pointer": "p"}]}]}
+
+    def mutate(name):
+        r = base()
+        c = r["conflicts"][0]
+        if name == "empty_conflicts":
+            r["conflicts"] = []
+        elif name == "bad_claim_id":
+            c["claim_id"] = "c1"
+        elif name == "bad_candidate_side":
+            c["candidate_side"] = "app_right"
+        elif name == "empty_pointer":
+            c["evidence"][0]["pointer"] = ""
+        elif name == "bad_authority_status":
+            r["authority_status"] = "approved"
+        elif name == "missing_protected_text":
+            del c["protected_text"]
+        else:
+            raise AssertionError(name)
+        return r
+
+    ReconcileRequest.model_validate(base())
+    for name in rt_case["input"]["mutations"]:
+        with pytest.raises(ValidationError):
+            ReconcileRequest.model_validate(mutate(name))
+
+
+@case("RS-SCH-03")
+def test_missing_evidence_pointers_fail_closed(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    missing = diagnose(i["missing"])
+    partial = diagnose(i["partial"])
+    assert missing.evidence_state == x["missing"]
+    assert partial.evidence_state == x["partial"]
+    markdown, _ = write_handoff(missing, tmp_path)
+    assert x["markdown_contains"] in markdown.read_text(encoding="utf-8")
+
+
+# -- COST ----------------------------------------------------------------------------
+
+
+@case("RS-COST-01")
+def test_large_request_is_bounded_and_never_fetches(rt_case, monkeypatch):
+    n, x = rt_case["input"]["conflicts"], rt_case["expected"]
+    request = {
+        "source_doc": "docs/r.md",
+        "authority_status": "present",
+        "conflicts": [
+            {"claim_id": f"c{k:04d}", "protected_requirement_id": f"R-{k}", "authority_reference": f"contracts/r.md#R-{k}",
+             "protected_text": "Must hold.", "evidence": [{"kind": "runtime", "pointer": f"https://example.invalid/run/{k}"}]}
+            for k in range(1, n + 1)
+        ],
+    }
+    parsed = ReconcileRequest.model_validate(request)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("Reconcile Spec dereferenced an evidence pointer")
+
+    monkeypatch.setattr(builtins, "open", refuse)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    started = time.monotonic()
+    handoff = ReconcileSpec().diagnose(parsed)
+    elapsed = time.monotonic() - started
+    monkeypatch.undo()
+
+    assert len(handoff.conflicts) == n
+    assert handoff.repair_state == x["repair_state"]
+    assert elapsed < x["max_seconds"]

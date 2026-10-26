@@ -1,0 +1,20 @@
+{
+  "id": "KR-DS-02",
+  "component": "kane_runner",
+  "category": "DS",
+  "rubrics": [
+    "R3",
+    "R5"
+  ],
+  "status": "active",
+  "theme": "stale_or_wrong_app_version",
+  "title": "Evidence bound to a different source version or content is offered for a receipt",
+  "input": {
+    "content": "Open the app.\n",
+    "other_content": "Open the old app.\n"
+  },
+  "expected": {
+    "version_error": "different source version",
+    "content_error": "different content"
+  }
+}

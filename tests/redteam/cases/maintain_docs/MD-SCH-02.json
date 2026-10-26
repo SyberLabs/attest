@@ -1,0 +1,30 @@
+{
+  "id": "MD-SCH-02",
+  "component": "maintain_docs",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Malformed or hunk-less unified diff",
+  "input": {
+    "diffs": [
+      {
+        "diff": "--- a/guide.md\n+++ b/guide.md\n@@ garbage @@\n-old\n+new\n",
+        "problem": "malformed unified-diff hunk"
+      },
+      {
+        "diff": "--- a/guide.md\n+++ b/guide.md\n",
+        "problem": "diff has no patch hunk"
+      },
+      {
+        "diff": "--- a/guide.md\n+++ b/guide.md\n@@ -1 +1 @@\n-old\n*new\n",
+        "problem": "unexpected text in unified diff"
+      }
+    ]
+  },
+  "expected": {
+    "all_rejected": true
+  }
+}

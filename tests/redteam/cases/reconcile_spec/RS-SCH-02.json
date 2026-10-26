@@ -1,0 +1,24 @@
+{
+  "id": "RS-SCH-02",
+  "component": "reconcile_spec",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Malformed request shapes",
+  "input": {
+    "mutations": [
+      "empty_conflicts",
+      "bad_claim_id",
+      "bad_candidate_side",
+      "empty_pointer",
+      "bad_authority_status",
+      "missing_protected_text"
+    ]
+  },
+  "expected": {
+    "all_rejected": true
+  }
+}

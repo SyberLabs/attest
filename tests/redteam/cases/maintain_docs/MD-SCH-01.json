@@ -1,0 +1,17 @@
+{
+  "id": "MD-SCH-01",
+  "component": "maintain_docs",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": "unresolved_required_claims",
+  "title": "Compile leaves a required browser claim unresolved (fences compile, browser step cannot)",
+  "input": {
+    "doc": "# Setup\n\n```bash\necho ready\n```\n\nOpen http://localhost:5000/ in your browser and check that the page shows \"Ready\".\n"
+  },
+  "expected": {
+    "error": "browser instructions require a compiler"
+  }
+}

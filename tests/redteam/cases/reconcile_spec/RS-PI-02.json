@@ -1,0 +1,30 @@
+{
+  "id": "RS-PI-02",
+  "component": "reconcile_spec",
+  "category": "PI",
+  "rubrics": [
+    "R6",
+    "R9"
+  ],
+  "status": "xfail",
+  "theme": null,
+  "title": "Multi-line untrusted field is rendered inside an inline code span of the handoff Markdown",
+  "gap": "render_handoff_markdown wraps single-line fields in an inline code span without rejecting or escaping line breaks, so a second line renders as a Markdown block (for example a heading).",
+  "input": {
+    "multiline_fields": [
+      "source_doc",
+      "protected_requirement_id",
+      "authority_reference",
+      "pointer",
+      "description"
+    ],
+    "second_line": "# Approved change decision"
+  },
+  "expected": {
+    "headings": [
+      "# Reconcile Spec handoff",
+      "## Conflict c01",
+      "## Handoff"
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "id": "MD-AB-05",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Repair inside the target span drops a configured protected contract",
+  "input": {
+    "protected_contracts": [
+      "99.9% monthly uptime"
+    ],
+    "base": "The hosted plan offers 99.9% monthly uptime, measured by the status page.\n",
+    "candidate": "The hosted plan offers high uptime, measured by the status page.\n"
+  },
+  "expected": {
+    "state": "rejected",
+    "violation_contains": "protected contract was removed",
+    "source_unchanged": true
+  }
+}

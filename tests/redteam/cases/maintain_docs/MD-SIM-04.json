@@ -1,0 +1,18 @@
+{
+  "id": "MD-SIM-04",
+  "component": "maintain_docs",
+  "category": "SIM",
+  "rubrics": [
+    "R1",
+    "R5"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Simulated evidence labelled complete is offered for a verified receipt",
+  "input": {
+    "content": "Run `make start`.\n"
+  },
+  "expected": {
+    "error": "simulated evidence cannot be marked complete"
+  }
+}

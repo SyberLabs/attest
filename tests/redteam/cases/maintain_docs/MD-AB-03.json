@@ -1,0 +1,21 @@
+{
+  "id": "MD-AB-03",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Promotion is attempted on a proposal that was never approved",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n"
+  },
+  "expected": {
+    "state": "awaiting_approval",
+    "promote_error": "successful validation",
+    "resume_error": "only an approved workflow",
+    "source_unchanged": true
+  }
+}

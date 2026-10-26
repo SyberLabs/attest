@@ -1,0 +1,14 @@
+{
+  "id": "KR-SIM-03",
+  "component": "kane_runner",
+  "category": "SIM",
+  "rubrics": [
+    "R5"
+  ],
+  "status": "stub",
+  "theme": "stale_or_wrong_app_version",
+  "title": "Replayed-from-cache step against a changed app version",
+  "gap": "replay vs. app build identity is not bound in BrowserObservation; needs an app-version field before an offline check is possible.",
+  "input": {},
+  "expected": {}
+}

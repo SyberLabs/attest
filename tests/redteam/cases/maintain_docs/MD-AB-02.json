@@ -1,0 +1,27 @@
+{
+  "id": "MD-AB-02",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "apply_after_failed_validation",
+  "title": "--apply after fresh validation failed never writes the source",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 2\n```\n",
+    "approver": "reviewer"
+  },
+  "expected": {
+    "state": "rejected",
+    "failed_claims": [
+      "c01:broken"
+    ],
+    "promote_error": "successful validation",
+    "resume_error": "only an approved workflow",
+    "source_unchanged": true
+  }
+}

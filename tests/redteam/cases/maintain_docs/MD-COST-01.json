@@ -1,0 +1,22 @@
+{
+  "id": "MD-COST-01",
+  "component": "maintain_docs",
+  "category": "COST",
+  "rubrics": [
+    "R1",
+    "R7",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Agent that never returns a diff is called at most loop_attempts times",
+  "input": {
+    "doc": "# Loop doc\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "loop_attempts": 2
+  },
+  "expected": {
+    "agent_calls": 2,
+    "disposition": "unresolved",
+    "doc_unchanged": true
+  }
+}

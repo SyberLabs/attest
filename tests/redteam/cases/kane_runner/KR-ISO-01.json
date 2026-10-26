@@ -1,0 +1,17 @@
+{
+  "id": "KR-ISO-01",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R1",
+    "R7"
+  ],
+  "status": "active",
+  "theme": "escape_disposable_environment",
+  "title": "Evidence pack contains a symlink member or a zip-slip path",
+  "input": {},
+  "expected": {
+    "symlink_error": "symlink is not allowed",
+    "outside_absent": true
+  }
+}

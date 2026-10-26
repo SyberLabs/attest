@@ -1,0 +1,18 @@
+{
+  "id": "KR-SIM-02",
+  "component": "kane_runner",
+  "category": "SIM",
+  "rubrics": [
+    "R1",
+    "R5"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Simulation observation re-validated as a plain observation keeps its simulation label",
+  "input": {
+    "expects": "Dashboard"
+  },
+  "expected": {
+    "verdict": "unverifiable"
+  }
+}

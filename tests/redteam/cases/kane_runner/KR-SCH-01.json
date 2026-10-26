@@ -1,0 +1,24 @@
+{
+  "id": "KR-SCH-01",
+  "component": "kane_runner",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Malformed Kane NDJSON stream",
+  "input": {
+    "lines": [
+      "not json",
+      "{\"type\": \"run_end\"",
+      "{\"no_type\": true}",
+      "{\"type\": \"test_md_step_end\", \"step_index\": 1}",
+      "[1, 2, 3]"
+    ]
+  },
+  "expected": {
+    "observation_status": "failed",
+    "verdict": "broken"
+  }
+}
