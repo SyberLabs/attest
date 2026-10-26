@@ -312,3 +312,35 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
   - Green again on the revert `07d6054`, all 7 workflows: tests [run 40353456275](https://github.com/SyberLabs/attest/actions/runs/40353456275) (725 passed), G3 [run 40353456374](https://github.com/SyberLabs/attest/actions/runs/40353456374), G4 [run 40353456276](https://github.com/SyberLabs/attest/actions/runs/40353456276), G2 [run 40353456290](https://github.com/SyberLabs/attest/actions/runs/40353456290).
   - The revert commit was made with `git revert --no-edit`, so it has no Co-Authored-By trailer.
 - Limits. It errs toward blocking: a non-governing status or "superseded" anywhere in the file blocks every requirement in it, and so does an enclosing heading like "## Retired accounts". It misses "replaced by" / "no longer applies" in prose outside a status line or heading, an untagged `## SEC-4 Withdrawn` title, and statuses in shapes it doesn't parse. An unmarked document still isn't shown to be governing, and the reference may still name the wrong contract. Doesn't touch G1/#54, `BrowserObservation`, SyberWork, #24, #38 or the live Kane stubs.
+
+## Oct 26: spec-mode promotion needs the approval `attest approve` recorded for this workflow (PR #60 to `main`)
+
+- Spec mode has been approval-gated since #29. The original `--app` directory is written only by `resume --apply` on a `spec_app` workflow, and only after `verify_approval`. That function checks two things: the approval agrees with the proposal's digests, and it agrees with its own digest. It never asks whether `attest approve` produced it. On `main` at `942d8b5`, a digest-correct approval that no human gave validated and wrote the app. 14 cases do this, all through the store and none through the CLI's own commands:
+  - a bound approval set through `store.transition` with no approve event, or written into the row with no event at all
+  - an approver rewritten after `attest approve`
+  - the approve event deleted after validation, or the proposal's `awaiting_approval` event deleted, moved after the approval, or naming another policy
+  - the row and its events copied from an approved workflow
+  - a `policy:default`, blank or unstripped approver
+  - a proposal whose authority was denied
+  - an approval dated before its proposal
+- Option (a): `verify_spec_approval` (`attest/app_promotion.py`). It runs on validation, on `resume` of a validated record (with or without `--apply`) and on promotion, in place of the bare `verify_approval`. It refuses with a stable code in `spec approval refused (<code>): ...`:
+  - `approval_missing`: no approval recorded.
+  - `approval_unbound`: `verify_approval` failed. Its message is kept, so `test_forged_approval_cannot_promote` still finds "not bound".
+  - `approval_not_this_workflow`: the approval doesn't name this workflow.
+  - `approval_not_human`: blank, unstripped or `policy:<name>` approver.
+  - `authority_not_allowed`: the proposal's authority didn't allow it.
+  - `approval_unrecorded`: not exactly one `proposed → awaiting_approval` event (authority allowed, spec policy digest) followed by exactly one `awaiting_approval → validating` event naming this approver and approval digest.
+  - `approval_stale`: `approved_at` is not between those two events.
+  At validation the workflow goes `unresolved` with that reason. On a validated record, `resume` and `promote` raise `WorkflowError` ending in `--apply refused`. The CLI exits 1 or 2 and writes nothing.
+- `approve_workflow` (shared) now records `workflow_id` in the approval and refuses a `policy:<name>` approver. That is the name receipts give an automatic decision (`attest/loop.py`). Maintain Docs approvals carry the extra field, but `verify_approval` and `promote_workflow` don't check it, so nothing changes on that path. Deliberate refusal: a spec approval made before this change has no `workflow_id`, so it is `unresolved` and the workflow has to be proposed and approved again.
+- Cases: `tests/test_spec_approval_gate.py`, 14 adversarial cases and 2 controls. Against `main`'s `attest/` in a scratch worktree, with only this file copied in, every adversarial case validates and promotes, and the CLI case prints `promoted` with exit 0. The `attest approve` control passes there. The control that checks `workflow_id` and the `policy:` refusal fails there. 12 mutations each turn at least one case red: each refusal disabled alone, the event-order and offer-payload checks, and each of the three call sites put back to `verify_approval`. G1 cases weren't touched: that's the G1 lane, and `approved_spec_promotion` already goes through `approve_workflow`.
+- Local: 754 passed, 4 skipped, 2 xfailed. G1, G2, G3 and G4 exit 0. Maintain Docs' allowed repair (PC-MD-01, `test_maintain_docs_descriptive_repair_path_still_allows_apply`) and the G1 pack-wording cases are unchanged and green.
+- Hosted on PR #60 (`main` at `942d8b5` is green on all 7 workflows):
+  - Green on `fad537e`, all 7 workflows: tests [run 40362956989](https://github.com/SyberLabs/attest/actions/runs/40362956989) (754 passed), G1 [run 40362957163](https://github.com/SyberLabs/attest/actions/runs/40362957163), G3 [run 40362957171](https://github.com/SyberLabs/attest/actions/runs/40362957171), G4 [run 40362957166](https://github.com/SyberLabs/attest/actions/runs/40362957166), G2 [run 40362957020](https://github.com/SyberLabs/attest/actions/runs/40362957020).
+  - The negative control `389c01f` put `verify_approval` back at the three call sites and failed closed. tests [run 40363082569](https://github.com/SyberLabs/attest/actions/runs/40363082569) had 14 failed and 740 passed: every adversarial case. Both controls passed. G1, G2, G3, G4, G5 and G7 stayed green, since none of them runs this file.
+  - Green again on the revert `270ea59`, whose tree is `fad537e`'s, on all 7 workflows: tests [run 40363380606](https://github.com/SyberLabs/attest/actions/runs/40363380606) (754 passed), G1 [run 40363380549](https://github.com/SyberLabs/attest/actions/runs/40363380549), G3 [run 40363380405](https://github.com/SyberLabs/attest/actions/runs/40363380405), G4 [run 40363380398](https://github.com/SyberLabs/attest/actions/runs/40363380398), G2 [run 40363380724](https://github.com/SyberLabs/attest/actions/runs/40363380724). The revert was made with `git revert --no-edit`, so it has no Co-Authored-By trailer.
+- Still open:
+  - Nothing outside `workflow.sqlite3` holds a key. A writer who forges the approval, both events and their timestamps together is not caught.
+  - Any local process can run `attest approve --by <anyone>`, including a later run's worker. Its cwd is `<home>/candidates/...`, beside the store. Telling a person from an agent needs an identity outside the store, and none was added.
+  - Maintain Docs' `verify_approval` still doesn't read the approve event back.
+  - #24 and #38, G1/R57, RS/R61, MD/R58, the G2 fixtures, SyberWork, RISE and the Kane stubs weren't touched.
