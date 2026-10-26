@@ -558,6 +558,27 @@ def test_pc_rs_01_twin_contract_that_says_it_is_superseded_blocks_the_handoff(tm
     assert contract.read_text(encoding="utf-8") == superseded
 
 
+def test_pc_rs_01_twin_reference_to_a_weaker_copy_of_the_contract_blocks_the_handoff(tmp_path):
+    # the text matches the copy the reference names, but the contract under the same root says more
+    copy = tmp_path / "notes" / "sec-4.md"
+    copy.parent.mkdir()
+    copy.write_text(f"- **SEC-4:** {RS_PROTECTED_TEXT}\n", encoding="utf-8")
+    stronger = RS_PROTECTED.replace("authentication.", "authentication for every sign-in.")
+    contract, result, data, markdown = _run_reconcile(
+        tmp_path, _rs_request(authority_reference="notes/sec-4.md#SEC-4"), contract_text=stronger
+    )
+    assert result.exit_code == 3
+    assert data["handoff_state"] == "blocked"
+    assert data["source_state"] == "contested"
+    assert data["authority_state"] == "conflicting"
+    assert data["blocking_reasons"] == ["c01:requirement_differs_elsewhere"]
+    assert data["conflicts"][0]["source_elsewhere"] == {
+        "contracts/security.md": ["The application must require multi-factor authentication for every sign-in."]
+    }
+    assert "contracts/security.md: The application must require multi-factor authentication for every sign-in." in markdown
+    assert contract.read_text(encoding="utf-8") == stronger
+
+
 def test_pc_rs_01_control_fails_when_reconcile_spec_blocks_everything(tmp_path, monkeypatch):
     monkeypatch.setattr(reconcile_spec_mod, "_blocking_reasons", lambda request: ["request:authority_missing"])
     with pytest.raises(AssertionError):
@@ -572,6 +593,12 @@ def test_pc_rs_01_control_fails_when_source_check_rejects_everything(tmp_path, m
 
 def test_pc_rs_01_control_fails_when_every_document_is_not_governing(tmp_path, monkeypatch):
     monkeypatch.setattr(reconcile_spec_mod, "_not_governing", lambda *args: {"status": ["status: draft"]})
+    with pytest.raises(AssertionError):
+        _run_rs_control(tmp_path)
+
+
+def test_pc_rs_01_control_fails_when_every_requirement_differs_elsewhere(tmp_path, monkeypatch):
+    monkeypatch.setattr(reconcile_spec_mod, "_elsewhere", lambda *args: {"docs/copy.md": ["weaker"]})
     with pytest.raises(AssertionError):
         _run_rs_control(tmp_path)
 

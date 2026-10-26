@@ -458,7 +458,10 @@ def reconcile_spec_cmd(
     source_root: Path = typer.Option(
         Path("."),
         "--source-root",
-        help="Directory each protected document (authority reference path, else source_doc) is read from; paths outside it are refused.",
+        help=(
+            "Directory each protected document (authority reference path, else source_doc) is read from; paths outside it "
+            "are refused. Every other Markdown document under it is read too, and one stating a requirement differently blocks."
+        ),
     ),
 ) -> None:
     """Record a protected-requirement conflict and produce a human handoff; never repair contracts."""
@@ -473,7 +476,7 @@ def reconcile_spec_cmd(
 
     input_sha = hashlib.sha256(input_bytes).hexdigest()[:16]
     output_dir = out or home / "reconcile-spec" / input_sha
-    sources = read_sources(request, source_root)
+    sources = read_sources(request, source_root, skip=(output_dir, home / "reconcile-spec"))
     handoff = ReconcileSpec().diagnose(request, apply_requested=apply, sources=sources)
     markdown_path, json_path = write_handoff(handoff, output_dir)
     typer.echo(f"handoff: {markdown_path}")
