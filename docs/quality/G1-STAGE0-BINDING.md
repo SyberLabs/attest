@@ -1,6 +1,10 @@
 # G1 Stage-0 version+Kane binding
 
-**Status:** Proposed. This changes to Measured only from a hosted Actions run of the `G1 Stage-0 version+Kane binding` job. No coverage percentage is claimed.
+**Status:** Measured (attest, scoped), from hosted Actions output on PR #41. No coverage percentage is claimed, and the job isn't a required check on `main`.
+
+- Green: job `G1 Stage-0 version+Kane binding`, [run 40304926335](https://github.com/SyberLabs/attest/actions/runs/40304926335) on `c7349a1`. 21 passed: version 7, kane-run 12, control 2. It was also green on `6e6b2f1` ([run 40304653221](https://github.com/SyberLabs/attest/actions/runs/40304653221)).
+- Fails closed: [run 40304782316](https://github.com/SyberLabs/attest/actions/runs/40304782316) on `bffed83`. That commit put `main`'s newest-pack fallback back into `find_pack` and was reverted in `c7349a1`. Five kane-run cases failed and the job failed.
+- Scope: only the tests listed below, offline on recorded Kane captures. No live Kane.
 
 FACTORY §3 lists G1 as Measured (scoped) through #27, but names a gap that #27 does not cover: "app/build version and Kane run-id binding, live Kane". This gate covers the first two. It does not cover live Kane.
 
