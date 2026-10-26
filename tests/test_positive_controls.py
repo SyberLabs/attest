@@ -558,6 +558,20 @@ def test_pc_rs_01_twin_contract_that_says_it_is_superseded_blocks_the_handoff(tm
     assert contract.read_text(encoding="utf-8") == superseded
 
 
+def test_pc_rs_01_twin_contract_whose_change_log_withdraws_the_requirement_blocks_the_handoff(tmp_path):
+    # the text matches and the contract carries no status or "superseded", but its prose says SEC-4 is gone
+    withdrawn = RS_PROTECTED + "\n## Change log\n\n- 2026-09-01: SEC-4 was replaced by SEC-9.\n"
+    contract, result, data, markdown = _run_reconcile(tmp_path, _rs_request(), contract_text=withdrawn)
+    assert result.exit_code == 3
+    assert data["handoff_state"] == "blocked"
+    assert data["source_state"] == "not_governing"
+    assert data["authority_state"] == "conflicting"
+    assert data["blocking_reasons"] == ["c01:source_not_governing:prose"]
+    assert data["conflicts"][0]["source_not_governing"] == ["- 2026-09-01: SEC-4 was replaced by SEC-9."]
+    assert "SEC-4 was replaced by SEC-9." in markdown
+    assert contract.read_text(encoding="utf-8") == withdrawn
+
+
 def test_pc_rs_01_twin_reference_to_a_weaker_copy_of_the_contract_blocks_the_handoff(tmp_path):
     # the text matches the copy the reference names, but the contract under the same root says more
     copy = tmp_path / "notes" / "sec-4.md"
@@ -593,6 +607,12 @@ def test_pc_rs_01_control_fails_when_source_check_rejects_everything(tmp_path, m
 
 def test_pc_rs_01_control_fails_when_every_document_is_not_governing(tmp_path, monkeypatch):
     monkeypatch.setattr(reconcile_spec_mod, "_not_governing", lambda *args: {"status": ["status: draft"]})
+    with pytest.raises(AssertionError):
+        _run_rs_control(tmp_path)
+
+
+def test_pc_rs_01_control_fails_when_every_sentence_withdraws_the_requirement(tmp_path, monkeypatch):
+    monkeypatch.setattr(reconcile_spec_mod, "_withdrawal", lambda *args, **kwargs: True)
     with pytest.raises(AssertionError):
         _run_rs_control(tmp_path)
 

@@ -7,8 +7,8 @@ Unless a case supplies its own ``source``, ``diagnose`` and ``_cli`` give every
 document the request's protected texts are checked against (the authority
 reference's path, else source_doc) a text that labels each requirement with the
 first protected text the request submits for it, so cases about other checks are
-not blocked by the source check. RS-AB-10, RS-AB-11, RS-AB-12, RS-AB-13 and RS-CTRL-01
-supply their own documents.
+not blocked by the source check. RS-AB-10 to RS-AB-14 and RS-CTRL-01 supply their
+own documents.
 """
 
 from __future__ import annotations
@@ -427,6 +427,51 @@ def test_text_matched_in_a_document_that_does_not_govern_blocks(rt_case, tmp_pat
     for forged in ({**ready, "source_state": "not_governing"}, flagged):
         with pytest.raises(ValidationError):
             ReconcileHandoff.model_validate(forged)
+
+
+@case("RS-AB-14")
+def test_text_matched_where_the_title_or_prose_withdraws_it_blocks(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    # a governing contract that uses the words for other things is still a ready handoff: "replaced by" and
+    # "no longer valid" in SEC-4's text, SEC-3 withdrawn in favour of SEC-4 and SEC-5's withdrawn subsection
+    # beside it, "which are deprecated" in SEC-6, SEC-7's "Draft documents" title, a change log naming SEC-4
+    # as the replacement, and one where "was replaced by" follows SEC-4 only in the next sentence
+    for requirement, text in i["governing_requirements"].items():
+        governing = tmp_path / f"governing-{requirement}"
+        _write_files(governing / "src", {"contracts/security.md": i["governing"]})
+        result = _cli(governing, _contract_request(text, requirement), "--source-root", str(governing / "src"))
+        assert result.exit_code == x["governing_exit_code"], (requirement, result.output)
+        data, _ = _written(governing)
+        assert data["source_state"] == "matched" and data["conflicts"][0]["source_not_governing"] == [], requirement
+
+    for name, variant in i["variants"].items():
+        run = tmp_path / name
+        root = run / "src"
+        _write_files(root, {"contracts/security.md": variant["document"]})
+        result = _cli(run, _contract_request(variant.get("protected_text", i["protected_text"])), "--source-root", str(root))
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        assert x["stderr_contains"] in result.output, name
+        data, markdown = _written(run)
+        for key in ("handoff_state", "source_state", "authority_state", "repair_state"):
+            assert data[key] == x[key], (name, key, data[key])
+        assert data["blocking_reasons"] == [x["reason_prefix"] + why for why in variant["reasons"]], (name, data["blocking_reasons"])
+        conflict = data["conflicts"][0]
+        assert conflict["source_protected_text"] is None, name
+        assert data["source_digests"] == {"contracts/security.md": _sha(variant["document"])}, name
+        assert conflict["source_not_governing"] == [variant["shows"]], (name, conflict["source_not_governing"])
+        assert x["markdown_contains"] in markdown and variant["shows"] in markdown, name
+        assert (root / "contracts" / "security.md").read_text(encoding="utf-8") == variant["document"], name
+
+    # the API path blocks the same way, and a ready JSON that lists a withdrawing line does not load
+    withdrawn = i["variants"]["changelog_id"]["document"]
+    handoff = diagnose(_contract_request(i["protected_text"]), source=withdrawn)
+    assert handoff.handoff_state == x["handoff_state"] and handoff.source_state == x["source_state"]
+    assert handoff.blocking_reasons == [x["reason_prefix"] + "prose"]
+    ready = diagnose(_contract_request(i["governing_requirements"]["SEC-4"]), source=i["governing"]).model_dump()
+    assert ready["handoff_state"] == "ready"
+    ready["conflicts"][0]["source_not_governing"] = [i["variants"]["changelog_id"]["shows"]]
+    with pytest.raises(ValidationError):
+        ReconcileHandoff.model_validate(ready)
 
 
 def _referenced_request(protected_text: str, source_doc: str, reference: str) -> dict:
