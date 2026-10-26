@@ -246,14 +246,16 @@ def worker_cmd() -> str | None:
     return os.environ.get(WORKER_CMD_ENV) or os.environ.get(WORKER_CMD_ALIAS) or None
 
 
-def worker_identity() -> str:
-    """"openai:<model>" for the built-in worker, else the command a company plugged in."""
-    cmd = worker_cmd()
-    if cmd:
-        return cmd
+def builtin_model() -> str:
+    """The model the built-in OpenAI worker uses."""
     from .compiler import DEFAULT_MODEL
 
-    return f"openai:{os.environ.get('ATTEST_AGENT_MODEL') or DEFAULT_MODEL}"
+    return os.environ.get("ATTEST_AGENT_MODEL") or DEFAULT_MODEL
+
+
+def worker_identity() -> str:
+    """"openai:<model>" for the built-in worker, else the command a company plugged in."""
+    return worker_cmd() or f"openai:{builtin_model()}"
 
 
 def worker_label() -> str:
@@ -261,15 +263,28 @@ def worker_label() -> str:
     return "the worker" if worker_cmd() else "OpenAI"
 
 
-def call_worker(ticket: dict, cwd: Path) -> str:
-    """Send the JSON ticket to the worker and return what it printed (a unified diff, hopefully)."""
+def call_worker(ticket: dict, cwd: Path, log: Path | None = None) -> str:
+    """Send the JSON ticket to the worker and return what it printed (a unified diff, hopefully).
+
+    An external worker's stderr and exit status go to `log`."""
     from .loop import AGENT_TIMEOUT_S, call_agent
 
     payload = json.dumps(ticket, ensure_ascii=True, indent=2)
     cmd = worker_cmd()
     if cmd:
-        return call_agent(payload, cwd, cmd=cmd)
+        return call_agent(payload, cwd, cmd=cmd, stderr_log=log)
     return _openai_worker(ticket, AGENT_TIMEOUT_S)
+
+
+def worker_failure(log: Path) -> str:
+    """Why an external worker returned no diff: the last line it wrote to stderr before its exit status."""
+    try:
+        lines = [ln.strip() for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    except OSError:
+        return ""
+    reason = next((ln for ln in reversed(lines) if not ln.startswith("[exit ")), "")
+    status = lines[-1] if lines and lines[-1].startswith("[exit ") else ""
+    return " ".join(x for x in (reason[:200], status) if x)
 
 
 BUILTIN_INSTRUCTIONS = (
@@ -305,7 +320,9 @@ def _openai_worker(ticket: dict, timeout_s: int) -> str:
         f"Observed in the browser: {json.dumps(ticket.get('observed'), ensure_ascii=True)}\n\n"
         + "\n\n".join(f"=== FILE {name} ===\n{body}" for name, body in files.items())
     )
-    model = worker_identity().split(":", 1)[1]
+    # never parse worker_identity(): under SyberWork dispatch the worker process inherits
+    # ATTEST_WORKER_CMD (the dispatch command line), and its "C:" read as "openai:<model>"
+    model = builtin_model()
     from .compiler import openai_options
 
     kwargs = openai_options(model)
@@ -372,14 +389,16 @@ def implement_claim(result, claim: Claim, candidate: Candidate, runner, rules, l
         on_update(f"{label[0].upper() + label[1:]} is implementing the missing capability")
     typer.echo("")
     typer.echo(f"   {typer.style('WORKER', fg=typer.colors.MAGENTA, bold=True)}    {typer.style(f'line {line}', dim=True)}  sending ticket to {_ascii(worker)}")
-    diff = extract_diff(call_worker(ticket, candidate.root))
+    worker_log = tickets / f"{case_id}.worker.log"
+    diff = extract_diff(call_worker(ticket, candidate.root, worker_log))
     if diff is not None:
         # a trailing blank line would count as one more context line under --recount
         diff = diff.rstrip("\n") + "\n"
     patch_sha = hashlib.sha256(diff.encode("utf-8")).hexdigest() if diff else None
     applied = False
     if diff is None:
-        message = "worker returned no unified diff"
+        why = worker_failure(worker_log) if worker_log.exists() else ""
+        message = "worker returned no unified diff" + (f" ({why}; {worker_log})" if why else "")
     else:
         typer.echo(typer.style("             app change:", dim=True))
         print_diff(diff)

@@ -300,3 +300,39 @@ def test_worker_command_rejects_bad_tickets_and_prints_the_diff(monkeypatch, cap
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"schema": "attest.ticket/v0"})))
     assert worker.main() == 0
     assert capsys.readouterr().out.startswith("diff --git a/app.js")
+
+
+def test_worker_stderr_is_kept_and_explains_an_empty_answer(tmp_path, monkeypatch):
+    # a dispatcher that rejects the worker's diff prints the reason on stderr and nothing on stdout
+    from attest.implement import call_worker, worker_failure
+
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import sys\nsys.stdin.read()\n"
+        "print('attest_dispatch: admitted case c1', file=sys.stderr)\n"
+        "print('attest_dispatch: command worker diff is not a Git-format unified diff', file=sys.stderr)\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    log = tmp_path / "c1.worker.log"
+    monkeypatch.setenv("ATTEST_WORKER_CMD", f'"{PY}" "{worker}"')
+    assert call_worker({"schema": "attest.ticket/v0", "case_id": "c1"}, tmp_path, log) == ""
+    assert worker_failure(log) == "attest_dispatch: command worker diff is not a Git-format unified diff [exit 1]"
+
+
+def test_worker_timeout_is_recorded(tmp_path):
+    from attest.implement import worker_failure
+    from attest.loop import call_agent
+
+    log = tmp_path / "w.log"
+    assert call_agent("", tmp_path, cmd=f'"{PY}" -c "import time; time.sleep(5)"', timeout_s=1, stderr_log=log) == ""
+    assert worker_failure(log).startswith("timed out after 1 s")
+
+
+def test_builtin_worker_model_ignores_an_inherited_worker_command(monkeypatch):
+    # attest.worker runs under SyberWork dispatch with ATTEST_WORKER_CMD set to the dispatch command
+    from attest.implement import builtin_model
+
+    monkeypatch.setenv("ATTEST_WORKER_CMD", '"C:\venv\python.exe" "C:\sw\attest_dispatch.py" --workers "w.json"')
+    monkeypatch.setenv("ATTEST_AGENT_MODEL", "gpt-6-sol")
+    assert builtin_model() == "gpt-6-sol"

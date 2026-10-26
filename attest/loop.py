@@ -132,7 +132,10 @@ def call_openai_agent(text: str, model: str | None = None, timeout_s: int = AGEN
     return resp.output_text or ""
 
 
-def call_agent(text: str, cwd: Path, cmd: str | None = None, timeout_s: int = AGENT_TIMEOUT_S) -> str:
+def call_agent(text: str, cwd: Path, cmd: str | None = None, timeout_s: int = AGENT_TIMEOUT_S,
+               stderr_log: Path | None = None) -> str:
+    """Run the agent command on `text` and return its stdout. With `stderr_log`, its stderr and exit
+    status are kept there, so an empty answer can be explained."""
     cmd = cmd or AGENT_CMD
     if cmd.strip() == "openai" or cmd.startswith("openai:"):
         return call_openai_agent(text, cmd.split(":", 1)[1] if ":" in cmd else None, timeout_s)
@@ -149,7 +152,11 @@ def call_agent(text: str, cwd: Path, cmd: str | None = None, timeout_s: int = AG
             shell=True,
         )
     except subprocess.TimeoutExpired:
+        if stderr_log:
+            stderr_log.write_text(f"timed out after {timeout_s} s (ATTEST_AGENT_TIMEOUT_S)\n", encoding="utf-8")
         return ""
+    if stderr_log:
+        stderr_log.write_text(f"{p.stderr.rstrip()}\n[exit {p.returncode}]\n", encoding="utf-8")
     return p.stdout
 
 
