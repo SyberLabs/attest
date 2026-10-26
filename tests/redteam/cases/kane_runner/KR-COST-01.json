@@ -5,10 +5,10 @@
   "rubrics": [
     "R7"
   ],
-  "status": "xfail",
+  "status": "active",
   "theme": "deadline_exceeded",
   "title": "Silent Kane process outlives its deadline",
-  "gap": "KaneBrowserRunner._execute checks its deadline only when a line of output arrives, so a silent process runs past the deadline and is reported with its own exit code.",
+  "closed": "KaneBrowserRunner._execute enforces its deadline from a watchdog thread beside the stdout read, so a silent kane-cli is stopped and reported as exit 3.",
   "input": {
     "timeout_s": 0.3,
     "sleep_s": 3
