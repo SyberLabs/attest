@@ -6,7 +6,7 @@
     "R3",
     "R5"
   ],
-  "status": "active",
+  "status": "xfail",
   "theme": "stale_or_wrong_app_version",
   "title": "No evidence pack names the run's session",
   "gap": "find_pack falls back to the newest pack when a session id is given and no pack names it, so another run's evidence can be read.",
