@@ -8,7 +8,7 @@
   ],
   "status": "active",
   "theme": null,
-  "title": "Positive control: a complete conflict (authority present, matching reference, pointers on every conflict) is a ready handoff and exits 0",
+  "title": "Positive control: a complete conflict (authority present, matching reference, pointers on every conflict, protected texts as the contract states them) is a ready handoff and exits 0",
   "input": {
     "request": {
       "source_doc": "contracts/security.md",
@@ -33,7 +33,7 @@
           "claim_id": "c02",
           "protected_requirement_id": "SEC-5",
           "authority_reference": "contracts/security.md#sec-5",
-          "protected_text": "Sessions must expire after 15 minutes idle.",
+          "protected_text": "Sessions must expire after 15 minutes idle:\n- for administrators;\n- for every user on a shared device.",
           "observed_text": "A session stayed open for 2 hours.",
           "candidate_side": "app_wrong",
           "evidence": [
@@ -44,6 +44,9 @@
           ]
         }
       ]
+    },
+    "files": {
+      "contracts/security.md": "\ufeff# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle:\n  - for administrators;\n  - for every user on a shared device.\n- **SEC-6:** Passwords must be at least 12 characters.\n"
     }
   },
   "expected": {
@@ -52,6 +55,7 @@
     "evidence_state": "provided",
     "repair_state": "handoff",
     "handoff_state": "ready",
-    "blocking_reasons": []
+    "blocking_reasons": [],
+    "source_state": "matched"
   }
 }

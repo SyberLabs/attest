@@ -190,7 +190,8 @@ def test_no_attest_type_can_say_reconciled(rt_case):
                      "comparison_state": "pending", "authority_state": "pending", "evidence_state": "missing",
                      "repair_state": "not_required"},
         ReconcileHandoff: {"source_doc": SPEC, "execution_state": "not_run", "authority_state": "missing",
-                           "evidence_state": "missing", "repair_state": "handoff", "handoff_state": "blocked",
+                           "evidence_state": "missing", "repair_state": "handoff", "source_state": "not_checked",
+                           "handoff_state": "blocked",
                            "blocking_reasons": ["request:authority_missing"], "apply_requested": False,
                            "conflicts": [], "authority_note": "n", "repair_note": "n"},
     }

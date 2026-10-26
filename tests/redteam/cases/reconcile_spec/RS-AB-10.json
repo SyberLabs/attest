@@ -1,0 +1,211 @@
+{
+  "id": "RS-AB-10",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "weaken_requirement_refused_handoff",
+  "title": "Submitted protected text that is already weaker than the contract it quotes blocks the handoff (exit 3), shows the contract's text, and leaves the contract untouched",
+  "input": {
+    "files": {
+      "contracts/security.md": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\nThis includes service accounts and break-glass accounts.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle:\n  - for administrators;\n  - for every user on a shared device.\n"
+    },
+    "exact": {
+      "source_doc": "contracts/security.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication\nfor every administrator sign-in.\n\nThis includes service accounts and break-glass accounts.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        }
+      ]
+    },
+    "variants": {
+      "dropped_scope": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application must require multi-factor authentication.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "modal_softened": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application should require multi-factor authentication for every administrator sign-in. This includes service accounts and break-glass accounts.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "section_quoted_in_part": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "homoglyph": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The \u0430pplication must require multi-factor authentication for every administrator sign-in. This includes service accounts and break-glass accounts.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "case_changed": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application MUST require multi-factor authentication for every administrator sign-in. This includes service accounts and break-glass accounts.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "nested_qualifier_dropped": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-5",
+            "authority_reference": "contracts/security.md#SEC-5",
+            "protected_text": "Sessions must expire after 15 minutes idle:",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "descriptive_doc_echoes_weak_text": {
+        "source_doc": "docs/requirements.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application must require multi-factor authentication.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "extra_files": {
+      "descriptive_doc_echoes_weak_text": {
+        "docs/requirements.md": "# Requirements\n\n- SEC-4: The application must require multi-factor authentication.\n"
+      }
+    }
+  },
+  "expected": {
+    "exit_code": 3,
+    "stderr_contains": "blocked:",
+    "exact_exit_code": 0,
+    "handoff_state": "blocked",
+    "source_state": "mismatch",
+    "authority_state": "conflicting",
+    "repair_state": "handoff",
+    "blocking_reasons": [
+      "c01:protected_text_not_in_source"
+    ],
+    "source_checked_in": "contracts/security.md",
+    "document_text": {
+      "SEC-4": "The application must require multi-factor authentication for every administrator sign-in. This includes service accounts and break-glass accounts.",
+      "SEC-5": "Sessions must expire after 15 minutes idle: - for administrators; - for every user on a shared device."
+    }
+  }
+}

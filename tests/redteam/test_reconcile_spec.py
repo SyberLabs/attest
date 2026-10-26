@@ -2,6 +2,13 @@
 
 Inputs and expected invariants live in cases/reconcile_spec/<ID>.json. Under
 Reconcile Spec, R4 means repair_state is always refused or handoff.
+
+Unless a case supplies its own ``source``, ``diagnose`` and ``_cli`` give every
+document the request's protected texts are checked against (the authority
+reference's path, else source_doc) a text that labels each requirement with the
+first protected text the request submits for it, so cases about other checks are
+not blocked by the source check. RS-AB-10, RS-AB-11 and RS-CTRL-01 supply their
+own documents.
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ import json
 import re
 import socket
 import time
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -24,6 +32,8 @@ from attest.reconcile_spec import (
     ReconcileHandoff,
     ReconcileRequest,
     ReconcileSpec,
+    SourceDocument,
+    protected_document,
     render_handoff_markdown,
     write_handoff,
 )
@@ -33,16 +43,45 @@ from ._harness import case
 REPAIR_STATES = {"refused", "handoff"}
 
 
-def diagnose(request: dict, *, apply_requested: bool = False):
-    handoff = ReconcileSpec().diagnose(ReconcileRequest.model_validate(request), apply_requested=apply_requested)
+def quoted_source(request: dict) -> str:
+    """A source document labelling each requirement with its first submitted text."""
+    first: dict[str, str] = {}
+    for conflict in request.get("conflicts", []):
+        first.setdefault(conflict["protected_requirement_id"].strip(), conflict["protected_text"])
+    return "# Requirements\n\n" + "".join(f"- **{rid}:** {text}\n" for rid, text in first.items())
+
+
+def _documents(request: dict) -> list[str]:
+    """The paths the request's protected texts are checked against, as the CLI reads them."""
+    parsed = ReconcileRequest.model_validate(request)
+    return list(dict.fromkeys(protected_document(c, parsed.source_doc) for c in parsed.conflicts))
+
+
+def diagnose(request: dict, *, apply_requested: bool = False, source: str | None = None):
+    text = quoted_source(request) if source is None else source
+    document = SourceDocument(text, hashlib.sha256(text.encode("utf-8")).hexdigest())
+    handoff = ReconcileSpec().diagnose(ReconcileRequest.model_validate(request), apply_requested=apply_requested,
+                                       sources=dict.fromkeys(_documents(request), document))
     assert handoff.repair_state in REPAIR_STATES  # R1/R4 on every case
     return handoff
 
 
-def _cli(tmp_path, payload: dict, *extra: str):
+def _cli(tmp_path, payload: dict, *extra: str, source: str | None = None):
+    """Run the CLI with ``source`` (default: the quoted source) at each checked document under tmp_path/src."""
     path = tmp_path / "request.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
-    return CliRunner().invoke(app, ["reconcile-spec", str(path), "--out", str(tmp_path / "out"), *extra])
+    root = tmp_path / "src"
+    root.mkdir(exist_ok=True)
+    try:
+        documents = _documents(payload) if "--source-root" not in extra else []
+    except ValidationError:
+        documents = []  # the CLI rejects it before reading anything
+    for doc in documents:
+        if ".." not in Path(doc).parts and not Path(doc).is_absolute() and "://" not in doc:
+            (root / doc).parent.mkdir(parents=True, exist_ok=True)
+            (root / doc).write_text(quoted_source(payload) if source is None else source, encoding="utf-8")
+    flags = extra if "--source-root" in extra else ("--source-root", str(root), *extra)
+    return CliRunner().invoke(app, ["reconcile-spec", str(path), "--out", str(tmp_path / "out"), *flags])
 
 
 def _written(tmp_path) -> tuple[dict, str]:
@@ -184,6 +223,141 @@ def test_missing_or_conflicting_authority_fails_the_cli(rt_case, tmp_path):
         assert data["repair_state"] == x["repair_state"]
         assert data["blocking_reasons"] == want["blocking_reasons"]
         assert all(reason in markdown for reason in want["blocking_reasons"])
+
+
+def _write_files(root: Path, files: dict[str, str]) -> None:
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text, encoding="utf-8")
+
+
+@case("RS-AB-10")
+def test_submitted_text_weaker_than_the_contract_blocks(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    # the same contract does not block the requirement quoted whole (line breaks may differ)
+    exact = tmp_path / "exact"
+    _write_files(exact / "src", i["files"])
+    result = _cli(exact, i["exact"], "--source-root", str(exact / "src"))
+    assert result.exit_code == x["exact_exit_code"], result.output
+    assert _written(exact)[0]["source_state"] == "matched"
+
+    for name, request in i["variants"].items():
+        run = tmp_path / name
+        root = run / "src"
+        files = {**i["files"], **i["extra_files"].get(name, {})}
+        _write_files(root, files)
+        result = _cli(run, request, "--source-root", str(root))
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        assert x["stderr_contains"] in result.output, name
+        data, markdown = _written(run)
+        for key in ("handoff_state", "source_state", "authority_state", "repair_state", "blocking_reasons"):
+            assert data[key] == x[key], (name, key, data[key])
+        conflict = data["conflicts"][0]
+        want = x["document_text"][request["conflicts"][0]["protected_requirement_id"]]
+        assert conflict["protected_text"] == request["conflicts"][0]["protected_text"], name
+        assert conflict["source_checked_in"] == x["source_checked_in"], name
+        assert conflict["source_protected_text"] == want, name
+        assert want in markdown, name
+        assert "Handoff: `blocked`" in markdown, name
+        # nothing was rewritten to make the texts agree
+        for path, text in files.items():
+            assert (root / path).read_text(encoding="utf-8") == text, (name, path)
+
+
+@case("RS-AB-11")
+def test_unusable_protected_document_blocks(rt_case, tmp_path, monkeypatch):
+    i, x = rt_case["input"], rt_case["expected"]
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("Reconcile Spec must not open a network connection")
+
+    monkeypatch.setattr(socket, "create_connection", no_network)
+    monkeypatch.setattr(socket.socket, "connect", no_network)
+
+    for name, variant in i["variants"].items():
+        want = x["variants"][name]
+        run = tmp_path / name
+        root = run / "src"
+        outside = run / "outside" / "security.md"
+        outside.parent.mkdir(parents=True)
+        # the escaping paths name a file that states the requirement exactly: only the root keeps it out
+        outside.write_text(i["outside_text"], encoding="utf-8")
+        contract = root / "contracts" / "security.md"
+        contract.parent.mkdir(parents=True)
+        setup = variant["setup"]
+        if setup == "symlink_to_outside":
+            try:
+                contract.symlink_to(outside)
+            except OSError:  # no symlinks on this platform (Windows without privilege)
+                continue
+        elif setup == "directory":
+            contract.mkdir()
+        elif setup == "latin1":
+            contract.write_bytes(i["documents"]["latin1"].encode("latin-1"))
+        elif setup == "too_large":
+            body = i["outside_text"].encode("utf-8")
+            contract.write_bytes(body + b" " * (i["too_large_bytes"] - len(body)))
+        elif setup in i["documents"]:
+            contract.write_text(i["documents"][setup], encoding="utf-8")
+        reference = variant["reference"].replace("{outside}", outside.resolve().as_posix())
+        request = {
+            "source_doc": "contracts/security.md",
+            "authority_status": "present",
+            "conflicts": [{
+                "claim_id": "c01", "protected_requirement_id": "SEC-4", "authority_reference": reference,
+                "protected_text": i["protected_text"], "candidate_side": "app_wrong",
+                "evidence": [{"kind": "runtime", "pointer": "artifacts/run-17/sign-in.png"}],
+            }],
+        }
+        result = _cli(run, request, "--source-root", str(root))
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        assert x["stderr_contains"] in result.output, name
+        data, markdown = _written(run)
+        assert data["handoff_state"] == x["handoff_state"], name
+        assert data["repair_state"] == x["repair_state"], name
+        assert data["blocking_reasons"] == [want["reason"]], (name, data["blocking_reasons"])
+        assert data["source_state"] == want["source_state"], name
+        assert data["authority_state"] == want["authority_state"], name
+        assert want["reason"] in markdown, name
+        if want["source_state"] == "unreadable":
+            assert data["source_digests"] == {}, name
+        assert outside.read_text(encoding="utf-8") == i["outside_text"], name
+
+    # a caller of the API that reads nothing gets a blocked handoff, never a ready one
+    want = x["api_without_sources"]
+    request = ReconcileRequest.model_validate({
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [{"claim_id": "c01", "protected_requirement_id": "SEC-4",
+                       "authority_reference": "contracts/security.md#SEC-4", "protected_text": i["protected_text"],
+                       "evidence": [{"kind": "runtime", "pointer": "artifacts/run-17/sign-in.png"}]}],
+    })
+    handoff = ReconcileSpec().diagnose(request)
+    assert handoff.handoff_state == x["handoff_state"]
+    assert handoff.blocking_reasons == [want["reason"]]
+    assert handoff.source_state == want["source_state"]
+    assert handoff.authority_state == want["authority_state"]
+    # ... and so does one that read some other document than the one the reference names
+    want = x["api_document_not_read"]
+    other = SourceDocument(i["outside_text"], hashlib.sha256(i["outside_text"].encode("utf-8")).hexdigest())
+    handoff = ReconcileSpec().diagnose(request, sources={"docs/other.md": other})
+    assert handoff.handoff_state == x["handoff_state"]
+    assert handoff.blocking_reasons == [want["reason"]]
+    assert handoff.source_state == want["source_state"]
+    assert handoff.authority_state == want["authority_state"]
+
+    # and a handoff JSON that claims ready without a matched, read document does not load
+    ready = diagnose(request.model_dump()).model_dump()
+    assert ready["handoff_state"] == "ready"
+    ReconcileHandoff.model_validate(ready)
+    for forged in (
+        {**ready, "source_state": "mismatch"},
+        {**ready, "source_state": "not_checked"},
+        {**ready, "source_digests": {}},
+        {**ready, "source_digests": {"docs/other.md": "0" * 64}},
+    ):
+        with pytest.raises(ValidationError):
+            ReconcileHandoff.model_validate(forged)
 
 
 # -- PI: prompt injection ------------------------------------------------------------
@@ -486,12 +660,15 @@ def test_blank_strings_and_duplicate_claim_ids_are_rejected(rt_case, tmp_path):
 @case("RS-CTRL-01")
 def test_complete_conflict_is_a_ready_handoff(rt_case, tmp_path):
     request, x = rt_case["input"]["request"], rt_case["expected"]
-    result = _cli(tmp_path, request)
+    _write_files(tmp_path / "src", rt_case["input"]["files"])
+    result = _cli(tmp_path, request, "--source-root", str(tmp_path / "src"))
     assert result.exit_code == x["exit_code"], result.output
     assert "refused" not in result.output and "blocked" not in result.output
     data, markdown = _written(tmp_path)
-    for key in ("authority_state", "evidence_state", "repair_state", "handoff_state", "blocking_reasons"):
+    for key in ("authority_state", "evidence_state", "repair_state", "handoff_state", "blocking_reasons", "source_state"):
         assert data[key] == x[key], key
+    contract = (tmp_path / "src" / "contracts" / "security.md").read_bytes()
+    assert data["source_digests"] == {"contracts/security.md": hashlib.sha256(contract).hexdigest()}
     assert "Handoff: `ready`" in markdown
     pointers = [e["pointer"] for c in request["conflicts"] for e in c["evidence"]]
     assert all(p in markdown for p in pointers)

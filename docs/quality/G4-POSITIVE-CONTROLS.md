@@ -38,9 +38,9 @@ Parametrized mutants are listed one by one, so dropping one fails the gate. `tes
 | `kane-control` | PC-KR-01 | The same workflow with `KaneBrowserRunner` for baseline and validation, only its kane-cli subprocess replaced by the recorded `witness_stale` capture. Stale `c08` is repaired, validated on the evidence pack and promoted. |
 | `kane-twin` | 1 | A label Kane did not observe → validation `rejected` with `c08:stale`, source unchanged. |
 | `kane-mutant` | 3 | Kane steps always fail, patch authority denies all, promotion refused. |
-| `rs-control` | PC-RS-01 | `attest reconcile-spec` without `--apply` exits 0 with every orthogonal state set, `repair_state=handoff`, `handoff_state=ready` with no blocking reasons, both evidence pointers in JSON and Markdown, the contract unchanged, and no `reconciled`. |
-| `rs-twin` | 3 | `--apply` → exit 2, `refused`. A weakening `proposed_protected_text` → exit 2, `refused`. No evidence pointers → exit 3, `blocked` (`c01:evidence_missing`). |
-| `rs-mutant` | 2 | `diagnose` refuses everything. Every request gets a blocking reason. |
+| `rs-control` | PC-RS-01 | `attest reconcile-spec` without `--apply` exits 0 with every orthogonal state set, `repair_state=handoff`, `handoff_state=ready` with no blocking reasons, `source_state=matched` with the contract's sha256, both evidence pointers in JSON and Markdown, the contract unchanged, and no `reconciled`. |
+| `rs-twin` | 4 | `--apply` → exit 2, `refused`. A weakening `proposed_protected_text` → exit 2, `refused`. No evidence pointers → exit 3, `blocked` (`c01:evidence_missing`). The contract states a stronger requirement than the submitted text → exit 3, `blocked` (`c01:protected_text_not_in_source`), the contract's text in the handoff. |
+| `rs-mutant` | 3 | `diagnose` refuses everything. Every request gets a blocking reason. The source check finds no requirement in any document. |
 | `gate` | 10 functions | The runner fails on a missing file, a missing, skipped, failed or errored id, an empty section, an empty manifest, and a manifest that drifts from the control module. |
 
 ## Not covered

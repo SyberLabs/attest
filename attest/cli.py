@@ -455,9 +455,14 @@ def reconcile_spec_cmd(
     out: Path | None = typer.Option(None, "--out", help="Directory for the Markdown and JSON handoff artifacts."),
     apply: bool = typer.Option(False, "--apply", help="Always refused in this mode; writes a refusal handoff without changing protected text."),
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Default artifact root when --out is not supplied."),
+    source_root: Path = typer.Option(
+        Path("."),
+        "--source-root",
+        help="Directory each protected document (authority reference path, else source_doc) is read from; paths outside it are refused.",
+    ),
 ) -> None:
     """Record a protected-requirement conflict and produce a human handoff; never repair contracts."""
-    from .reconcile_spec import ReconcileRequest, ReconcileSpec, handoff_package_problems, write_handoff
+    from .reconcile_spec import ReconcileRequest, ReconcileSpec, handoff_package_problems, read_sources, write_handoff
 
     try:
         input_bytes = diagnosis.read_bytes()
@@ -468,7 +473,8 @@ def reconcile_spec_cmd(
 
     input_sha = hashlib.sha256(input_bytes).hexdigest()[:16]
     output_dir = out or home / "reconcile-spec" / input_sha
-    handoff = ReconcileSpec().diagnose(request, apply_requested=apply)
+    sources = read_sources(request, source_root)
+    handoff = ReconcileSpec().diagnose(request, apply_requested=apply, sources=sources)
     markdown_path, json_path = write_handoff(handoff, output_dir)
     typer.echo(f"handoff: {markdown_path}")
     typer.echo(f"json: {json_path}")

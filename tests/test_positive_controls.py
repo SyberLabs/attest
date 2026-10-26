@@ -430,7 +430,9 @@ def test_pc_kr_01_control_fails_when_product_refuses_everything(tmp_path, monkey
 
 # -- PC-RS-01: Reconcile Spec diagnosis completes as a handoff ---------------------------
 
-RS_PROTECTED = "The application must require multi-factor authentication.\n"
+RS_PROTECTED_TEXT = "The application must require multi-factor authentication."
+# source_doc as the CLI reads it, under --source-root; the requirement wraps across lines
+RS_PROTECTED = "# Security contract\n\n## SEC-4\n\nThe application must require\nmulti-factor authentication.\n"
 
 
 def _rs_request(**conflict_overrides) -> dict:
@@ -438,7 +440,7 @@ def _rs_request(**conflict_overrides) -> dict:
         "claim_id": "c01",
         "protected_requirement_id": "SEC-4",
         "authority_reference": "contracts/security.md#SEC-4",
-        "protected_text": RS_PROTECTED.strip(),
+        "protected_text": RS_PROTECTED_TEXT,
         "observed_text": "The application accepted a password-only sign-in.",
         "candidate_side": "app_wrong",
         "evidence": [
@@ -450,13 +452,16 @@ def _rs_request(**conflict_overrides) -> dict:
     return {"source_doc": "contracts/security.md", "authority_status": "present", "conflicts": [conflict]}
 
 
-def _run_reconcile(tmp_path: Path, request: dict, *flags: str):
-    contract = tmp_path / "security.md"
-    contract.write_text(RS_PROTECTED, encoding="utf-8")
+def _run_reconcile(tmp_path: Path, request: dict, *flags: str, contract_text: str = RS_PROTECTED):
+    contract = tmp_path / "contracts" / "security.md"
+    contract.parent.mkdir()
+    contract.write_text(contract_text, encoding="utf-8")
     request_path = tmp_path / "diagnosis.json"
     request_path.write_text(json.dumps(request), encoding="utf-8")
     out = tmp_path / "out"
-    result = CliRunner().invoke(app, ["reconcile-spec", str(request_path), "--out", str(out), *flags])
+    result = CliRunner().invoke(
+        app, ["reconcile-spec", str(request_path), "--out", str(out), "--source-root", str(tmp_path), *flags]
+    )
     data = json.loads((out / "reconcile-spec.json").read_text(encoding="utf-8"))
     markdown = (out / "reconcile-spec.md").read_text(encoding="utf-8")
     return contract, result, data, markdown
@@ -473,6 +478,9 @@ def _run_rs_control(tmp_path: Path) -> None:
     assert data["authority_state"] == "present"
     assert data["evidence_state"] == "provided"
     assert data["repair_state"] == "handoff"
+    assert data["source_state"] == "matched"
+    assert data["source_digests"] == {"contracts/security.md": hashlib.sha256(RS_PROTECTED.encode("utf-8")).hexdigest()}
+    assert data["conflicts"][0]["source_checked_in"] == "contracts/security.md"
     assert data["handoff_state"] == "ready"
     assert data["blocking_reasons"] == []
     assert data["apply_requested"] is False
@@ -520,8 +528,28 @@ def test_pc_rs_01_twin_missing_evidence_pointers_block_the_handoff(tmp_path):
     assert contract.read_text(encoding="utf-8") == RS_PROTECTED
 
 
+def test_pc_rs_01_twin_source_doc_states_a_stronger_requirement_blocks_the_handoff(tmp_path):
+    # the submitted protected text is already weaker than the contract it quotes
+    stronger = RS_PROTECTED.replace("authentication.", "authentication for every sign-in.")
+    contract, result, data, markdown = _run_reconcile(tmp_path, _rs_request(), contract_text=stronger)
+    assert result.exit_code == 3
+    assert data["handoff_state"] == "blocked"
+    assert data["source_state"] == "mismatch"
+    assert data["authority_state"] == "conflicting"
+    assert data["blocking_reasons"] == ["c01:protected_text_not_in_source"]
+    assert "for every sign-in" in data["conflicts"][0]["source_protected_text"]
+    assert "for every sign-in" in markdown
+    assert contract.read_text(encoding="utf-8") == stronger
+
+
 def test_pc_rs_01_control_fails_when_reconcile_spec_blocks_everything(tmp_path, monkeypatch):
     monkeypatch.setattr(reconcile_spec_mod, "_blocking_reasons", lambda request: ["request:authority_missing"])
+    with pytest.raises(AssertionError):
+        _run_rs_control(tmp_path)
+
+
+def test_pc_rs_01_control_fails_when_source_check_rejects_everything(tmp_path, monkeypatch):
+    monkeypatch.setattr(reconcile_spec_mod, "_labelled_texts", lambda units, requirement: [])
     with pytest.raises(AssertionError):
         _run_rs_control(tmp_path)
 
@@ -529,8 +557,8 @@ def test_pc_rs_01_control_fails_when_reconcile_spec_blocks_everything(tmp_path, 
 def test_pc_rs_01_control_fails_when_reconcile_spec_refuses_everything(tmp_path, monkeypatch):
     real = ReconcileSpec.diagnose
 
-    def refuse(self, request, *, apply_requested=False):
-        return real(self, request, apply_requested=True)
+    def refuse(self, request, *, apply_requested=False, **kwargs):
+        return real(self, request, apply_requested=True, **kwargs)
 
     monkeypatch.setattr(ReconcileSpec, "diagnose", refuse)
     with pytest.raises(AssertionError):
