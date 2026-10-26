@@ -44,6 +44,7 @@ from attest.snapshots import SourceVersion
 from attest.verdict import Rules, judge
 
 from ._harness import case
+from ._version_binding import run_case
 
 REPO = Path(__file__).resolve().parents[2]
 KANE_FIX = REPO / "tests" / "fixtures" / "kane"
@@ -207,8 +208,8 @@ def test_simulation_label_survives_revalidation(rt_case):
 
 
 @case("KR-SIM-03")
-def test_cached_replay_is_bound_to_app_version(rt_case):
-    raise AssertionError("stub")
+def test_cached_replay_is_bound_to_app_version(rt_case, tmp_path, monkeypatch):
+    run_case(rt_case, tmp_path, monkeypatch)
 
 
 @case("KR-SIM-04")

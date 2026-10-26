@@ -3,12 +3,35 @@
   "component": "kane_runner",
   "category": "SIM",
   "rubrics": [
+    "R1",
+    "R3",
     "R5"
   ],
-  "status": "stub",
+  "status": "active",
   "theme": "stale_or_wrong_app_version",
   "title": "Replayed-from-cache step against a changed app version",
-  "gap": "replay vs. app build identity is not bound in BrowserObservation; needs an app-version field before an offline check is possible.",
-  "input": {},
-  "expected": {}
+  "closed": "#41 binds validation evidence to the approved build (validation build_digest, rechecked after the run and at promote) and to a Kane run started during this validation (kane_runs; a cached observation is <id>:stale_kane_run). Receipts reject evidence from another build or Kane run, and a VerifiedRunReceipt needs both bindings. The binding sits on the receipt and the validation record, not on BrowserObservation itself.",
+  "input": {
+    "fixture": "witness_stale",
+    "browser_claims": ["c07", "c08"],
+    "deploy": {"path": "app.js", "text": "// redeployed after the earlier Kane run\n"},
+    "redeploy": {"path": "app.js", "text": "// redeployed again while Kane runs\n"}
+  },
+  "expected": {
+    "cached_replay": {
+      "state": "rejected",
+      "failed": ["c07:stale_kane_run", "c08:stale_kane_run"],
+      "kane_calls_during_validation": 0
+    },
+    "receipt_rejections": {
+      "evidence_from_earlier_build": "different app/build version",
+      "evidence_build_stripped": "every evidence record to name its app/build version",
+      "receipt_build_stripped": "require an app/build version",
+      "evidence_from_earlier_run": "Kane run this receipt did not start",
+      "evidence_run_stripped": "bound to a fresh Kane run id"
+    },
+    "build_change_during_run": {"state": "unresolved", "reason": "build identity changed during validation"},
+    "build_change_before_promote": "build identity changed after approval",
+    "control": {"state": "promoted"}
+  }
 }

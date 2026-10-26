@@ -177,3 +177,9 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Tests: `python scripts/g7-kane-resource.py tests` runs `tests/quality/g7_kane_resource.txt` (sections deadline, cleanup, isolation, port-kill, control, gate). A missing, skipped, xfailed or xpassed id fails the gate.
 - On `main` at b0989ac the scan failed on `ShellSession._kill_listener` (`attest/shell.py`, Windows only), which ran the Windows port-listing tool and then force-killed every PID listening on the server's port, owned or not.
 - Removed `_kill_listener`. `close()` now kills only the trees `ShellSession` started (`terminate_process_tree`: process group on POSIX, owned-PID descendant walk on Windows). Risk on Windows: a dev server whose parent chain to the bash leader is already broken at close time (an intermediate `npm.cmd`/`cmd.exe` exited) is not reached by the descendant walk and can keep its port; the next run then sees a busy port (Vite moves to 5174, which `kane.retarget` already follows). That's the trade FACTORY §1 asks for: a leftover owned server is visible, killing someone else's process is not. Not tested on Windows in this change. Draft #24 (cli-runner) adds a new `_kill_listener` call and has to drop it on rebase; G7 flags it if it doesn't.
+
+## Oct 26: G3 KR-SIM-03 promoted on #41's version+Kane binding
+
+- KR-SIM-03 (cached Kane replay against a changed app build) is `active`: `tests/redteam/_version_binding.py`, decisions and proof in `docs/quality/G3-KR-SIM-03.md`. On `main`'s product code the same scenario promotes; on #41 it is rejected.
+- Still open: KR-ISO-02 (xfail until #34's port-kill removal meets the #40 stack), KR-PI-03 and KR-ISO-04 (stubs, need live Kane).
+- Merging with #26/#30/#40: take this KR-SIM-03.json, and move `run_case` into `test_kane_runner.py`'s stub (steps in the doc).
