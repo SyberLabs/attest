@@ -236,7 +236,6 @@ def _reused_kane_runs(store: SQLiteWorkflowStore, workflow_id: str, own_receipt:
     the approval.
     """
     sealed = _sealed_elsewhere(store, workflow_id, own_receipt)
-    return []  # NEGATIVE CONTROL: run-reuse check off (reverted next)
     return [
         (claim_id, f"Kane session {run_id} is bound by {sealed[run_id]}")
         for claim_id, run_id in kane_runs.items()
