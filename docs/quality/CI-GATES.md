@@ -1,6 +1,6 @@
 # Factory-path CI gates
 
-**Status:** Proposed gates, with present repository facts separated from release policy. No coverage percentages are proposed. A green test command only demonstrates the exercised inputs and code paths; it does not establish universal truth or production behavior.
+**Status:** G1 and G8 are Measured in `.github/workflows/tests.yml`, each within the scope stated in [Gate status](#gate-status-g1g8). G2–G7 are Proposed. Present repository facts are separated from release policy. No coverage percentages are proposed. A green test command only demonstrates the exercised inputs and code paths; it does not establish universal truth or production behavior.
 
 ## Measured repository facts
 
@@ -9,7 +9,33 @@ These are source/configuration observations, not claims that the proposed gates 
 - `pyproject.toml` declares `pytest` and `flask` in the optional `test` extra, configures `testpaths = ["tests"]`, and sets `addopts = "-q"`.
 - Existing focused tests cover Pydantic model invariants, compilation behavior, deterministic verdict rules, and a local hand-labelled fixture corpus (`tests/test_models.py`, `tests/test_compiler.py`, `tests/test_verdict.py`).
 - `attest/kane.py` implements `KaneBrowserRunner`; the CLI defaults to Kane, while `--runner fake` is explicit. `pipeline.prove()` still falls back to `FakeBrowserRunner` when called without a runner. `tests/test_kane.py` exercises NDJSON and evidence-pack parsing/mapping using captured event-day fixtures in `tests/fixtures/kane/`; these are offline contract tests, not a live browser run.
-- There is no Reconcile Spec policy or receipt type in this checkout. No tracked `.github/workflows/*` CI workflow was present in the inspected checkout. This document proposes gates; it does not claim a workflow was configured or run.
+- `.github/workflows/tests.yml` runs on every pull request and on pushes to `main`. Job `pytest` is G8; job `G1 Stage-0 exit` is G1. Whether either is a *required* check is a branch-protection setting this document cannot observe.
+- `attest/reconcile_spec.py` now exists, but `tests/quality/test_redteam_contracts.py::test_reconcile_spec_refuses_protected_requirement_weakening` is still an unconditional skip stub. That skip is a visible gap, not coverage.
+
+## Gate status (G1–G8)
+
+Gate ids and wording come from the FACTORY red-team and rubrics draft (2026-10-24, section 3). **Proposed** means no CI job runs the gate. **Measured** means a hosted CI run observed the job passing; the run is linked. A Measured gate covers only the tests it names. It is not a coverage percentage and none is claimed.
+
+| Gate | CI job | What runs | Status |
+|---|---|---|---|
+| G1 Stage 0 exit | `tests / G1 Stage-0 exit` | `scripts/run-gate.py` over the node ids in `tests/quality/g1_stage0_exit.txt`, in sections `simulated`, `omitted`, `wrong-version`, `incomplete` and a positive `control`. Fails if any id is missing, skipped, xfailed, xpassed or failing, or if a section is empty. | **Measured** for the listed ids only: [run 40293049793](https://github.com/SyberLabs/attest/actions/runs/40293049793) on `cf2c749` passed, with 32 ids / 37 cases, 0 skipped |
+| G2 Quota floor | – | – | Proposed |
+| G3 Adversarial pass | – | – | Proposed |
+| G4 Positive controls | – | – | Proposed. G1 carries one receipt-level control only; the end-to-end Maintain Docs repair and matching reconciliation controls are not gated. |
+| G5 Protected-text diff | – | – | Proposed |
+| G6 Bridge mapping lint | – | – | Proposed |
+| G7 Kane resource | – | – | Proposed |
+| G8 Existing tests (attest) | `tests / pytest` | `python -m pytest -rsx` over `tests/` | **Measured** (attest suite only): [run 40293049793](https://github.com/SyberLabs/attest/actions/runs/40293049793) on `cf2c749` gave 281 passed, 3 skipped |
+
+G1 scope limits. These paths are **not** covered by the G1 job:
+
+- Wrong app/build version or wrong Kane run id. `RunReceipt` does not bind these fields yet (Gate D below).
+- Live Kane runs. The Kane cases replay captured fixtures offline.
+- Any SyberWork path. G8 here covers the attest suite only; the SyberWork suite is not run by this repository's CI.
+
+Skips that G8 tolerates (pytest exits 0 with them, and the job prints their reasons with `-rsx`): the live compiler test (needs `ATTEST_LIVE` and network), the Flask end-to-end test (needs a local `.venv`), and the Reconcile Spec weakening stub above. None of them is in the G1 manifest.
+
+Making a gate block merge also needs a repository admin to mark its check as required in branch protection. This PR does not change, and could not read, branch protection.
 
 ## Proposed required gates
 
@@ -25,7 +51,7 @@ Require the existing suite and `tests/quality/` tests to complete successfully o
 
 Require all applicable assertions to pass against real component boundaries. A normal release gate must not accept an `XFAIL`, `XPASS`, or `SKIP` for a security case required by that component's release. A currently expected failure or skip is a visible gap until it is converted to a passing test by an implementation change; it must not be counted toward the red-team quota.
 
-The quality tests in this slice exercise currently implemented Attest model/judge behavior. The simulation-versus-verification test is strict expected-failure because the fake runner can currently produce a `proven` browser verdict; the CLI defaulting to Kane does not close this gap because the fake runner remains explicitly selectable and is still the library fallback. This is evidence of a known gap, not a passing security gate. The protected-requirement weakening test is explicitly skipped because Reconcile Spec has no policy/module here; the skip is a stub, not exercised coverage. Digest-binding scenarios are not implemented here and cannot be reported as exercised.
+The quality tests in this slice exercise currently implemented Attest model/judge behavior. The simulation-versus-verification test now passes as a plain test (fake observations are typed `SimulationBrowserObservation` and judge `unverifiable`); it is no longer an expected failure. The protected-requirement weakening test is still an unconditional skip; the skip is a stub, not exercised coverage. Receipts bind source version and content digest; they do not bind app/build version or Kane run ids, so those scenarios cannot be reported as exercised.
 
 ### Gate C — per-component release quota
 
