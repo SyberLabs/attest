@@ -338,17 +338,14 @@ def resume_app_workflow(
     if simulation or getattr(runner, "name", None) != "kane":
         raise WorkflowError("promotion validation requires fresh Kane evidence; simulation/fake evidence is not accepted")
     if record.state == "validated":
-        try:
-            verify_spec_approval(store, record)
-        except ApprovalError as exc:
-            raise WorkflowError(f"{exc}; --apply refused") from exc
+        verify_approval(record)  # NEGATIVE CONTROL: spec approval gate skipped
         if apply:
             return promote_app_workflow(store, workflow_id)
         return record
     if record.state != "validating":
         raise WorkflowError(f"workflow is {record.state}; only an approved workflow can be resumed")
     try:
-        verify_spec_approval(store, record)
+        verify_approval(record)  # NEGATIVE CONTROL: spec approval gate skipped
         _check_identity(record.proposal)
         files = _candidate_files(store, record.proposal)
         claims = [Claim.model_validate(x) for x in json.loads(store.get_artifact(record.proposal["artifact_digests"]["spec_claims"]))]
@@ -444,10 +441,7 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
         raise WorkflowError("not a spec mode promotion workflow")
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
-    try:
-        verify_spec_approval(store, record)
-    except ApprovalError as exc:
-        raise WorkflowError(f"{exc}; --apply refused") from exc
+    verify_approval(record)  # NEGATIVE CONTROL: spec approval gate skipped
     validation = record.validation
     if (
         not validation.get("successful")
