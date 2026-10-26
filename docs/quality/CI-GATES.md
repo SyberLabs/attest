@@ -1,6 +1,6 @@
 # Factory-path CI gates
 
-**Status:** G1 and G8 are wired into `.github/workflows/tests.yml` (see [Gate status](#gate-status-g1g8)); the other gates are Proposed. Present repository facts are separated from release policy. No coverage percentages are proposed. A green test command only demonstrates the exercised inputs and code paths; it does not establish universal truth or production behavior.
+**Status:** G1 and G8 are Measured in `.github/workflows/tests.yml`, each within the scope stated in [Gate status](#gate-status-g1g8). G2–G7 are Proposed. Present repository facts are separated from release policy. No coverage percentages are proposed. A green test command only demonstrates the exercised inputs and code paths; it does not establish universal truth or production behavior.
 
 ## Measured repository facts
 
@@ -18,14 +18,14 @@ Gate ids and wording come from the FACTORY red-team and rubrics draft (2026-10-2
 
 | Gate | CI job | What runs | Status |
 |---|---|---|---|
-| G1 Stage 0 exit | `tests / G1 Stage-0 exit` | `scripts/run-gate.py` over the node ids in `tests/quality/g1_stage0_exit.txt`, in sections `simulated`, `omitted`, `wrong-version`, `incomplete` and a positive `control`. Fails if any id is missing, skipped, xfailed, xpassed or failing, or if a section is empty. | Enabled; awaiting first hosted run |
+| G1 Stage 0 exit | `tests / G1 Stage-0 exit` | `scripts/run-gate.py` over the node ids in `tests/quality/g1_stage0_exit.txt`, in sections `simulated`, `omitted`, `wrong-version`, `incomplete` and a positive `control`. Fails if any id is missing, skipped, xfailed, xpassed or failing, or if a section is empty. | **Measured** for the listed ids only: [run 40293049793](https://github.com/SyberLabs/attest/actions/runs/40293049793) on `cf2c749` passed, with 32 ids / 37 cases, 0 skipped |
 | G2 Quota floor | – | – | Proposed |
 | G3 Adversarial pass | – | – | Proposed |
 | G4 Positive controls | – | – | Proposed. G1 carries one receipt-level control only; the end-to-end Maintain Docs repair and matching reconciliation controls are not gated. |
 | G5 Protected-text diff | – | – | Proposed |
 | G6 Bridge mapping lint | – | – | Proposed |
 | G7 Kane resource | – | – | Proposed |
-| G8 Existing tests (attest) | `tests / pytest` | `python -m pytest -rsx` over `tests/` | Enabled; awaiting first hosted run |
+| G8 Existing tests (attest) | `tests / pytest` | `python -m pytest -rsx` over `tests/` | **Measured** (attest suite only): [run 40293049793](https://github.com/SyberLabs/attest/actions/runs/40293049793) on `cf2c749` gave 281 passed, 3 skipped |
 
 G1 scope limits. These paths are **not** covered by the G1 job:
 
