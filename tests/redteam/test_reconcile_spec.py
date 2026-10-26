@@ -18,6 +18,7 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
+from attest import reconcile_spec as reconcile_spec_mod
 from attest.cli import app
 from attest.reconcile_spec import (
     ReconcileHandoff,
@@ -42,6 +43,12 @@ def _cli(tmp_path, payload: dict, *extra: str):
     path = tmp_path / "request.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return CliRunner().invoke(app, ["reconcile-spec", str(path), "--out", str(tmp_path / "out"), *extra])
+
+
+def _written(tmp_path) -> tuple[dict, str]:
+    out = tmp_path / "out"
+    data = json.loads((out / "reconcile-spec.json").read_text(encoding="utf-8"))
+    return data, (out / "reconcile-spec.md").read_text(encoding="utf-8")
 
 
 # -- AB: authority bypass ------------------------------------------------------------
@@ -132,6 +139,53 @@ def test_handoff_cannot_express_applied_or_promoted_repair(rt_case):
             ReconcileHandoff.model_validate({**valid, "repair_state": state})
 
 
+@case("RS-AB-08")
+def test_weakening_fix_fails_the_cli_and_still_hands_off(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    for name, proposed in i["proposals"].items():
+        run = tmp_path / name
+        run.mkdir()
+        contract = run / "security.md"
+        contract.write_text(i["contract"], encoding="utf-8")
+        request = copy.deepcopy(i["request"])
+        request["conflicts"][0]["proposed_protected_text"] = proposed
+        for flags in ((), ("--apply",)):
+            result = _cli(run, request, *flags)
+            assert result.exit_code == x["exit_code"], (name, flags, result.output)
+            assert x["stderr_contains"] in result.output
+            data, markdown = _written(run)
+            conflict = data["conflicts"][0]
+            assert data["repair_state"] == x["repair_state"]
+            assert conflict["protected_edit_refused"] is x["protected_edit_refused"]
+            # refused, and still a complete handoff to the owner of the behavior
+            assert data["handoff_state"] == x["handoff_state"]
+            assert conflict["recommended_owner"] == x["recommended_owner"]
+            assert conflict["protected_text"] == request["conflicts"][0]["protected_text"]
+            assert conflict["proposed_protected_text"] == proposed
+            assert x["markdown_contains"] in markdown
+            assert contract.read_text(encoding="utf-8") == i["contract"]
+
+
+@case("RS-AB-09")
+def test_missing_or_conflicting_authority_fails_the_cli(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    for name, request in i["variants"].items():
+        want = x["variants"][name]
+        handoff = diagnose(request)
+        assert handoff.authority_state == want["authority_state"], name
+        assert handoff.blocking_reasons == want["blocking_reasons"], name
+        run = tmp_path / name
+        run.mkdir()
+        result = _cli(run, request)
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        assert x["stderr_contains"] in result.output
+        data, markdown = _written(run)
+        assert data["handoff_state"] == x["handoff_state"]
+        assert data["repair_state"] == x["repair_state"]
+        assert data["blocking_reasons"] == want["blocking_reasons"]
+        assert all(reason in markdown for reason in want["blocking_reasons"])
+
+
 # -- PI: prompt injection ------------------------------------------------------------
 
 
@@ -203,6 +257,29 @@ def test_fence_and_heading_in_protected_text_stay_fenced(rt_case):
     assert seen_inside and all(flag is x["inside_fence"] for flag in seen_inside)
 
 
+@case("RS-PI-05")
+def test_superseded_claim_without_change_decision_blocks(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    for name, request in i["variants"].items():
+        handoff = diagnose(request)
+        submitted = request["conflicts"][0]
+        assert handoff.blocking_reasons == [x["reason"]], name
+        assert handoff.repair_state == x["repair_state"]
+        conflict = handoff.conflicts[0]
+        assert conflict.protected_requirement_id == x["protected_requirement_id"]
+        assert conflict.protected_text == submitted["protected_text"]
+        assert conflict.authority_reference == submitted["authority_reference"]
+        assert conflict.proposed_protected_text is None
+        run = tmp_path / name
+        run.mkdir()
+        result = _cli(run, request)
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        assert x["stderr_contains"] in result.output
+        data, markdown = _written(run)
+        assert data["handoff_state"] == x["handoff_state"]
+        assert x["markdown_contains"] in markdown
+
+
 # -- DS: identity confusion ----------------------------------------------------------
 
 
@@ -233,6 +310,9 @@ def test_mismatched_authority_reference_is_not_trusted(rt_case):
     x = rt_case["expected"]
     handoff = diagnose(rt_case["input"]["request"])
     assert handoff.repair_state == x["repair_state"]
+    assert handoff.authority_state == x["authority_state"]
+    assert handoff.handoff_state == x["handoff_state"]
+    assert handoff.blocking_reasons == x["blocking_reasons"]
     assert x["note_contains"] in handoff.authority_note
 
 
@@ -318,6 +398,103 @@ def test_missing_evidence_pointers_fail_closed(rt_case, tmp_path):
     assert partial.evidence_state == x["partial"]
     markdown, _ = write_handoff(missing, tmp_path)
     assert x["markdown_contains"] in markdown.read_text(encoding="utf-8")
+
+
+@case("RS-SCH-04")
+def test_handoff_without_evidence_pointers_fails_closed(rt_case, tmp_path, monkeypatch):
+    i, x = rt_case["input"], rt_case["expected"]
+    # 1. diagnosis: a conflict with no pointer blocks the handoff and the CLI
+    for name, reasons, state in (("missing", x["missing_reasons"], "missing"),
+                                 ("partial", x["partial_reasons"], x["partial_evidence_state"])):
+        handoff = diagnose(i[name])
+        assert handoff.evidence_state == state
+        assert handoff.handoff_state == "blocked" and handoff.blocking_reasons == reasons
+        run = tmp_path / name
+        run.mkdir()
+        assert _cli(run, i[name]).exit_code == x["blocked_exit_code"]
+
+    # 2. schema: a handoff JSON cannot say ready without pointers, or blocked without a reason
+    ready = diagnose(i["complete"]).model_dump()
+    assert ready["handoff_state"] == "ready"
+    for forged in ({**ready, "evidence_state": "missing"}, {**ready, "evidence_state": "incomplete"},
+                   {**ready, "authority_state": "missing"}, {**ready, "blocking_reasons": ["c01:evidence_missing"]},
+                   {**ready, "handoff_state": "blocked"}):
+        with pytest.raises(ValidationError):
+            ReconcileHandoff.model_validate(forged)
+
+    # 3. package: a writer that drops submitted pointers fails the CLI, even for a complete request
+    real_render = reconcile_spec_mod.render_handoff_markdown
+    monkeypatch.setattr(reconcile_spec_mod, "render_handoff_markdown",
+                        lambda h: "\n".join(line for line in real_render(h).splitlines() if not line.startswith("- `runtime`")))
+    (tmp_path / "dropped_md").mkdir()
+    result = _cli(tmp_path / "dropped_md", i["complete"])
+    assert result.exit_code == x["package_exit_code"], result.output
+    assert x["package_stderr_contains"] in result.output and x["dropped_markdown_reason"] in result.output
+    monkeypatch.undo()
+
+    real_write = reconcile_spec_mod.write_handoff
+
+    def drop_json_pointers(handoff, out_dir):
+        stripped = handoff.model_copy(update={"conflicts": [c.model_copy(update={"evidence": []}) for c in handoff.conflicts]})
+        markdown, machine = real_write(handoff, out_dir)
+        machine.write_text(stripped.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        return markdown, machine
+
+    monkeypatch.setattr(reconcile_spec_mod, "write_handoff", drop_json_pointers)
+    (tmp_path / "dropped_json").mkdir()
+    result = _cli(tmp_path / "dropped_json", i["complete"])
+    assert result.exit_code == x["package_exit_code"], result.output
+    assert x["dropped_json_reason"] in result.output
+
+
+@case("RS-SCH-05")
+def test_blank_strings_and_duplicate_claim_ids_are_rejected(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+
+    def mutate(name):
+        r = copy.deepcopy(i["base"])
+        c = r["conflicts"][0]
+        if name == "blank_source_doc":
+            r["source_doc"] = " \t"
+        elif name == "blank_requirement_id":
+            c["protected_requirement_id"] = "  "
+        elif name == "blank_protected_text":
+            c["protected_text"] = "\n"
+        elif name == "blank_pointer":
+            c["evidence"][0]["pointer"] = "   "
+        elif name == "duplicate_claim_id":
+            r["conflicts"].append(copy.deepcopy(c))
+        else:
+            raise AssertionError(name)
+        return r
+
+    ReconcileRequest.model_validate(i["base"])
+    for name in i["mutations"]:
+        with pytest.raises(ValidationError):
+            ReconcileRequest.model_validate(mutate(name))
+        run = tmp_path / name
+        run.mkdir()
+        result = _cli(run, mutate(name))
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        assert x["stderr_contains"] in result.output
+        assert not (run / "out").exists()
+
+
+# -- CONTROL -------------------------------------------------------------------------
+
+
+@case("RS-CTRL-01")
+def test_complete_conflict_is_a_ready_handoff(rt_case, tmp_path):
+    request, x = rt_case["input"]["request"], rt_case["expected"]
+    result = _cli(tmp_path, request)
+    assert result.exit_code == x["exit_code"], result.output
+    assert "refused" not in result.output and "blocked" not in result.output
+    data, markdown = _written(tmp_path)
+    for key in ("authority_state", "evidence_state", "repair_state", "handoff_state", "blocking_reasons"):
+        assert data[key] == x[key], key
+    assert "Handoff: `ready`" in markdown
+    pointers = [e["pointer"] for c in request["conflicts"] for e in c["evidence"]]
+    assert all(p in markdown for p in pointers)
 
 
 # -- COST ----------------------------------------------------------------------------

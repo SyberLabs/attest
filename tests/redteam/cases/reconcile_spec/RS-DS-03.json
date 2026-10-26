@@ -34,6 +34,11 @@
   },
   "expected": {
     "repair_state": "handoff",
-    "note_contains": "not independently verified"
+    "authority_state": "conflicting",
+    "handoff_state": "blocked",
+    "blocking_reasons": [
+      "c01:authority_reference_mismatch"
+    ],
+    "note_contains": "automatic repair stops"
   }
 }
