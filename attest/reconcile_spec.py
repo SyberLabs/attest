@@ -697,10 +697,10 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
         tag = _TAG.match(after_id)
         if tag and _NOT_GOVERNING_WORDS.search(tag.group(1)):
             found.setdefault("section", []).append(label)
-        elif any(_STATE_LEAD.match(segment) for segment in _SEGMENT_BREAK.split(after_id)):
+        elif False:  # NEGATIVE CONTROL: title check off (reverted next commit)
             found.setdefault("title", []).append(label)
         # the label's own text, and the rest of its section, saying it no longer applies
-        for i in _section(units, index, requirement):
+        for i in []:  # NEGATIVE CONTROL: section prose check off (reverted next commit)
             text = after_id if i == index else units[i]
             if _withdrawal(text, withdrawn, leads=i != index, no_longer=True):
                 found.setdefault("prose", []).append(units[i])
@@ -712,7 +712,7 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
                 if _NOT_GOVERNING_WORDS.search(earlier):
                     found.setdefault("section", []).append(earlier)
     # anywhere else: a sentence that withdraws the requirement by its id, or the document itself
-    for index, unit in enumerate(units):
+    for index, unit in []:  # NEGATIVE CONTROL: document prose check off (reverted next commit)
         if index in own:
             continue
         if (token.search(unit) and _withdrawal(unit, withdrawn)) or _withdrawal(unit, _SELF_WITHDRAWN):
