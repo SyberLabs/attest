@@ -19,7 +19,7 @@ import os
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 import typer
@@ -53,6 +53,10 @@ WORKER_INSTRUCTIONS = (
 class Candidate:
     original: Path
     root: Path  # <home>/candidates/<sha12>-<n>/app, its own git repo
+    # promotion binds these: the original as copied, the committed baseline, and its commit
+    source_manifest: dict[str, str] = field(default_factory=dict)
+    base_manifest: dict[str, str] = field(default_factory=dict)
+    baseline: str | None = None
 
     @property
     def posix(self) -> str:
@@ -95,10 +99,16 @@ class Candidate:
 
 
 def make_candidate(app_dir: Path, doc_sha: str, home: Path) -> Candidate:
-    """A fresh copy of the app for this run, committed as the baseline."""
+    """A fresh copy of the app for this run, committed as the baseline.
+
+    Edits to the copy need no approval; the original is only ever written by an
+    approved, validated spec promotion workflow (attest.app_promotion)."""
+    from .app_promotion import tree_manifest
+
     app_dir = Path(app_dir)
     if not app_dir.is_dir():
         raise ValueError(f"--app is not a directory: {app_dir}")
+    source_manifest = tree_manifest(app_dir)
     base = home / "candidates"
     base.mkdir(parents=True, exist_ok=True)
     n = 1
@@ -107,7 +117,7 @@ def make_candidate(app_dir: Path, doc_sha: str, home: Path) -> Candidate:
     root = base / f"{doc_sha[:12]}-{n}" / "app"
     shutil.copytree(app_dir, root, ignore=shutil.ignore_patterns(".git"))
     # absolute: git runs with cwd=root, so a relative root would point the patch path nowhere
-    cand = Candidate(app_dir.resolve(), root.resolve())
+    cand = Candidate(app_dir.resolve(), root.resolve(), source_manifest=source_manifest)
     for f in cand.files():
         # agent diffs are always LF; a CRLF copy would make every hunk miss
         data = f.read_bytes()
@@ -119,6 +129,9 @@ def make_candidate(app_dir: Path, doc_sha: str, home: Path) -> Candidate:
     cand.git("config", "core.autocrlf", "false")
     cand.git("add", "-A")
     cand.git("commit", "-q", "-m", "app before implementation")
+    cand.base_manifest = tree_manifest(cand.root)
+    head = cand.git("rev-parse", "HEAD")
+    cand.baseline = head.stdout.strip() if head.returncode == 0 else None
     return cand
 
 
@@ -436,6 +449,8 @@ def implement_claim(result, claim: Claim, candidate: Candidate, runner, rules, l
     disposition = "implemented" if after.status == "proven" else "unresolved"
     receipt = _receipt(result, claim, before, after, policy, authority, worker, diff, disposition, None, doc.sha256, None)
     receipt["worker"] = worker
+    # candidate edits need no approval; promoting them into the original app does (attest.app_promotion)
+    receipt["approval"] = {"actor": None, "required_for": "promotion", "state": "not_approved", "proposal_sha256": patch_sha}
     receipt["ticket"] = {"path": str(ticket_json), "markdown": str(ticket_md), "title": ticket["title"]}
     receipt["app"] = {"original": str(candidate.original), "candidate": candidate.posix, "patch_sha256": patch_sha, "applied": applied}
     path = _write_receipt(home, receipt)

@@ -154,3 +154,11 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - The file is explicit operator input only; nothing is loaded from `--home` or from beside the document, so a proposal cannot supply its own allow-list. The loader refuses rather than guesses: a symlink or non-file, duplicate keys (YAML and JSON both keep the last one silently, so a strict loader is used), unknown top-level keys, non-string argv parts. It loads before the runner starts, so a bad file exits 2 and the workflow stays `validating`.
 - The validation receipt records `recipe_digest` (sha256 of the canonical allow-list; the empty list when none was given), so a promotion shows which allow-list proved its shell steps.
 - `attest prove --recipes-only` still has no way to supply recipes; out of scope here.
+
+## Oct 26: Spec mode promotion is approval-gated
+
+- Health leftover: spec mode had no approval path at all. Its receipts recorded `approval.actor = policy:default` for an app change no human approved, and nothing durable stood between the candidate and the original `--app` directory.
+- Candidate edits still need no approval. After the loop, a changed candidate becomes a `spec_app` workflow in `workflow.sqlite3` (`attest/app_promotion.py`), in `awaiting_approval`, with the same states and `attest approve` / `attest resume --apply` commands as Maintain Docs (#15). The approval binds the original app's tree digest as copied, the candidate baseline and final tree digests, the plan, the build identity and a spec-mode policy digest.
+- `resume` re-runs the stored spec claims against the approved candidate materialised from content-addressed artifacts (not the mutable candidate directory) with fresh Kane evidence only; fake or simulated runners are refused. `--apply` then rechecks every digest (app, build, spec, candidate, change set), refuses symlinked or out-of-root paths, stages each changed file next to its target, rechecks the app tree, swaps, and rolls back on any failure. Only files the candidate changed are written, so untouched CRLF files keep their bytes; a changed file is written with the candidate's LF endings.
+- Spec-mode receipts now say `approval: {actor: null, state: not_approved}` and carry `promotion.workflow_id`. `prove --app` exits 3 when a promotion proposal is waiting, as a Maintain Docs proposal does.
+

@@ -432,7 +432,8 @@ def prove_cmd(
                     detail = f"; refused: {authority.get('reason', 'authority policy denied the proposal')}"
                 else:
                     detail = ""
-                typer.echo(f"{claim_id}: proposal {workflow_id} state={record.state}{detail}; source unchanged")
+                unchanged = "app unchanged" if record.proposal.get("kind") == "spec_app" else "source unchanged"
+                typer.echo(f"{claim_id}: proposal {workflow_id} state={record.state}{detail}; {unchanged}")
             raise typer.Exit(3)
         if open_page and result.page:
             webbrowser.open(result.page.resolve().as_uri())
