@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import json
 import re
 import shutil
 import sqlite3
@@ -1206,5 +1207,309 @@ def test_kane_run_spec_mode_promotion_refuses_stored_evidence_a_receipt_would_no
     _tamper_validation(store, workflow_id, change)
 
     with pytest.raises(WorkflowError, match=refusal):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+# -- the stored validation record: bound to its workflow, its artifact and its event -----
+#
+# Promotion's other checks make the stored record agree with itself: its observations name
+# the run and build its own fields bind. So a record rewritten field by field, consistently,
+# promoted: one laundering an earlier Kane run, one moved from another workflow's validation,
+# a rejected one relabelled validated, one dropping an approved claim or a claim's proven
+# status. Validation now seals the record to this workflow and approval and stores it as an
+# artifact, and the validated event names those seals. Promotion checks all of it against
+# what lives outside the record: the approval, the candidate, the approved claims, the
+# artifact and the event. A writer who also rewrites the artifact and the event row is not
+# caught; that needs a key the store doesn't hold.
+
+LAUNDERED_RUN = "kane-session-from-yesterday"
+
+
+def _launder_earlier_run(v):
+    # The cached-observation attack, done on the stored record: c08's evidence names an
+    # earlier Kane run, and its binding says so too.
+    v["kane_runs"]["c08"] = LAUNDERED_RUN
+    v["evidence"]["c08"]["observation"]["kane_run_id"] = LAUNDERED_RUN
+
+
+def _validated_events(store: SQLiteWorkflowStore, workflow_id: str) -> list[dict]:
+    return [e["payload"] for e in store.events(workflow_id) if (e["from_state"], e["to_state"]) == ("validating", "validated")]
+
+
+def _reseal(store: SQLiteWorkflowStore, workflow_id: str, change, *, artifact=True, event=True, state=None) -> None:
+    """Rewrite the stored validation as a writer who knows the digest scheme: every field together.
+
+    The record's own digests are always recomputed. ``artifact`` also stores the rewritten
+    record as its receipt artifact. ``event`` also rewrites the validated event's seals.
+    ``state`` sets the workflow state as well.
+    """
+    v = store.get(workflow_id).validation
+    old = {key: v.pop(key) for key in ("receipt_digest", "receipt_artifact_digest")}
+    change(v)
+    v["evidence_digest"] = digest(canonical_json(v["evidence"]))
+    v["receipt_digest"] = digest(canonical_json(v))
+    v["receipt_artifact_digest"] = store.put_artifact(canonical_json(v)) if artifact else old["receipt_artifact_digest"]
+    with sqlite3.connect(store.path) as db:
+        db.execute("UPDATE workflows SET validation_json = ?, state = COALESCE(?, state) WHERE workflow_id = ?",
+                   (canonical_json(v), state, workflow_id))
+        if event:
+            for event_id, payload in db.execute(
+                "SELECT event_id, payload_json FROM workflow_events WHERE workflow_id = ? AND from_state = 'validating' "
+                "AND to_state = 'validated'", (workflow_id,)).fetchall():
+                sealed = {**json.loads(payload), "receipt_digest": v["receipt_digest"],
+                          "receipt_artifact_digest": v["receipt_artifact_digest"]}
+                db.execute("UPDATE workflow_events SET payload_json = ? WHERE event_id = ?", (canonical_json(sealed), event_id))
+
+
+def _move_validation(store: SQLiteWorkflowStore, from_id: str, to_id: str, rebind=None) -> None:
+    """Put one workflow's validation, and its validated event, on another workflow awaiting validation.
+
+    ``rebind(v)`` rewrites the moved record (its digests and artifact recomputed, the copied
+    event naming the new seals), as a writer would to fit the other workflow's fields.
+    """
+    with sqlite3.connect(store.path) as db:
+        (vjson,) = db.execute("SELECT validation_json FROM workflows WHERE workflow_id = ?", (from_id,)).fetchone()
+        (payload,) = db.execute("SELECT payload_json FROM workflow_events WHERE workflow_id = ? AND from_state = 'validating' "
+                                "AND to_state = 'validated'", (from_id,)).fetchone()
+        db.execute("UPDATE workflows SET state = 'validated', validation_json = ? WHERE workflow_id = ?", (vjson, to_id))
+        db.execute("INSERT INTO workflow_events(workflow_id, from_state, to_state, payload_json, created_at) "
+                   "VALUES (?, 'validating', 'validated', ?, '2026-10-26T00:00:00+00:00')", (to_id, payload))
+    if rebind is not None:
+        _reseal(store, to_id, rebind)
+
+
+def second_repair(source: Path, store: SQLiteWorkflowStore, llm, candidate_text: str) -> str:
+    """Another approved proposal for the same doc, on the same build, in the same store."""
+    base_text = source.read_text(encoding="utf-8")
+    baseline = compile_doc(ingest_text(base_text, source=str(source)), llm=llm, use_cache=False)
+    diff = "".join(difflib.unified_diff(base_text.splitlines(True), candidate_text.splitlines(True),
+                                        "a/greeting.md", "b/greeting.md"))
+    record = create_repair_proposal(
+        store, source_path=source, base_text=base_text, candidate_text=candidate_text, diff=diff,
+        target_claim=next(c for c in baseline if c.id == "c08"), baseline_claims=baseline,
+        plan="Relabel c08 to another greeting.",
+    )
+    approve_workflow(store, record.workflow_id, "someone-else@example.test")
+    return record.workflow_id
+
+
+# c08 relabelled to a greeting no Kane run of the moved record saw.
+UNVALIDATED_DOC = BASE_DOC.replace('"Goodbye, World!"', '"Hello, Kane!"')
+
+
+def validated_repair(tmp_path: Path, monkeypatch, **cli):
+    source, store, workflow_id, llm = approved_repair(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, **cli)
+    assert resume_workflow(store, workflow_id, runner=runner, llm=llm).state == "validated"
+    return source, store, workflow_id, llm
+
+
+def test_control_validation_record_is_sealed_to_its_workflow_approval_artifact_and_event(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    record = store.get(workflow_id)
+    v = record.validation
+
+    assert (v["workflow_id"], v["approval_digest"], v["candidate_digest"]) == (
+        workflow_id, record.approval["approval_digest"], record.proposal["candidate_digest"])
+    receipt = {key: value for key, value in v.items() if key != "receipt_artifact_digest"}
+    assert store.get_artifact(v["receipt_artifact_digest"]) == canonical_json(receipt).encode("utf-8")
+    assert [{k: e[k] for k in ("receipt_digest", "receipt_artifact_digest")} for e in _validated_events(store, workflow_id)] == [
+        {"receipt_digest": v["receipt_digest"], "receipt_artifact_digest": v["receipt_artifact_digest"]}]
+    assert promote_workflow(store, workflow_id).state == "promoted"
+    assert source.read_text(encoding="utf-8") == CANDIDATE_DOC
+
+
+@pytest.mark.parametrize(
+    "level, refusal",
+    [
+        ("fields", "does not match its own digests"),
+        ("digests", "does not match the receipt artifact"),
+        ("artifact", "not the one its validated event recorded"),
+    ],
+    ids=["fields-rewritten", "digests-recomputed", "artifact-restored"],
+)
+def test_record_promotion_refuses_a_rewritten_validation_that_its_seals_do_not_hold(tmp_path, monkeypatch, level, refusal):
+    # Each level rewrites one more seal than the last, and each is refused by the next one.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    if level == "fields":
+        _tamper_validation(store, workflow_id, _launder_earlier_run)
+    else:
+        _reseal(store, workflow_id, _launder_earlier_run, artifact=level == "artifact", event=False)
+
+    with pytest.raises(WorkflowError, match=refusal):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+@pytest.mark.parametrize("moved", [True, False], ids=["moved-from-another-workflow", "record-from-before-binding"])
+def test_record_promotion_refuses_a_validation_not_bound_to_this_workflows_approval(tmp_path, monkeypatch, moved):
+    # Moved: workflow A validated CANDIDATE_DOC. Workflow B, approved for the same doc and
+    # build, proposes UNVALIDATED_DOC; it gets A's record and validated event, unchanged.
+    # A record stored before validation recorded its workflow and approval has to be redone.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = validated_repair(tmp_path, monkeypatch)
+    if moved:
+        other_id = second_repair(source, store, llm, UNVALIDATED_DOC)
+        _move_validation(store, workflow_id, other_id)
+        workflow_id = other_id
+    else:
+        _tamper_validation(store, workflow_id, lambda v: [v.pop("workflow_id"), v.pop("approval_digest")])
+
+    with pytest.raises(WorkflowError, match="not bound to this workflow's approval and candidate"):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_record_promotion_refuses_a_rejected_validation_relabelled_validated(tmp_path, monkeypatch):
+    # A cached observation from an earlier run: rejected for stale_kane_run with every status
+    # proven. Relabelled validated and resealed, it has no validated event to name its seals.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    observe_browser_claims(runner, source)
+    assert resume_workflow(store, workflow_id, runner=runner, llm=llm).state == "rejected"
+    _reseal(store, workflow_id, lambda v: v.update(successful=True, failed_claims=[]), state="validated")
+
+    with pytest.raises(WorkflowError, match="not the one its validated event recorded"):
+        promote_workflow(store, workflow_id)
+    assert len(cli.calls) == 1 and source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def _drop_claim(v, claim_id="c08"):
+    v["validated_claims"] = [c for c in v["validated_claims"] if c["id"] != claim_id]
+    for field in ("evidence", "statuses", "kane_runs"):
+        v[field].pop(claim_id, None)
+
+
+def test_record_promotion_refuses_a_resealed_validation_that_drops_an_approved_claim(tmp_path, monkeypatch):
+    # Every seal rewritten, artifact and event included: the record still has to carry the
+    # approved document's claims. Without c08 its browser evidence was never checked.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    _reseal(store, workflow_id, _drop_claim)
+
+    with pytest.raises(WorkflowError, match="claims are not the approved document's"):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+UNPROVEN = [
+    lambda v: v["statuses"].update(c08="stale"),
+    lambda v: v["statuses"].pop("c08"),
+    lambda v: v.update(failed_claims=["c08:stale"]),
+]
+UNPROVEN_IDS = ["status-not-proven", "status-dropped", "failure-listed"]
+
+
+@pytest.mark.parametrize("change", UNPROVEN, ids=UNPROVEN_IDS)
+def test_record_promotion_refuses_a_resealed_validation_that_does_not_show_every_claim_proven(tmp_path, monkeypatch, change):
+    # Fully resealed and still "successful": promotion read only that flag.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    _reseal(store, workflow_id, change)
+
+    with pytest.raises(WorkflowError, match="does not show every approved claim proven"):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+# spec mode: the same seals, checked by promote_app_workflow
+
+
+def validated_spec_promotion(tmp_path: Path, monkeypatch):
+    app, spec, store, workflow_id = approved_spec_promotion(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    assert resume_workflow(store, workflow_id, runner=runner).state == "validated"
+    return app, spec, store, workflow_id
+
+
+def second_spec_promotion(tmp_path: Path, app: Path, spec: Path, store: SQLiteWorkflowStore, app_js: str) -> str:
+    """Another approved spec-mode proposal for the same app and spec, with another candidate."""
+    from attest.app_promotion import create_app_promotion_proposal
+    from attest.implement import make_candidate
+
+    doc = ingest_text(spec.read_text(encoding="utf-8"), source=str(spec))
+    claims = compile_doc(doc, llm=DeterministicCompiler(), use_cache=False)
+    candidate = make_candidate(app, doc.sha256, tmp_path / "home")
+    (candidate.root / "app.js").write_text(app_js, encoding="utf-8")
+    record = create_app_promotion_proposal(store, candidate=candidate, doc=doc, claims=claims, implemented=["c08"])
+    approve_workflow(store, record.workflow_id, "someone-else@example.test")
+    return record.workflow_id
+
+
+def test_control_spec_mode_validation_record_is_sealed_to_its_workflow_approval_artifact_and_event(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    record = store.get(workflow_id)
+    v = record.validation
+
+    assert (v["workflow_id"], v["approval_digest"], v["candidate_digest"]) == (
+        workflow_id, record.approval["approval_digest"], record.proposal["candidate_digest"])
+    receipt = {key: value for key, value in v.items() if key != "receipt_artifact_digest"}
+    assert store.get_artifact(v["receipt_artifact_digest"]) == canonical_json(receipt).encode("utf-8")
+    assert [e["receipt_digest"] for e in _validated_events(store, workflow_id)] == [v["receipt_digest"]]
+    assert promote_workflow(store, workflow_id).state == "promoted"
+    assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "level, refusal",
+    [
+        ("fields", "does not match its own digests"),
+        ("digests", "does not match the receipt artifact"),
+        ("artifact", "not the one its validated event recorded"),
+    ],
+    ids=["fields-rewritten", "digests-recomputed", "artifact-restored"],
+)
+def test_record_spec_mode_promotion_refuses_a_rewritten_validation_that_its_seals_do_not_hold(tmp_path, monkeypatch, level, refusal):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    if level == "fields":
+        _tamper_validation(store, workflow_id, _launder_earlier_run)
+    else:
+        _reseal(store, workflow_id, _launder_earlier_run, artifact=level == "artifact", event=False)
+
+    with pytest.raises(WorkflowError, match=refusal):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+def test_record_spec_mode_promotion_refuses_a_validation_moved_and_rebound_to_another_candidate(tmp_path, monkeypatch):
+    # Spec promotion already compares the record's candidate with the proposal's, so the
+    # moved record is rebound to the other candidate, resealed, and its event copied.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, validated_id = validated_spec_promotion(tmp_path, monkeypatch)
+    other_id = second_spec_promotion(tmp_path, app, spec, store, APP_JS + "fetch('https://elsewhere.example.test');\n")
+    other_candidate = store.get(other_id).proposal["candidate_digest"]
+    _move_validation(store, validated_id, other_id, rebind=lambda v: v.update(candidate_digest=other_candidate))
+
+    with pytest.raises(WorkflowError, match="not bound to this workflow's approval and candidate"):
+        promote_workflow(store, other_id)
+    assert app_unchanged(app)
+
+
+def test_record_spec_mode_promotion_refuses_a_rejected_validation_relabelled_validated(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, workflow_id = approved_spec_promotion(tmp_path)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    observe_browser_claims(runner, spec)
+    assert resume_workflow(store, workflow_id, runner=runner).state == "rejected"
+    _reseal(store, workflow_id, lambda v: v.update(successful=True, failed_claims=[]), state="validated")
+
+    with pytest.raises(WorkflowError, match="not the one its validated event recorded"):
+        promote_workflow(store, workflow_id)
+    assert len(cli.calls) == 1 and app_unchanged(app)
+
+
+@pytest.mark.parametrize("change", UNPROVEN, ids=UNPROVEN_IDS)
+def test_record_spec_mode_promotion_refuses_a_resealed_validation_that_does_not_show_every_claim_proven(tmp_path, monkeypatch, change):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    _reseal(store, workflow_id, change)
+
+    with pytest.raises(WorkflowError, match="does not show every approved claim proven"):
         promote_workflow(store, workflow_id)
     assert app_unchanged(app)

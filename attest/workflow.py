@@ -22,7 +22,7 @@ from .policy import MaintainDocsPolicy
 from .pipeline import execute
 from .proposals import current_build_digest, proposal_digest
 from .shell import new_scratch
-from .storage import SQLiteWorkflowStore, WorkflowRecord, canonical_json
+from .storage import SQLiteWorkflowStore, WorkflowRecord, WorkflowStorageError, canonical_json
 from .verdict import Rules, load_rules
 
 
@@ -66,6 +66,22 @@ def _compile_complete(original: list[Claim], compiled: list[Claim], target_id: s
 
 def _validation_digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+# A validation record's seals: what it is digested to, and the immutable artifact holding it.
+_SEALS = ("receipt_digest", "receipt_artifact_digest")
+
+
+def _seal_validation(store: SQLiteWorkflowStore, record: WorkflowRecord, validation: dict[str, Any]) -> dict[str, str]:
+    """Bind the record to this workflow and its approval, digest it, and store it as an artifact.
+
+    Returns the seals, which the validated event records too.
+    """
+    validation["workflow_id"] = record.workflow_id
+    validation["approval_digest"] = (record.approval or {}).get("approval_digest")
+    validation["receipt_digest"] = _validation_digest(validation)
+    validation["receipt_artifact_digest"] = store.put_artifact(canonical_json(validation))
+    return {key: validation[key] for key in _SEALS}
 
 
 def _kane_run_bindings(runner, runs_before: int, claims: list[Claim], evidence: dict) -> tuple[dict[str, str | None], list[str]]:
@@ -139,6 +155,48 @@ def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[s
         raise WorkflowError("validation browser evidence does not name the Kane run it is bound to; --apply refused")
     if any(obs.status != "passed" or obs.simulation_only or obs.unbound for obs in stored.values()):
         raise WorkflowError("validation browser evidence is simulated, unbound or not passed; --apply refused")
+
+
+def _refuse_unproven_claims(validation: dict[str, Any], claims: list[Claim]) -> None:
+    """Promotion: the record shows every approved required claim proven, and no failure."""
+    statuses = validation.get("statuses") or {}
+    required = [claim.id for claim in claims if claim.kind in {"shell", "browser", "assert"}]
+    if validation.get("failed_claims") or any(statuses.get(claim_id) != "proven" for claim_id in required):
+        raise WorkflowError("validation record does not show every approved claim proven; --apply refused")
+
+
+def _refuse_unsealed_validation(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """Promotion: the stored validation is the record this workflow's own validation sealed.
+
+    The other promotion checks make the record agree with itself. These make it agree with
+    what lives outside it: this workflow's approval and candidate, the receipt artifact
+    validation stored, and the validated event. A rewrite of every field of the record
+    together is refused. One that also rewrites that artifact and event row is not: that
+    needs a key the store doesn't hold.
+    """
+    validation = record.validation or {}
+    if (
+        validation.get("workflow_id") != record.workflow_id
+        or validation.get("approval_digest") != (record.approval or {}).get("approval_digest")
+        or validation.get("candidate_digest") != record.proposal.get("candidate_digest")
+    ):
+        raise WorkflowError("validation record is not bound to this workflow's approval and candidate; --apply refused")
+    unsealed = {key: value for key, value in validation.items() if key not in _SEALS}
+    if (
+        validation.get("evidence_digest") != _validation_digest(validation.get("evidence") or {})
+        or validation.get("receipt_digest") != _validation_digest(unsealed)
+    ):
+        raise WorkflowError("validation record does not match its own digests; --apply refused")
+    try:
+        stored = store.get_artifact(str(validation.get("receipt_artifact_digest")))
+    except WorkflowStorageError:
+        stored = None
+    receipt = {key: value for key, value in validation.items() if key != "receipt_artifact_digest"}
+    if stored != canonical_json(receipt).encode("utf-8"):
+        raise WorkflowError("validation record does not match the receipt artifact validation stored; --apply refused")
+    events = [e["payload"] for e in store.events(record.workflow_id) if (e["from_state"], e["to_state"]) == ("validating", "validated")]
+    if [{key: payload.get(key) for key in _SEALS} for payload in events] != [{key: validation[key] for key in _SEALS}]:
+        raise WorkflowError("validation record is not the one its validated event recorded; --apply refused")
 
 
 def resume_workflow(
@@ -271,8 +329,7 @@ def resume_workflow(
             if unbound:
                 validation_data["successful"] = False
                 validation_data["failed_claims"] = [*validation_data["failed_claims"], *unbound]
-            validation_data["receipt_digest"] = _validation_digest(validation_data)
-            validation_data["receipt_artifact_digest"] = store.put_artifact(canonical_json(validation_data))
+            seals = _seal_validation(store, record, validation_data)
         finally:
             if session is not None:
                 session.close()
@@ -293,7 +350,7 @@ def resume_workflow(
             "validating",
             "validated",
             validation=validation_data,
-            event={"runner": runner.name, "receipt_digest": validation_data["receipt_digest"]},
+            event={"runner": runner.name, **seals},
         )
     except Exception as exc:
         current = store.get(workflow_id)
@@ -325,6 +382,18 @@ def promote_workflow(
         raise WorkflowError("validation evidence is not bound to the approved app/build version; --apply refused")
     browser = [c.get("id") for c in record.validation.get("validated_claims") or [] if c.get("kind") == "browser"]
     _refuse_unbound_browser_evidence(record.validation, browser, proposal.get("build_digest"))
+    # The record's claims must be the approved document's, each proven: a record that drops
+    # a browser claim would otherwise skip its evidence checks above.
+    try:
+        approved = [Claim.model_validate(x) for x in json.loads(store.get_artifact(proposal["artifact_digests"]["baseline_claims"]))]
+        validated = [Claim.model_validate(x) for x in record.validation.get("validated_claims") or []]
+    except Exception as exc:
+        raise WorkflowError(f"validation claims are unreadable; --apply refused: {exc}") from exc
+    complete, detail = _compile_complete(approved, validated, proposal["target_claim_id"])
+    if not complete:
+        raise WorkflowError(f"validation record's claims are not the approved document's ({detail}); --apply refused")
+    _refuse_unproven_claims(record.validation, validated)
+    _refuse_unsealed_validation(store, record)
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])
