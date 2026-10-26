@@ -147,6 +147,41 @@ def _approved_at(approval: dict | None) -> datetime | None:
     return approved_at if approved_at.tzinfo else None
 
 
+APPROVAL_NOT_RECORDED = "approval is not the one its approval event recorded"
+APPROVAL_BEFORE_PROPOSAL = "approval is dated before the workflow was put up for approval"
+
+
+def _approval_disagreement(store: SQLiteWorkflowStore, record: WorkflowRecord) -> str | None:
+    """Why the stored approval is not the one the human gave, by the store's own events; None when it is.
+
+    Each pack's run is read against ``approved_at``. The approval digest covers it, but a
+    writer can backdate it and recompute the digest. ``approve_workflow`` writes the approval
+    and, in the same transaction, an event naming its digest, and it only runs once the
+    workflow is ``awaiting_approval``. So the approval must be the one its only approval event
+    names, dated no earlier than the event that put the workflow up for approval. Both times
+    are this host's clock, compared with no tolerance.
+    """
+    events = store.events(record.workflow_id)
+    approval = record.approval or {}
+    recorded = [e["payload"].get("approval_digest") for e in events if (e["from_state"], e["to_state"]) == ("awaiting_approval", "validating")]
+    if recorded != [approval.get("approval_digest")]:
+        return APPROVAL_NOT_RECORDED
+    try:
+        put_up = [datetime.fromisoformat(str(e["created_at"])) for e in events if e["to_state"] == "awaiting_approval"]
+    except ValueError:
+        put_up = []
+    approved_at = _approved_at(approval)
+    if approved_at is None or len(put_up) != 1 or put_up[0].tzinfo is None or approved_at < put_up[0]:
+        return APPROVAL_BEFORE_PROPOSAL
+    return None
+
+
+def _refuse_unrecorded_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """Promotion: the approval is the one its approval event recorded, dated after the workflow was put up for it."""
+    if problem := _approval_disagreement(store, record):
+        raise WorkflowError(f"{problem}; --apply refused")
+
+
 def _pack_read_back(pack: dict | None, claim: Claim, run_id: str | None, approval: dict | None) -> tuple[str, str] | None:
     """Read a claim's Kane evidence pack back from disk: (failure code, detail), or None when it backs the claim.
 
@@ -376,6 +411,8 @@ def resume_workflow(
         verify_approval(record)
     except ApprovalError as exc:
         return _unresolved(store, record, str(exc))
+    if problem := _approval_disagreement(store, record):
+        return _unresolved(store, record, problem)
 
     proposal = record.proposal
     if proposal_digest(proposal) != proposal.get("proposal_digest"):
@@ -519,6 +556,7 @@ def promote_workflow(
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
     verify_approval(record)
+    _refuse_unrecorded_approval(store, record)
     if not record.validation.get("successful") or record.validation.get("runner") != "kane":
         raise WorkflowError("--apply is disabled after failed, incomplete, or simulated validation")
     proposal = record.proposal
