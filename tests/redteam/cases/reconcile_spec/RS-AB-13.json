@@ -1,0 +1,137 @@
+{
+  "id": "RS-AB-13",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "missing_or_conflicting_authority",
+  "title": "An authority reference that names a copy stating the requirement differently from another Markdown document under the source root (the contract) blocks the handoff (exit 3) and shows where it differs, even when the text matches the copy and the copy carries no marks; a copy with the same text, the contract named by another spelling of its path, prose mentions, .git and documents outside the root do not block",
+  "input": {
+    "contract": "---\ntitle: Security contract\nstatus: approved\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+    "contract_text": "The application must require multi-factor authentication for every administrator sign-in.",
+    "weak_text": "The application must require multi-factor authentication.",
+    "variants": {
+      "scratch_copy_referenced": {
+        "files": {
+          "contracts/security.md": "---\ntitle: Security contract\nstatus: approved\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+          "notes/sec-4.md": "# Notes\n\n- **SEC-4:** The application must require multi-factor authentication.\n"
+        },
+        "source_doc": "contracts/security.md",
+        "reference": "notes/sec-4.md#SEC-4",
+        "differs_in": {
+          "contracts/security.md": [
+            "The application must require multi-factor authentication for every administrator sign-in."
+          ]
+        }
+      },
+      "source_doc_is_the_copy_too": {
+        "files": {
+          "contracts/security.md": "---\ntitle: Security contract\nstatus: approved\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+          "docs/requirements.md": "# Notes\n\n- **SEC-4:** The application must require multi-factor authentication.\n"
+        },
+        "source_doc": "docs/requirements.md",
+        "reference": "#SEC-4",
+        "differs_in": {
+          "contracts/security.md": [
+            "The application must require multi-factor authentication for every administrator sign-in."
+          ]
+        }
+      },
+      "contract_in_hidden_directory": {
+        "files": {
+          ".github/SECURITY.md": "---\ntitle: Security contract\nstatus: approved\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+          "notes/sec-4.md": "# Notes\n\n- **SEC-4:** The application must require multi-factor authentication.\n"
+        },
+        "source_doc": "notes/sec-4.md",
+        "reference": "notes/sec-4.md#SEC-4",
+        "differs_in": {
+          ".github/SECURITY.md": [
+            "The application must require multi-factor authentication for every administrator sign-in."
+          ]
+        }
+      },
+      "contract_deep_with_markdown_suffix_and_lowercase_id": {
+        "files": {
+          "policies/2026/security/contract.MARKDOWN": "---\ntitle: Security contract\nstatus: approved\n---\n\n# Security contract\n\n## sec-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+          "notes/sec-4.md": "# Notes\n\n- **SEC-4:** The application must require multi-factor authentication.\n"
+        },
+        "source_doc": "notes/sec-4.md",
+        "reference": "notes/sec-4.md#SEC-4",
+        "differs_in": {
+          "policies/2026/security/contract.MARKDOWN": [
+            "The application must require multi-factor authentication for every administrator sign-in."
+          ]
+        }
+      },
+      "two_contracts_disagree_and_one_is_archived": {
+        "files": {
+          "contracts/security.md": "---\ntitle: Security contract\nstatus: approved\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+          "contracts/archive/security-v1.md": "---\nstatus: superseded\n---\n\n# Security contract v1\n\n- SEC-4: Administrators should enable multi-factor authentication.\n"
+        },
+        "source_doc": "contracts/security.md",
+        "reference": "contracts/security.md#SEC-4",
+        "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+        "differs_in": {
+          "contracts/archive/security-v1.md": [
+            "Administrators should enable multi-factor authentication."
+          ]
+        }
+      }
+    },
+    "control": {
+      "files": {
+        "contracts/security.md": "---\ntitle: Security contract\nstatus: approved\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "docs/copy.md": "# Copy\n\n## SEC-4\n\nThe application must require multi-factor authentication for every\nadministrator sign-in.\n",
+        "docs/overview.md": "# Overview\n\nSee SEC-4 for the sign-in rule; SEC-5 covers sessions.\n",
+        "notes/unrelated.md": "# Unrelated\n\n- **SEC-9:** Logs are kept for 90 days.\n",
+        ".git/sec-4.md": "# Notes\n\n- **SEC-4:** The application must require multi-factor authentication.\n",
+        "notes/not-markdown.txt": "# Notes\n\n- **SEC-4:** The application must require multi-factor authentication.\n"
+      },
+      "outside": "# Notes\n\n- **SEC-4:** The application must require multi-factor authentication.\n",
+      "source_doc": "contracts/security.md",
+      "reference": "./contracts/security.md#SEC-4",
+      "digests": [
+        "./contracts/security.md",
+        "docs/copy.md",
+        "docs/overview.md"
+      ]
+    },
+    "unreadable": {
+      "latin1": {
+        "path": "notes/latin1.md",
+        "reason": "not_utf8",
+        "text": "# Notes\n\n- **SEC-4:** café sign-in.\n"
+      },
+      "too_large": {
+        "path": "notes/big.md",
+        "reason": "too_large",
+        "bytes": 2097153,
+        "text": "# Notes\n\nSEC-4 log.\n"
+      }
+    },
+    "unlisted_directory": {
+      "path": "private",
+      "file": "private/sec-4.md",
+      "text": "- **SEC-4:** Administrators may skip multi-factor authentication.\n",
+      "reason": "directory_unreadable"
+    }
+  },
+  "expected": {
+    "exit_code": 3,
+    "stderr_contains": "blocked:",
+    "control_exit_code": 0,
+    "handoff_state": "blocked",
+    "source_state": "contested",
+    "authority_state": "conflicting",
+    "repair_state": "handoff",
+    "reason": "c01:requirement_differs_elsewhere",
+    "markdown_contains": "Other documents under the source root that state this requirement differently",
+    "unreadable_source_state": "unreadable",
+    "unreadable_authority_state": "missing"
+  }
+}

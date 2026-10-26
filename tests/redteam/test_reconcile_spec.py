@@ -7,8 +7,8 @@ Unless a case supplies its own ``source``, ``diagnose`` and ``_cli`` give every
 document the request's protected texts are checked against (the authority
 reference's path, else source_doc) a text that labels each requirement with the
 first protected text the request submits for it, so cases about other checks are
-not blocked by the source check. RS-AB-10, RS-AB-11, RS-AB-12 and RS-CTRL-01 supply their
-own documents.
+not blocked by the source check. RS-AB-10, RS-AB-11, RS-AB-12, RS-AB-13 and RS-CTRL-01
+supply their own documents.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import builtins
 import copy
 import hashlib
 import json
+import os
 import re
 import socket
 import time
@@ -424,6 +425,134 @@ def test_text_matched_in_a_document_that_does_not_govern_blocks(rt_case, tmp_pat
     flagged = copy.deepcopy(ready)
     flagged["conflicts"][0]["source_not_governing"] = ["status: superseded"]
     for forged in ({**ready, "source_state": "not_governing"}, flagged):
+        with pytest.raises(ValidationError):
+            ReconcileHandoff.model_validate(forged)
+
+
+def _referenced_request(protected_text: str, source_doc: str, reference: str) -> dict:
+    request = _contract_request(protected_text)
+    request["source_doc"] = source_doc
+    request["conflicts"][0]["authority_reference"] = reference
+    return request
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@case("RS-AB-13")
+def test_reference_to_a_copy_that_differs_from_another_document_blocks(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    for name, variant in i["variants"].items():
+        run = tmp_path / name
+        root = run / "src"
+        _write_files(root, variant["files"])
+        protected_text = variant.get("protected_text", i["weak_text"])
+        request = _referenced_request(protected_text, variant["source_doc"], variant["reference"])
+        result = _cli(run, request, "--source-root", str(root))
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        assert x["stderr_contains"] in result.output, name
+        data, markdown = _written(run)
+        for key in ("handoff_state", "source_state", "authority_state", "repair_state"):
+            assert data[key] == x[key], (name, key, data[key])
+        assert data["blocking_reasons"] == [x["reason"]], (name, data["blocking_reasons"])
+        conflict = data["conflicts"][0]
+        # the referenced document does say the submitted text, and says nothing about not governing
+        assert conflict["source_protected_text"] is None and conflict["source_not_governing"] == [], name
+        assert conflict["source_elsewhere"] == variant["differs_in"], (name, conflict["source_elsewhere"])
+        assert data["source_digests"] == {path: _sha(text) for path, text in variant["files"].items()}, name
+        assert x["markdown_contains"] in markdown and "Handoff: `blocked`" in markdown, name
+        for path, texts in variant["differs_in"].items():
+            assert all(f"{path}: {text}" in markdown for text in texts), name
+        for path, text in variant["files"].items():
+            assert (root / path).read_text(encoding="utf-8") == text, (name, path)
+
+    # the contract (named as ./contracts/security.md) with a same-text copy, a prose mention, an unrelated requirement, a copy under
+    # .git, a .txt copy, a link out of the root, a broken link and earlier handoffs is still ready
+    control = i["control"]
+    run = tmp_path / "control"
+    root = run / "src"
+    _write_files(root, control["files"])
+    outside = run / "outside.md"
+    outside.write_text(control["outside"], encoding="utf-8")
+    weak_label = control["files"][".git/sec-4.md"]
+    _write_files(root, {".attest/reconcile-spec/old/reconcile-spec.md": weak_label, "handoff/reconcile-spec.md": weak_label})
+    try:
+        (root / "notes" / "linked.md").symlink_to(outside)
+        (root / "notes" / "broken.md").symlink_to(run / "missing.md")
+    except OSError:  # no symlinks on this platform (Windows without privilege)
+        pass
+    request_path = run / "request.json"
+    request = _referenced_request(i["contract_text"], control["source_doc"], control["reference"])
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    result = CliRunner().invoke(app, [
+        "reconcile-spec", str(request_path), "--source-root", str(root),
+        "--out", str(root / "handoff"), "--home", str(root / ".attest"),
+    ])
+    assert result.exit_code == x["control_exit_code"], result.output
+    data = json.loads((root / "handoff" / "reconcile-spec.json").read_text(encoding="utf-8"))
+    assert data["handoff_state"] == "ready" and data["source_state"] == "matched", data["blocking_reasons"]
+    assert data["conflicts"][0]["source_elsewhere"] == {}
+    # the contract is read once, under the path the reference spells it with
+    assert data["source_digests"] == {path: _sha(control["files"][path.removeprefix("./")]) for path in control["digests"]}
+
+    # a Markdown document under the root that can't be read could state the requirement differently
+    for name, unreadable in i["unreadable"].items():
+        run = tmp_path / f"unreadable-{name}"
+        root = run / "src"
+        _write_files(root, {"contracts/security.md": i["contract"]})
+        (root / unreadable["path"]).parent.mkdir(parents=True, exist_ok=True)
+        if unreadable["reason"] == "not_utf8":
+            (root / unreadable["path"]).write_bytes(unreadable["text"].encode("latin-1"))
+        else:
+            body = unreadable["text"].encode("utf-8")
+            (root / unreadable["path"]).write_bytes(body + b" " * (unreadable["bytes"] - len(body)))
+        request = _referenced_request(i["contract_text"], "contracts/security.md", "contracts/security.md#SEC-4")
+        result = _cli(run, request, "--source-root", str(root))
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        data, markdown = _written(run)
+        reason = f"{unreadable['path']}:source_unreadable:{unreadable['reason']}"
+        assert data["blocking_reasons"] == [reason], (name, data["blocking_reasons"])
+        assert data["source_state"] == x["unreadable_source_state"], name
+        assert data["authority_state"] == x["unreadable_authority_state"], name
+        assert reason in markdown, name
+
+    # ... and so could a directory the walk can't list
+    unlisted = i["unlisted_directory"]
+    run = tmp_path / "unlisted"
+    root = run / "src"
+    _write_files(root, {"contracts/security.md": i["contract"], unlisted["file"]: unlisted["text"]})
+    locked = root / unlisted["path"]
+    locked.chmod(0)
+    try:
+        if not os.access(locked, os.R_OK):  # root, and Windows, read it anyway
+            request = _referenced_request(i["contract_text"], "contracts/security.md", "contracts/security.md#SEC-4")
+            result = _cli(run, request, "--source-root", str(root))
+            assert result.exit_code == x["exit_code"], result.output
+            data, _ = _written(run)
+            assert data["blocking_reasons"] == [f"{unlisted['path']}:source_unreadable:{unlisted['reason']}"]
+            assert data["authority_state"] == x["unreadable_authority_state"]
+    finally:
+        locked.chmod(0o755)
+
+    # an API caller that passes the documents it read gets the same blocked handoff ...
+    variant = i["variants"]["scratch_copy_referenced"]
+    request = ReconcileRequest.model_validate(
+        _referenced_request(i["weak_text"], variant["source_doc"], variant["reference"])
+    )
+    read = {path: SourceDocument(text, _sha(text)) for path, text in variant["files"].items()}
+    handoff = ReconcileSpec().diagnose(request, sources=read)
+    assert handoff.handoff_state == x["handoff_state"] and handoff.source_state == x["source_state"]
+    assert handoff.blocking_reasons == [x["reason"]]
+    assert handoff.conflicts[0].source_elsewhere == variant["differs_in"]
+
+    # ... and a handoff JSON that claims ready while another document states it differently does not load
+    ready = diagnose(_contract_request(i["contract_text"]), source=i["contract"]).model_dump()
+    assert ready["handoff_state"] == "ready"
+    ReconcileHandoff.model_validate(ready)
+    flagged = copy.deepcopy(ready)
+    flagged["conflicts"][0]["source_elsewhere"] = variant["differs_in"]
+    for forged in ({**ready, "source_state": "contested"}, flagged):
         with pytest.raises(ValidationError):
             ReconcileHandoff.model_validate(forged)
 

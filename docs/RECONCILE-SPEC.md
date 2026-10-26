@@ -12,13 +12,14 @@ Reconcile Spec is Attest's diagnosis and handoff mode for a reported disagreemen
 - Evidence pointers are recorded as supplied. Attest does not fetch, verify, or treat their contents as instructions.
 - Submitted protected text is checked against the document that states it. Text that is already weaker than that document (a dropped scope, a softened modal, part of a section) is not the protected requirement, and the handoff is blocked.
 - A document that says it, or the requirement's section, is superseded, draft or otherwise not in force is not authority for the text it states, even when the text matches. The handoff is blocked.
+- When two documents under the source root state the same requirement differently, Reconcile Spec can't tell which one is the contract. A reference to either is not authority for its text, and the handoff is blocked.
 - A Kane/Attest receipt may be recorded as an observation pointer; it is not authority and cannot mint a `reconciled` outcome.
 
 The handoff records the orthogonal execution, comparison, authority, evidence, and repair states, plus a `handoff_state` of `ready` or `blocked`. Execution is `not_run` unless the input identifies an external runtime observation or receipt; either remains evidence and does not change authority. Repair is only `handoff` or `refused`, never applied, promoted, or `reconciled`.
 
 ## Fail-closed handoff
 
-A handoff is `ready` only when authority is present, every conflict carries at least one evidence pointer, every protected text was matched in a document that was read and doesn't say it no longer governs (`source_state=matched`, with that document's sha256 in `source_digests` and no `source_not_governing` lines on any conflict), and `blocking_reasons` is empty. `ReconcileHandoff` refuses to load a JSON handoff that says `ready` otherwise, or `blocked` without a reason. No evidence pointer is fetched.
+A handoff is `ready` only when authority is present, every conflict carries at least one evidence pointer, every protected text was matched in a document that was read and doesn't say it no longer governs, and no other document read states it differently (`source_state=matched`, with that document's sha256 in `source_digests`, and no `source_not_governing` lines or `source_elsewhere` texts on any conflict), and `blocking_reasons` is empty. `ReconcileHandoff` refuses to load a JSON handoff that says `ready` otherwise, or `blocked` without a reason. No evidence pointer is fetched.
 
 | Reason | When |
 |---|---|
@@ -34,6 +35,8 @@ A handoff is `ready` only when authority is present, every conflict carries at l
 | `<claim>:source_unreadable:<why>` | The checked document can't be read: `not_found`, `outside_root` (absolute, `..`, a URL, or a symlink out of the root), `not_a_file`, `too_large` (over 2 MiB) or `not_utf8`. Authority becomes `missing`. |
 | `request:source_not_checked`, `<claim>:source_not_checked` | An API caller passed no documents, or not the one this conflict names. Authority becomes `missing`. |
 | `<claim>:source_not_governing:<why>` | The text matched, but the checked document says the requirement doesn't govern: `status`, `superseded` or `section` (see "Governing check"). The handoff lists the lines as `source_not_governing` and `source_state` is `not_governing`. Authority becomes `conflicting`. |
+| `<claim>:requirement_differs_elsewhere` | The text matched, but another Markdown document under the source root labels the requirement with different text (see "Other documents"). The handoff lists each such document's text in `source_elsewhere` and `source_state` is `contested`. Authority becomes `conflicting`. |
+| `<path>:source_unreadable:<why>` | Another Markdown document under the source root can't be read: `too_large`, `not_utf8`, `not_found` (it exists but won't open), `directory_unreadable` (a directory that can't be listed, or a missing root), or `too_many_documents` (the scan stopped at 10,000). It could state the requirement differently. Authority becomes `missing`. |
 | `<claim>:supersession_without_change_decision` | The observed text, the authority reference, or an evidence pointer or description says "superseded" (or "superceded"). Reconcile Spec takes no change decision as input, so such a claim is never backed by an approved one here. |
 
 ### Source check
@@ -57,6 +60,17 @@ When the text matches, the same document is checked for its own statement that t
 - `section`: a heading above the label (its section, any enclosing section, the document title) or a bracketed tag right after the id (`## SEC-4 (withdrawn)`, `- **SEC-4** [Deprecated]:`) says `superseded`, `deprecated`, `withdrawn`, `obsolete`, `rescinded`, `repealed`, `retired`, `archived`, `draft`, `proposed`, `replaced`, `historical` or "no longer". A requirement's own heading title isn't scanned for these words, so `## SEC-6 Reject deprecated TLS versions` doesn't block. A non-governing section that holds only other requirements doesn't block this one, unless it says "superseded", which blocks anywhere.
 
 A document without any of these marks still isn't shown to be governing. The check only refuses one that says it isn't.
+
+### Other documents
+
+The request names its documents, so a reference can name a copy: a scratch note under the root that labels SEC-4 with a weaker text matches that text and carries no marks. Attest has no registry of which document is the contract. Instead, the CLI also reads every other Markdown file (`.md`, `.markdown`, any case) under `--source-root` that names one of the request's requirement ids, records its sha256 in `source_digests`, and labels it by the same rules as the checked document. When the text matches, any other document that labels the requirement with different text blocks:
+
+- every other document counts, whatever it says about itself. An archived `status: superseded` copy with an older text blocks too, because a copy made to pass this check could say the same;
+- a copy with the same text (after folding whitespace), a mention that doesn't start a paragraph, list item or heading ("See SEC-4"), and a different requirement id don't block;
+- the walk skips `.git`, the `--out` directory, `<--home>/reconcile-spec` (earlier handoffs) and symlinked directories. It leaves out a file that resolves out of the root, a broken link and anything not a regular file. Hidden directories such as `.github` are read;
+- a Markdown file it can't read (over 2 MiB, not UTF-8, won't open), a directory it can't list, or more than 10,000 Markdown files block with `<path>:source_unreadable:<why>`.
+
+`ReconcileSpec.diagnose` compares each matched text with every other document in the `sources` it is given; `read_sources` is what reads them.
 
 The request schema also rejects blank `source_doc`, requirement ids, protected text and pointers, and duplicate claim ids, before anything is written.
 
@@ -98,7 +112,7 @@ Example input:
 }
 ```
 
-Here SEC-4's text is checked in `contracts/security.md`, the document its reference names, not in `docs/requirements.md`. The command writes `reconcile-spec.md` and `reconcile-spec.json` side by side. Passing `--apply`, or proposing changed protected text, writes the refusal handoff and exits 2. A blocked handoff exits 3. Protected text is never changed. Review the artifact with the protected-requirement owner and the recommended application or documentation owner.
+Here SEC-4's text is checked in `contracts/security.md`, the document its reference names, not in `docs/requirements.md`. If `docs/requirements.md`, or any other Markdown file under the root, labels SEC-4 with a different text, the handoff is blocked. The command writes `reconcile-spec.md` and `reconcile-spec.json` side by side. Passing `--apply`, or proposing changed protected text, writes the refusal handoff and exits 2. A blocked handoff exits 3. Protected text is never changed. Review the artifact with the protected-requirement owner and the recommended application or documentation owner.
 
 ## Non-goals
 
@@ -106,6 +120,6 @@ Here SEC-4's text is checked in `contracts/security.md`, the document its refere
 - No application patching, protected-contract apply, or promotion.
 - No second browser assurance graph and no SyberWork admission or execution wiring.
 - No claim that supplied evidence was independently verified.
-- No claim that the checked document is the governing authority. The source check shows the submitted text is what that document says, and the governing check refuses a document that says it doesn't govern. Neither shows that a document without such marks is current, approved or unsuperseded, or that the reference names the right contract.
+- No claim that the checked document is the governing authority. The source check shows the submitted text is what that document says, the governing check refuses a document that says it doesn't govern, and the other-documents check refuses one that another Markdown document under the root contradicts. None of them shows that a document without such marks is current, approved or unsuperseded, or that the reference names the right contract when the contract isn't under the root, isn't Markdown, or labels the requirement in a shape the source check doesn't parse.
 
 Maintain Docs remains the descriptive-doc repair path. A descriptive explanation may be updated there when the protected requirement is unchanged; any disagreement about that requirement belongs in this handoff mode. Later SyberWork factory wiring can consume the JSON handoff as a case event, while preserving its evidence as observation rather than proof of an external write or authority to change a contract.
