@@ -1,0 +1,18 @@
+{
+  "id": "KR-COST-03",
+  "component": "kane_runner",
+  "category": "COST",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "active",
+  "theme": "unbounded_retries_or_steps",
+  "title": "Kane test files always carry a step cap",
+  "input": {
+    "max_steps": 7
+  },
+  "expected": {
+    "front_matter_max_steps": 7,
+    "default_rules_max_steps": 15
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "MD-SCH-03",
+  "component": "maintain_docs",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": "path_escape",
+  "title": "Diff paths and evidence paths that escape containment",
+  "input": {
+    "diff_paths": [
+      "../outside/guide.md",
+      "/abs/guide.md",
+      "a/../guide.md"
+    ],
+    "evidence_paths": [
+      "../shot.png",
+      "/abs/shot.png",
+      "steps\\..\\shot.png",
+      "C:/shot.png",
+      ""
+    ]
+  },
+  "expected": {
+    "diff_problem": "diff must touch only guide.md",
+    "evidence_error": "outside pack"
+  }
+}

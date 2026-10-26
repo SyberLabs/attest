@@ -1,0 +1,20 @@
+{
+  "id": "MD-AB-06",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": "path_escape",
+  "title": "Promotion source is a bare URL or a symlink instead of a contained local file",
+  "input": {
+    "url_source": "https://example.invalid/docs/guide.md",
+    "base": "Line one.\n",
+    "candidate": "Line 1.\n"
+  },
+  "expected": {
+    "url_error": "local source file",
+    "symlink_error": "symlink"
+  }
+}

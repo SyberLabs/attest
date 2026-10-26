@@ -1,0 +1,15 @@
+{
+  "id": "KR-ISO-03",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "active",
+  "theme": "cleanup_in_finally",
+  "title": "Shell session is closed when the browser runner crashes mid-run",
+  "input": {},
+  "expected": {
+    "closed": 1
+  }
+}

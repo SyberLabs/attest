@@ -1,0 +1,23 @@
+{
+  "id": "KR-AB-01",
+  "component": "kane_runner",
+  "category": "AB",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Runner output cannot carry a verdict or a proven status",
+  "input": {
+    "statuses": [
+      "proven",
+      "verified"
+    ],
+    "extra_field": {
+      "verdict": "proven"
+    }
+  },
+  "expected": {
+    "all_rejected": true
+  }
+}

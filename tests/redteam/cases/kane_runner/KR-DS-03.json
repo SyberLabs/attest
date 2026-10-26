@@ -1,0 +1,20 @@
+{
+  "id": "KR-DS-03",
+  "component": "kane_runner",
+  "category": "DS",
+  "rubrics": [
+    "R3",
+    "R5"
+  ],
+  "status": "xfail",
+  "theme": "stale_or_wrong_app_version",
+  "title": "No evidence pack names the run's session",
+  "gap": "find_pack falls back to the newest pack when a session id is given and no pack names it, so another run's evidence can be read.",
+  "input": {
+    "pack_fixture": "author_pass",
+    "session_id": "no-such-session"
+  },
+  "expected": {
+    "pack": null
+  }
+}

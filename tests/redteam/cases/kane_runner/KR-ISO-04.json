@@ -1,0 +1,14 @@
+{
+  "id": "KR-ISO-04",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "stub",
+  "theme": "escape_disposable_environment",
+  "title": "Kane browser run escapes its disposable profile or network scope",
+  "gap": "needs a live Kane run in a disposable environment with filesystem and network probes.",
+  "input": {},
+  "expected": {}
+}

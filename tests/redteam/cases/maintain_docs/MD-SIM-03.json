@@ -1,0 +1,35 @@
+{
+  "id": "MD-SIM-03",
+  "component": "maintain_docs",
+  "category": "SIM",
+  "rubrics": [
+    "R1",
+    "R5"
+  ],
+  "status": "active",
+  "theme": "fuzzy_numeric_proof",
+  "title": "High fuzzy similarity between different numbers is used as proof",
+  "input": {
+    "pairs": [
+      [
+        "count is 1",
+        "count is 2"
+      ],
+      [
+        "Saved 10 items",
+        "Saved 100 items"
+      ],
+      [
+        "Retains at least 30 days of logs",
+        "Retains at least 3 days of logs"
+      ],
+      [
+        "Version 2.4",
+        "Version 2.5"
+      ]
+    ]
+  },
+  "expected": {
+    "status": "stale"
+  }
+}

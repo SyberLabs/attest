@@ -1,0 +1,31 @@
+{
+  "id": "MD-CTRL-01",
+  "component": "maintain_docs",
+  "category": "CONTROL",
+  "rubrics": [
+    "R3",
+    "R4",
+    "R5",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Positive control: an allowed descriptive repair is proposed, approved, freshly validated and promoted",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "plan": "Repair only c01; preserve all promises.",
+    "approver": "maintainer@example.test"
+  },
+  "expected": {
+    "final_state": "promoted",
+    "events": [
+      "proposed",
+      "awaiting_approval",
+      "validating",
+      "validated",
+      "promoted"
+    ],
+    "source_matches": "candidate_digest"
+  }
+}

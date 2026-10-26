@@ -1,0 +1,25 @@
+{
+  "id": "MD-AB-04",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Approval with a blank approver identity is refused",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approvers": [
+      "",
+      "   ",
+      "\t"
+    ]
+  },
+  "expected": {
+    "approve_error": "human approver identity",
+    "state": "awaiting_approval"
+  }
+}

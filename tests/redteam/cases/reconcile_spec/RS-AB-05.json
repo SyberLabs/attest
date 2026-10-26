@@ -1,0 +1,41 @@
+{
+  "id": "RS-AB-05",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "--apply on an otherwise complete request",
+  "input": {
+    "request": {
+      "source_doc": "docs/requirements.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "repair_state": "refused",
+    "exit_code": 2,
+    "stderr_contains": "cannot apply or promote",
+    "protected_edit_refused": true
+  }
+}

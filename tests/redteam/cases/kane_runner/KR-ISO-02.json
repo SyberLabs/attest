@@ -1,0 +1,31 @@
+{
+  "id": "KR-ISO-02",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "xfail",
+  "theme": "no_port_kill",
+  "title": "No code kills whatever process owns a port",
+  "gap": "ShellSession._kill_listener (Windows only) reads netstat for the port the server announced and taskkills every listening PID, owned or not.",
+  "input": {
+    "patterns": [
+      "fuser\\s+-k",
+      "lsof\\s+-t",
+      "lsof\\s+-ti",
+      "killall\\b",
+      "taskkill\\b[^\\n]*/IM",
+      "kill\\s+\\$\\(lsof",
+      "npx\\s+kill-port",
+      "\\bnetstat\\b"
+    ],
+    "roots": [
+      "attest",
+      "scripts"
+    ]
+  },
+  "expected": {
+    "matches": []
+  }
+}

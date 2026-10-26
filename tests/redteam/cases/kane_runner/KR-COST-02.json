@@ -1,0 +1,19 @@
+{
+  "id": "KR-COST-02",
+  "component": "kane_runner",
+  "category": "COST",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Evidence pack larger than the extraction cap",
+  "input": {
+    "cap_bytes": 1024,
+    "member_bytes": 4096
+  },
+  "expected": {
+    "error": "size limit",
+    "extracted_files": 0
+  }
+}

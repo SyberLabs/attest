@@ -1,0 +1,22 @@
+{
+  "id": "MD-SIM-01",
+  "component": "maintain_docs",
+  "category": "SIM",
+  "rubrics": [
+    "R1",
+    "R5"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Validation is resumed in simulation mode",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approver": "reviewer"
+  },
+  "expected": {
+    "error": "fresh Kane evidence",
+    "state": "validating",
+    "source_unchanged": true
+  }
+}

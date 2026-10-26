@@ -1,0 +1,39 @@
+{
+  "id": "RS-SIM-01",
+  "component": "reconcile_spec",
+  "category": "SIM",
+  "rubrics": [
+    "R1",
+    "R5"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Receipt pointer claims the app was verified; pointers are never dereferenced",
+  "input": {
+    "request": {
+      "source_doc": "docs/requirements.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "receipt",
+              "pointer": "receipts/does-not-exist.json",
+              "description": "verified: all checks passed"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "execution_state": "external_observation",
+    "repair_state": "handoff"
+  }
+}

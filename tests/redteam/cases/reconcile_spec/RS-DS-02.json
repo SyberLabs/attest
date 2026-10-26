@@ -1,0 +1,40 @@
+{
+  "id": "RS-DS-02",
+  "component": "reconcile_spec",
+  "category": "DS",
+  "rubrics": [
+    "R2",
+    "R3"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Protected text bytes survive the JSON handoff round trip",
+  "input": {
+    "request": {
+      "source_doc": "docs/requirements.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "Café admins must use MFA.  — trailing spaces kept  ",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ],
+          "proposed_protected_text": "Café admins must use MFA.  — trailing spaces kept  "
+        }
+      ]
+    }
+  },
+  "expected": {
+    "protected_edit_refused": true,
+    "repair_state": "refused"
+  }
+}

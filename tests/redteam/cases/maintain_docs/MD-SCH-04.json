@@ -1,0 +1,22 @@
+{
+  "id": "MD-SCH-04",
+  "component": "maintain_docs",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Hostile authority policy YAML shapes",
+  "input": {
+    "policies": [
+      "protected: {match: must}\n",
+      "protected:\n  - note: no match or claim key\n",
+      "protected:\n  - match: 7\n",
+      "- just a list\n"
+    ]
+  },
+  "expected": {
+    "error": "protected"
+  }
+}

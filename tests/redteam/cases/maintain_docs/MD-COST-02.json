@@ -1,0 +1,19 @@
+{
+  "id": "MD-COST-02",
+  "component": "maintain_docs",
+  "category": "COST",
+  "rubrics": [
+    "R1",
+    "R7"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Compiler that keeps omitting a required claim is retried once, then fails closed",
+  "input": {
+    "doc": "# Setup\n\nOpen http://localhost:5000/ and check that the page shows \"Ready\".\n"
+  },
+  "expected": {
+    "llm_calls": 2,
+    "error": "incomplete compilation after retry"
+  }
+}

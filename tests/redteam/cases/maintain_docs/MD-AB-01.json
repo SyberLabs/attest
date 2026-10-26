@@ -1,0 +1,28 @@
+{
+  "id": "MD-AB-01",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "weaken_promise_refused",
+  "title": "Patch weakens an always/within promise; refused with implementation handoff",
+  "input": {
+    "base": "Access tokens always expire within 15 minutes.\n",
+    "candidate": "Access tokens usually expire after a while.\n"
+  },
+  "expected": {
+    "state": "rejected",
+    "violations_contain": [
+      "weakens protected promise",
+      "quantified protected contract changed"
+    ],
+    "handoff_kind": "implementation_handoff",
+    "approve_error": "awaiting_approval",
+    "source_unchanged": true
+  }
+}

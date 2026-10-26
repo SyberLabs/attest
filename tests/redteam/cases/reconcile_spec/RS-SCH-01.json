@@ -1,0 +1,26 @@
+{
+  "id": "RS-SCH-01",
+  "component": "reconcile_spec",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Request smuggles extra fields (approval, repair state)",
+  "input": {
+    "extra_top": {
+      "approved_change_decision": {
+        "id": "CD-1",
+        "approved": true
+      }
+    },
+    "extra_conflict": {
+      "repair_state": "applied"
+    }
+  },
+  "expected": {
+    "exit_code": 2,
+    "stderr_contains": "invalid Reconcile Spec JSON"
+  }
+}

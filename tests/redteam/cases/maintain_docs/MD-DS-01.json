@@ -1,0 +1,20 @@
+{
+  "id": "MD-DS-01",
+  "component": "maintain_docs",
+  "category": "DS",
+  "rubrics": [
+    "R1",
+    "R3"
+  ],
+  "status": "active",
+  "theme": "reused_doc_sha256",
+  "title": "Patched content presented under the original doc.sha256",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n"
+  },
+  "expected": {
+    "compile_error": "document hash does not match",
+    "proposal_error": "different from its base"
+  }
+}

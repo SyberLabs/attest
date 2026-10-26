@@ -1,0 +1,26 @@
+{
+  "id": "MD-AB-07",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Authority policy is swapped after approval; validation stops unresolved",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approver": "reviewer",
+    "swapped_policy_contracts": [
+      "exit 1"
+    ]
+  },
+  "expected": {
+    "state": "unresolved",
+    "reason_contains": "policy digest changed",
+    "source_unchanged": true
+  }
+}

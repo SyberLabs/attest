@@ -1,0 +1,66 @@
+{
+  "id": "RS-DS-01",
+  "component": "reconcile_spec",
+  "category": "DS",
+  "rubrics": [
+    "R3",
+    "R4"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Two conflicts keep their own identities, authorities and owners",
+  "input": {
+    "request": {
+      "source_doc": "docs/requirements.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        },
+        {
+          "claim_id": "c02",
+          "protected_requirement_id": "SEC-9",
+          "authority_reference": "contracts/security.md#SEC-9",
+          "protected_text": "Sessions must expire within 30 minutes.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "doc_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "pairs": [
+      [
+        "c01",
+        "SEC-4",
+        "contracts/security.md#SEC-4",
+        "application owner"
+      ],
+      [
+        "c02",
+        "SEC-9",
+        "contracts/security.md#SEC-9",
+        "documentation owner"
+      ]
+    ]
+  }
+}
