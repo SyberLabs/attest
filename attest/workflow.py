@@ -14,9 +14,10 @@ from typing import Any
 
 from .app_promotion import SPEC_APP_KIND, promote_app_workflow, resume_app_workflow
 from .approvals import ApprovalError, verify_approval
-from .compiler import compile_doc
+from .compiler import _validate_compiled_claims, compile_doc
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest_text, sha256_of
+from .kane import PACK_WORDING, pack_disagreement
 from .models import BrowserObservation, Claim
 from .policy import MaintainDocsPolicy
 from .pipeline import execute
@@ -136,6 +137,47 @@ def _observation_run_failures(claims: list[Claim], evidence: dict, kane_runs: di
     return failures
 
 
+def _pack_read_back(pack: dict | None, claim: Claim, run_id: str | None) -> tuple[str, str] | None:
+    """Read a claim's Kane evidence pack back from disk: (failure code, detail), or None when it backs the claim.
+
+    The pack's step must also be the wording Attest writes for this (approved) claim.
+    """
+    if not isinstance(pack, dict) or not pack.get("path") or not pack.get("sha256"):
+        return "kane_pack_missing", "names no Kane evidence pack"
+    try:
+        data = Path(str(pack["path"])).read_bytes()
+    except OSError:
+        return "kane_pack_missing", "its Kane evidence pack is missing"
+    if hashlib.sha256(data).hexdigest() != pack["sha256"]:
+        return "kane_pack_mismatch", "its Kane evidence pack is not the one the Kane run read"
+    detail = pack_disagreement(data, claim.id, run_id, claim)
+    if detail == PACK_WORDING:
+        return "kane_pack_wording", detail
+    return ("kane_pack_mismatch", detail) if detail else None
+
+
+def _kane_pack_bindings(
+    runner, claims: list[Claim], evidence: dict, kane_runs: dict[str, str | None]
+) -> tuple[dict[str, dict | None], list[str]]:
+    """Name the evidence pack behind each bound browser claim (the runner's record), and read it back.
+
+    A passed observation is Kane's word only while its pack is still there, unchanged since
+    the run read it, and shows the claim's own step passing in the bound run.
+    """
+    recorded = getattr(runner, "packs", None) or {}
+    packs: dict[str, dict | None] = {}
+    failures: list[str] = []
+    for claim in claims:
+        ev = evidence.get(claim.id)
+        run_id = kane_runs.get(claim.id)
+        if claim.kind != "browser" or ev is None or ev.observation is None or run_id is None:
+            continue  # no binding is already stale_kane_run
+        packs[claim.id] = recorded.get(claim.id)
+        if ev.observation.status == "passed" and (problem := _pack_read_back(packs[claim.id], claim, run_id)):
+            failures.append(f"{claim.id}:{problem[0]}")
+    return packs, failures
+
+
 def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[str], build_digest: str | None) -> None:
     """Promotion: each browser claim's stored evidence is from its bound fresh Kane run, on the approved build."""
     kane_runs = validation.get("kane_runs") or {}
@@ -155,6 +197,24 @@ def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[s
         raise WorkflowError("validation browser evidence does not name the Kane run it is bound to; --apply refused")
     if any(obs.status != "passed" or obs.simulation_only or obs.unbound for obs in stored.values()):
         raise WorkflowError("validation browser evidence is simulated, unbound or not passed; --apply refused")
+
+
+def _refuse_unbacked_browser_evidence(validation: dict[str, Any], browser: list[Claim]) -> None:
+    """Promotion: each approved browser claim's Kane evidence pack, read back from disk, is
+    the one validation read and shows the claim's step, in the claim's wording, passing in
+    its bound run.
+
+    The pack lives outside the store, so a record rewritten with its artifact and event still
+    has to name a pack Kane wrote for the run it binds, from a test file worded as approved.
+    """
+    packs = validation.get("kane_packs") or {}
+    kane_runs = validation.get("kane_runs") or {}
+    for claim in browser:
+        problem = _pack_read_back(packs.get(claim.id), claim, kane_runs.get(claim.id))
+        if problem:
+            raise WorkflowError(
+                f"validation browser evidence for {claim.id} is not backed by its Kane evidence pack ({problem[1]}); --apply refused"
+            )
 
 
 def _refuse_unproven_claims(validation: dict[str, Any], claims: list[Claim]) -> None:
@@ -319,12 +379,15 @@ def resume_workflow(
             }
             validation_data["evidence_digest"] = _validation_digest(evidence_payload)
             kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
+            kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs)
             validation_data["build_digest"] = proposal["build_digest"]
             validation_data["kane_runs"] = kane_runs
+            validation_data["kane_packs"] = kane_packs
             unbound = [
                 *stale_runs,
                 *_observation_run_failures(claims, evidence, kane_runs),
                 *_observation_build_failures(claims, evidence, proposal["build_digest"]),
+                *unbacked,
             ]
             if unbound:
                 validation_data["successful"] = False
@@ -394,6 +457,19 @@ def promote_workflow(
         raise WorkflowError(f"validation record's claims are not the approved document's ({detail}); --apply refused")
     _refuse_unproven_claims(record.validation, validated)
     _refuse_unsealed_validation(store, record)
+    # The packs are read against these claims' wording. The target's wording was compiled at
+    # validation and is stored only in the record, so the record's claims must be the
+    # approved candidate's own: each span its lines, each expected text in its source.
+    candidate = store.get_artifact(proposal["artifact_digests"]["candidate"])
+    if hashlib.sha256(candidate).hexdigest() != proposal.get("candidate_digest"):
+        raise WorkflowError("candidate digest mismatch; --apply refused")
+    try:
+        ungrounded = _validate_compiled_claims(ingest_text(candidate.decode("utf-8"), source=proposal["source_path"]), validated)
+    except UnicodeError as exc:
+        raise WorkflowError("candidate is not UTF-8; --apply refused") from exc
+    if ungrounded:
+        raise WorkflowError(f"validation record's claims are not the approved candidate's ({ungrounded[0]}); --apply refused")
+    _refuse_unbacked_browser_evidence(record.validation, [c for c in validated if c.kind == "browser"])
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])

@@ -25,7 +25,6 @@ import difflib
 import hashlib
 import json
 import re
-import shutil
 import sys
 import textwrap
 from pathlib import Path
@@ -49,6 +48,7 @@ from attest.reconcile_spec import ReconcileSpec
 from attest.storage import SQLiteWorkflowStore, canonical_json
 from attest.verdict import Rules
 from attest.workflow import WorkflowError, resume_workflow
+from tests.kane_replay import as_written, written_test_file
 
 KANE_FIX = Path(__file__).parent / "fixtures" / "kane"
 
@@ -315,7 +315,8 @@ class DeterministicCompiler:
 
 
 class RecordedKaneCli:
-    """Replaces only kane-cli: returns a recorded run and drops its evidence pack in the store."""
+    """Replaces only kane-cli: returns a recorded run and drops its evidence pack in the store,
+    sealed for the test file the runner wrote (``tests/kane_replay.py``)."""
 
     def __init__(self, runner: KaneBrowserRunner, fixture: str):
         self.runner, self.fixture, self.calls = runner, fixture, []
@@ -323,7 +324,8 @@ class RecordedKaneCli:
     def __call__(self, cmd, timeout_s):
         self.calls.append(cmd)
         self.runner.evidence_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy(KANE_FIX / f"{self.fixture}.pack.zip", self.runner.evidence_dir / f"{self.fixture}.evidence")
+        as_written(KANE_FIX / f"{self.fixture}.pack.zip", self.runner.evidence_dir / f"{self.fixture}.evidence",
+                   written_test_file(cmd).read_bytes())
         run = parse_events((KANE_FIX / f"{self.fixture}.ndjson").read_text(encoding="utf-8").splitlines())
         run.exit_code = 0
         return run

@@ -9,6 +9,8 @@ so does an empty section. Sections come from the test name prefix:
 ``kane-run``           ``test_kane_run_*``           wrong, omitted or stale Kane run id
 ``observation-build``  ``test_observation_build_*``  browser observation names another build, or none
 ``record``             ``test_record_*``             stored validation not the one this workflow's validation sealed
+``pack``               ``test_pack_*``               browser evidence its Kane evidence pack, read back, does not back
+``wording``            ``test_wording_*``            the pack's step for a claim is not the wording Attest writes for the approved claim
 ``control``            ``test_control_*``            intact bindings still verify (refuse-everything fails)
 
 A green result covers only those tests. It is not a coverage figure, and nothing here
@@ -31,6 +33,8 @@ SECTIONS = {
     "kane-run": "test_kane_run_",
     "observation-build": "test_observation_build_",
     "record": "test_record_",
+    "pack": "test_pack_",
+    "wording": "test_wording_",
     "control": "test_control_",
 }
 

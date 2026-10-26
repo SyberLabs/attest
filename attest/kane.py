@@ -24,6 +24,7 @@ patches one claim replays the unchanged steps from Kane's cache.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
@@ -307,6 +308,64 @@ def find_pack(evidence_dir: Path, session_id: str | None) -> Path | None:
     return next((p for p in packs if session_id in pack_sessions(p)), None)
 
 
+PACK_WORDING = "pack's step for the claim is not the approved claim's wording"
+
+
+def _front_url(test_md: str) -> str | None:
+    """The start URL in a ``_test.md``'s front matter, which ``step_body`` retargeted local URLs to."""
+    m = re.match(r"---\n(.*?)\n---\n", test_md, re.S)
+    front = yaml.safe_load(m.group(1)) if m else None
+    url = front.get("url") if isinstance(front, dict) else None
+    return url if isinstance(url, str) else None
+
+
+def pack_disagreement(data: bytes, claim_id: str, session_id: str | None, claim: Claim | None = None) -> str | None:
+    """Why a pack's own record doesn't show this claim's step passing in this Kane session; None if it does.
+
+    Read in memory, nothing extracted: exactly one test in the pack names the session in
+    ``external_id.session_id``, its ``test.md`` is the definition ``result.yaml`` digests, it
+    has one ``## <claim_id>`` step, and the last of that step's actions (``id: <index>-<n>``,
+    0-based like the pack's step directories) passed. With ``claim``, that step's text must
+    also be the ``step_body`` Attest writes for it, local URLs pointed at the file's own
+    start URL: a pack Kane sealed for other wording (an earlier doc, an edited test file)
+    is not this claim's evidence.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            tests = []
+            for name in z.namelist():
+                if not name.endswith("/result.yaml"):
+                    continue
+                result = yaml.safe_load(z.read(name).decode("utf-8", "replace"))
+                external = result.get("external_id") if isinstance(result, dict) else None
+                if session_id and isinstance(external, dict) and str(external.get("session_id")) == session_id:
+                    tests.append((name[: -len("result.yaml")], result))
+            if len(tests) != 1:
+                return "pack names another Kane session" if not tests else "pack names the Kane session twice"
+            prefix, result = tests[0]
+            definition = result.get("definition") if isinstance(result.get("definition"), dict) else {}
+            try:
+                test_md = z.read(prefix + str(definition.get("path") or "test.md"))
+            except KeyError:
+                return "pack has no test file"
+        if definition.get("sha256") != "sha256:" + hashlib.sha256(test_md).hexdigest():
+            return "pack's test file is not the definition Kane ran"
+        text = test_md.decode("utf-8", "replace")
+        sections = re.split(r"^## (.+?)[ \t]*$", text, flags=re.M)  # [preamble, heading, body, heading, body, ...]
+        headings = sections[1::2]
+        if headings.count(claim_id) != 1:
+            return "pack has no step for the claim"
+        index = str(headings.index(claim_id))
+        if claim is not None and sections[2 + 2 * int(index)].strip() != step_body(claim, _front_url(text)):
+            return PACK_WORDING
+        actions = [a for a in result.get("steps") or [] if isinstance(a, dict) and str(a.get("id", "")).split("-")[0] == index]
+        if not actions or max(actions, key=lambda a: int(a.get("ordinal") or 0)).get("status") != "passed":
+            return "pack does not show the claim's step passed"
+    except Exception as exc:  # a pack that can't be read backs nothing
+        return f"pack is unreadable: {type(exc).__name__}"
+    return None
+
+
 def unpack(pack: Path, dest: Path) -> Path:
     """Extract everything but network HARs (they carry cookies and are not needed)."""
     dest.mkdir(parents=True, exist_ok=True)
@@ -454,6 +513,8 @@ class KaneBrowserRunner:
         self.runs: list[KaneRun] = []
         # claim id -> session id of the run whose evidence pack backs its observation (None: unbound)
         self.run_ids: dict[str, str | None] = {}
+        # claim id -> that pack's path and sha256 when the run read it (None: unbound)
+        self.packs: dict[str, dict[str, str] | None] = {}
         if shutil.which(self.kane_cmd) is None:
             raise KaneSetupError(f"{self.kane_cmd!r} not on PATH; npm install -g @testmuai/kane-cli")
 
@@ -544,7 +605,9 @@ class KaneBrowserRunner:
             raise KaneSetupError(f"kane-cli exited 2 for {path.name}: {run.stderr.strip()[-600:]}")
         pack = find_pack(self.evidence_dir, run.session_id)
         pack_steps: dict[int, list[PackStep]] = {}
+        backing = None
         if pack is not None:
+            backing = {"path": str(pack), "sha256": hashlib.sha256(pack.read_bytes()).hexdigest()}
             pack_steps = read_pack(unpack(pack, self.home / "packs" / pack.stem))
         run_id = run.session_id if pack is not None else None
         for i, c in enumerate(group, start=1):
@@ -563,6 +626,7 @@ class KaneBrowserRunner:
             obs = obs.model_copy(update={"build_digest": build, "kane_run_id": run_id})
             self.results[c.id] = (c, obs)
             self.run_ids[c.id] = run_id
+            self.packs[c.id] = backing
         if run.exit_code == 0:
             self._save_recordings(path, text)
         self.log(f"kane: exit {run.exit_code}, {run.authored} authored, {run.replayed} replayed, {run.credits:.1f} credits")
