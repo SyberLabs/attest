@@ -142,3 +142,8 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Full loop through SyberWork dispatch (SyberWork #92 head): Acme CRM, line 15 broken, ticket admitted and routed to `python -m attest.worker` (gpt-6-sol), Kane re-check 4/4 proven, receipt `0ca486124ac8-c05-46`. Kane credits: 54.4 (first pass, authored fresh) + 17.1 (re-check).
 - `demo/beat_factory.ps1` now routes through SyberWork by default when `.attest\syberwork` holds the checkout; `-Direct` calls the worker without it.
 - Windows: `main` fails 12 tests locally that pass on the Ubuntu CI (line endings in the proposal and workflow code); issue #23.
+
+## Oct 26: workflow validation is recipes-only
+
+- Leftover from #18: "workflow validation ignores --recipes-only". `resume_workflow` called `execute()` without `recipes_only`, so an approved candidate's shell steps (model-authored text) ran through the compatibility shell with the full host environment. Validation now always passes `recipes_only=True`; the caller can supply an `ApprovedRecipeExecutor`, and an unapproved shell step gets exit 126 and the workflow is rejected. The receipt records `shell_mode: recipes_only`.
+- `attest resume` has no recipe configuration yet, so from the CLI every shell claim fails closed. Browser-only workflows are unaffected.

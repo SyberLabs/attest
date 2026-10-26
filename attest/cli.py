@@ -552,7 +552,10 @@ def resume(
     simulation: bool = typer.Option(False, "--simulation", help="Simulation cannot validate or promote."),
     home: Path = typer.Option(ATTEST_DIR, "--home"),
 ) -> None:
-    """Resume an approved workflow with fresh whole-document evidence."""
+    """Resume an approved workflow with fresh whole-document evidence.
+
+    Shell claims always run recipes-only here; no shell recipes are configured, so they fail closed.
+    """
     from .storage import SQLiteWorkflowStore, WorkflowStorageError
     from .workflow import WorkflowError, resume_workflow
 
