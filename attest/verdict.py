@@ -21,7 +21,7 @@ import yaml
 from rapidfuzz import fuzz
 
 from .models import Claim, Evidence, Verdict
-from .runner import SIMULATION_NOTE_PREFIX, SimulationBrowserObservation
+from .runner import SIMULATION_NOTE_PREFIX, UNBOUND_NOTE_PREFIX, SimulationBrowserObservation
 
 RULES_PATH = Path(__file__).resolve().parents[1] / "rules.yaml"
 
@@ -186,6 +186,13 @@ def _judge_browser(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
             claim_id=claim.id,
             status="unverifiable",
             reason="unverifiable: simulation-only browser observation is not verification evidence",
+            evidence=ev,
+        )
+    if obs.note and obs.note.startswith(UNBOUND_NOTE_PREFIX):
+        return Verdict(
+            claim_id=claim.id,
+            status="unverifiable",
+            reason="unverifiable: browser observation is not bound to a fresh run's evidence",
             evidence=ev,
         )
     if obs.status == "unreachable":

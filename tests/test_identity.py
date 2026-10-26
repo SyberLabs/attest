@@ -106,11 +106,14 @@ def test_authority_and_approval_are_typed_separately_from_repair_state():
 def test_verified_receipt_requires_complete_fresh_evidence():
     source_version_id = uuid4()
     content_sha256 = digest("document")
+    build_digest = digest("build")
     evidence = ReceiptEvidence(
         kind="browser",
         source_version_id=source_version_id,
         content_sha256=content_sha256,
         complete=True,
+        build_digest=build_digest,
+        kane_run_id="kane-session-1",
     )
 
     receipt = VerifiedRunReceipt(
@@ -123,6 +126,8 @@ def test_verified_receipt_requires_complete_fresh_evidence():
         evidence_state=EvidenceState.COMPLETE,
         repair_state=RepairState.VALIDATED,
         evidence=(evidence,),
+        build_digest=build_digest,
+        kane_run_ids=("kane-session-1",),
     )
 
     assert receipt.evidence_state is EvidenceState.COMPLETE

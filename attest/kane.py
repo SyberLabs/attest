@@ -38,6 +38,7 @@ from typing import Iterable
 import yaml
 
 from .models import BrowserObservation, Claim
+from .runner import UNBOUND_NOTE_PREFIX
 
 KANE_CMD = os.environ.get("ATTEST_KANE_CMD", "kane-cli")
 KANE_HOME = Path(os.environ.get("ATTEST_KANE_HOME", ".attest/kane"))
@@ -265,22 +266,37 @@ class PackStep:
     failure: dict | None = None
 
 
-def find_pack(evidence_dir: Path, session_id: str | None, since: float = 0.0) -> Path | None:
-    """The pack whose result.yaml names this session; else the newest pack written since ``since``."""
-    if not evidence_dir.is_dir():
+def pack_sessions(pack: Path) -> set[str]:
+    """Session ids a pack's ``result.yaml`` files name under ``external_id.session_id``."""
+    out: set[str] = set()
+    try:
+        with zipfile.ZipFile(pack) as z:
+            for name in z.namelist():
+                if not name.endswith("/result.yaml"):
+                    continue
+                try:
+                    data = yaml.safe_load(z.read(name).decode("utf-8", "replace")) or {}
+                except yaml.YAMLError:
+                    continue
+                external = data.get("external_id") if isinstance(data, dict) else None
+                sid = external.get("session_id") if isinstance(external, dict) else None
+                if sid:
+                    out.add(str(sid))
+    except (OSError, zipfile.BadZipFile):
+        pass
+    return out
+
+
+def find_pack(evidence_dir: Path, session_id: str | None) -> Path | None:
+    """The newest pack whose ``result.yaml`` names exactly this session, else None.
+
+    A pack is never chosen by recency alone: without a session id, or when no pack
+    names it, another run's evidence would be read as this run's.
+    """
+    if not session_id or not evidence_dir.is_dir():
         return None
     packs = sorted(evidence_dir.glob("*.evidence"), key=lambda p: p.stat().st_mtime, reverse=True)
-    fresh = [p for p in packs if p.stat().st_mtime >= since - 1]
-    if session_id:
-        for p in fresh or packs:
-            try:
-                with zipfile.ZipFile(p) as z:
-                    for name in z.namelist():
-                        if name.endswith("/result.yaml") and session_id in z.read(name).decode("utf-8", "replace"):
-                            return p
-            except zipfile.BadZipFile:
-                continue
-    return fresh[0] if fresh else None
+    return next((p for p in packs if session_id in pack_sessions(p)), None)
 
 
 def unpack(pack: Path, dest: Path) -> Path:
@@ -427,6 +443,8 @@ class KaneBrowserRunner:
         self.groups: list[list[Claim]] = []
         self.results: dict[str, tuple[Claim, BrowserObservation]] = {}
         self.runs: list[KaneRun] = []
+        # claim id -> session id of the run whose evidence pack backs its observation (None: unbound)
+        self.run_ids: dict[str, str | None] = {}
         if shutil.which(self.kane_cmd) is None:
             raise KaneSetupError(f"{self.kane_cmd!r} not on PATH; npm install -g @testmuai/kane-cli")
 
@@ -498,12 +516,11 @@ class KaneBrowserRunner:
             cmd = self._reported(cmd, f"attest: prove {self.label} {', '.join(c.id for c in group)}")
         # no URL in this line: a shell runner proving a doc that runs attest would take it for a server announcing itself
         self.log(f"kane: testmd run {path.name} ({len(group)} step(s))")
-        started = time.time()
         run = self._execute(cmd, timeout_s=STEP_TIMEOUT_S * len(group) + 180)
         self.runs.append(run)
         if run.exit_code == 2:
             raise KaneSetupError(f"kane-cli exited 2 for {path.name}: {run.stderr.strip()[-600:]}")
-        pack = find_pack(self.evidence_dir, run.session_id, since=started)
+        pack = find_pack(self.evidence_dir, run.session_id)
         pack_steps: dict[int, list[PackStep]] = {}
         if pack is not None:
             pack_steps = read_pack(unpack(pack, self.home / "packs" / pack.stem))
@@ -513,7 +530,13 @@ class KaneBrowserRunner:
                 obs = obs.model_copy(update={"note": f"kane: timed out | {obs.note}"})
             if pack is not None:
                 obs = obs.model_copy(update={"note": f"{obs.note} | pack: {pack}"})
+            else:
+                obs = obs.model_copy(update={
+                    "status": "failed" if obs.status == "passed" else obs.status,
+                    "note": f"{UNBOUND_NOTE_PREFIX} no evidence pack names Kane session {run.session_id or '(none reported)'} | {obs.note}",
+                })
             self.results[c.id] = (c, obs)
+            self.run_ids[c.id] = run.session_id if pack is not None else None
         if run.exit_code == 0:
             self._save_recordings(path, text)
         self.log(f"kane: exit {run.exit_code}, {run.authored} authored, {run.replayed} replayed, {run.credits:.1f} credits")

@@ -17,6 +17,9 @@ from .models import BrowserObservation, Claim
 
 RunnerMode = Literal["simulation", "verified"]
 SIMULATION_NOTE_PREFIX = "simulation-only:"
+# A runner observation that no run record (for Kane, an evidence pack naming the run's
+# session) is bound to. It is not verification evidence either.
+UNBOUND_NOTE_PREFIX = "unbound:"
 
 
 class SimulationBrowserObservation(BrowserObservation):
