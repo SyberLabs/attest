@@ -1,0 +1,34 @@
+name: g3-adversarial-pass
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Gate status lives in docs/quality/G3-ADVERSARIAL-PASS.md; update it only from real run output.
+jobs:
+  # G3 Adversarial pass (FACTORY §3, rubrics R1-R9): fails when any active §1
+  # red-team case in tests/redteam/cases fails, errors, skips, xfails or has no
+  # test, or when an xfail/stub case no longer behaves as its status says.
+  # xfail and stub cases are listed as open gaps and never count as passes.
+  # Kept in its own workflow so it does not touch tests.yml (G8/G1) or the
+  # G5/G7 workflows.
+  g3-adversarial-pass:
+    name: G3 Adversarial pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e '.[test]'
+      # ACTIVATION: main has no tests/redteam/cases until the case inventory
+      # (#26) merges, so this reports INACTIVE (exit 0, nothing ran, not a
+      # pass). Once the directory exists the flag has no effect. Drop the flag
+      # after #26 merges so that deleting the inventory fails the job.
+      - name: Active red-team cases (R1-R9)
+        run: python scripts/g3-adversarial-pass.py --allow-missing-inventory
