@@ -1,0 +1,23 @@
+{
+  "id": "KR-DS-05",
+  "component": "kane_runner",
+  "category": "DS",
+  "rubrics": [
+    "R3",
+    "R5"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "A pack whose test file carries the claim's step heading twice does not back either step",
+  "input": {
+    "capture": "author_pass",
+    "claim": "c07",
+    "expects": "Hello, World!",
+    "start_url": "http://127.0.0.1:5000/",
+    "source": "Recorded capture tests/fixtures/kane/author_pass.pack.zip (event-day smoke run, sanitized); not live Kane."
+  },
+  "expected": {
+    "written_pack_backs": true,
+    "detail": "pack has no step for the claim"
+  }
+}

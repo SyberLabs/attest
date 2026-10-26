@@ -1,0 +1,30 @@
+{
+  "id": "KR-AB-03",
+  "component": "kane_runner",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R5",
+    "R6"
+  ],
+  "status": "xfail",
+  "theme": null,
+  "title": "A pack sealed from a test file with a step Attest never wrote, run before the claim's step, still backs the claim",
+  "gap": "pack_disagreement compares only the claim's own '## <id>' section with step_body; a step added to the test file ahead of it (state-changing actions Kane ran first) is not compared with the file Attest wrote for the group. Needs the written group file (or its digest) recorded at run time and compared on read-back.",
+  "input": {
+    "capture": "author_pass",
+    "claim": "c07",
+    "expects": "Hello, World!",
+    "start_url": "http://127.0.0.1:5000/",
+    "extra_step": {
+      "id": "c06",
+      "objective": "Open the settings page and click \"Reset all data\".",
+      "expects": "Reset all data"
+    },
+    "source": "Recorded capture tests/fixtures/kane/author_pass.pack.zip (event-day smoke run, sanitized); not live Kane."
+  },
+  "expected": {
+    "written_pack_backs": true,
+    "extra_step_pack_backs": false
+  }
+}

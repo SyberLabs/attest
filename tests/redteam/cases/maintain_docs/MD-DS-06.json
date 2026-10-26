@@ -1,0 +1,29 @@
+{
+  "id": "MD-DS-06",
+  "component": "maintain_docs",
+  "category": "DS",
+  "rubrics": [
+    "R1",
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Two validated proposals from the same base: once one is promoted, the other's promotion is refused and the promoted bytes stay",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "first": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "second": "# Quickstart\n\nRun this:\n\n```bash\necho ready && true\n```\n",
+    "approved_recipes": {
+      "echo ready && exit 0": "print('ready')",
+      "echo ready && true": "print('ready')"
+    },
+    "approver": "reviewer"
+  },
+  "expected": {
+    "validated": "validated",
+    "first_state": "promoted",
+    "second_error": "source changed after approval",
+    "second_state": "validated"
+  }
+}
