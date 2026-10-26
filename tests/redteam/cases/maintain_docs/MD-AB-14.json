@@ -41,7 +41,7 @@
     "reasons": {
       "actor_rewritten": "approval digest is invalid",
       "rebound_and_redigested": "approval is not bound to the current proposal",
-      "approval_removed": "a recorded human approval is required"
+      "approval_removed": "docs approval refused (approval_missing)"
     },
     "promote_error": "--apply is disabled",
     "source_unchanged": true

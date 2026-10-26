@@ -2448,12 +2448,12 @@ def test_approval_time_reader_needs_the_approval_its_event_recorded_dated_after_
 # (backdated to, approval event rewritten too, when Kane's run started, the reason)
 BACKDATED = {
     "approval-rewritten": (lambda put_up: BEFORE_THE_CAPTURE, False, lambda put_up: _ran_on_event_day,
-                           "approval is not the one its approval event recorded"),
+                           "approval_unrecorded"),
     "approval-and-its-event-rewritten": (lambda put_up: BEFORE_THE_CAPTURE, True, lambda put_up: _ran_on_event_day,
-                                         "approval is dated before the workflow was put up for approval"),
+                                         "approval_stale"),
     # Inside the window: the time bound alone accepts it, the approval event doesn't.
     "approval-rewritten-to-when-it-was-put-up": (lambda put_up: put_up, False, lambda put_up: lambda r: stamped(r, put_up),
-                                                 "approval is not the one its approval event recorded"),
+                                                 "approval_unrecorded"),
 }
 
 
@@ -2479,7 +2479,8 @@ def test_approval_time_validation_is_unresolved_when_the_approval_was_backdated(
     outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
 
     assert outcome.state == "unresolved", outcome.validation
-    assert outcome.validation["reason"] == reason
+    path = "spec" if mode == "spec-mode" else "docs"
+    assert outcome.validation["reason"].startswith(f"{path} approval refused ({reason}):")
     assert cli.calls == []
     if mode == "spec-mode":
         assert app_unchanged(app)
@@ -2509,14 +2510,38 @@ def test_approval_time_promotion_refuses_a_resealed_record_on_a_backdated_approv
     assert all(pack_disagreement(pack.read_bytes(), cid, LAUNDERED_RUN, approved[cid], not_before=started) is None
                for cid in ("c07", "c08"))
 
-    refusal = ("approval is dated before the workflow was put up for approval" if event
-               else "approval is not the one its approval event recorded")
-    with pytest.raises(WorkflowError, match=re.escape(f"{refusal}; --apply refused")):
+    code = "approval_stale" if event else "approval_unrecorded"
+    path = "spec" if mode == "spec-mode" else "docs"
+    with pytest.raises(WorkflowError, match=re.escape(f"{path} approval refused ({code}):")):
         promote_workflow(store, workflow_id)
     if mode == "spec-mode":
         assert app_unchanged(app)
     else:
         assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+@pytest.mark.parametrize("entry", ["promote", "resume", "resume-apply"])
+def test_approval_time_extra_offer_event_refuses_validated_docs(tmp_path, monkeypatch, entry):
+    # #63 checks the canonical approval prefix; #68 also refuses another offer
+    # arriving from a malformed later transition. Both guards must survive integration.
+    from attest.workflow import APPROVAL_BEFORE_PROPOSAL, verify_docs_approval
+
+    source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    with sqlite3.connect(store.path) as db:
+        db.execute(
+            "INSERT INTO workflow_events(workflow_id, from_state, to_state, payload_json, created_at) "
+            "VALUES (?, 'validated', 'awaiting_approval', '{}', ?)",
+            (workflow_id, datetime.now(timezone.utc).isoformat()),
+        )
+    verify_docs_approval(store, store.get(workflow_id))  # the narrower prefix check still accepts
+    with pytest.raises(WorkflowError, match=re.escape(APPROVAL_BEFORE_PROPOSAL)):
+        if entry == "promote":
+            promote_workflow(store, workflow_id)
+        else:
+            runner, _ = kane_runner(tmp_path / "unused-kane", monkeypatch)
+            resume_workflow(store, workflow_id, runner=runner, apply=entry == "resume-apply")
+    assert store.get(workflow_id).state == "validated"
+    assert source.read_text(encoding="utf-8") == BASE_DOC
 
 
 @pytest.mark.parametrize("mode", ["maintain-docs", "spec-mode"])

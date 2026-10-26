@@ -498,6 +498,7 @@ def resume_workflow(
         raise WorkflowError("promotion validation requires fresh Kane evidence; simulation/fake evidence is not accepted")
     if record.state == "validated":
         _refuse_docs_approval(store, record)
+        _refuse_unrecorded_approval(store, record)
         if apply:
             return promote_workflow(store, workflow_id, policy=policy)
         return record
@@ -663,6 +664,7 @@ def promote_workflow(
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
     _refuse_docs_approval(store, record)
+    _refuse_unrecorded_approval(store, record)
     if not record.validation.get("successful") or record.validation.get("runner") != "kane":
         raise WorkflowError("--apply is disabled after failed, incomplete, or simulated validation")
     proposal = record.proposal
