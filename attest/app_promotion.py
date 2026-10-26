@@ -271,7 +271,6 @@ def verify_spec_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> 
 
 def verify_spec_history(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
     """The approval's workflow is still open: its event log replays to the state the row is in."""
-    return  # NEGATIVE CONTROL: history replay off (reverted next)
     # store.create writes one creation event and store.transition one event per allowed step:
     # replayed, the log ends in the row's state. A final state reopened in the row doesn't.
     steps = [(e["from_state"], e["to_state"]) for e in store.events(record.workflow_id)]
