@@ -1,0 +1,27 @@
+{
+  "id": "BR-AB-03",
+  "component": "syberwork_bridge",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R8"
+  ],
+  "status": "xfail",
+  "theme": "caller_success_or_evidence_fields",
+  "title": "A ticket carrying caller-supplied success, evidence or verified fields",
+  "gap": "attest.worker checks only the schema tag and dispatches the ticket; it does not reject caller-supplied success, evidence or verified fields (implement.py notes SyberWork rejects unknown ticket fields, so Attest's ingress is the weaker side).",
+  "input": {
+    "extra_fields": {
+      "success": true,
+      "verified": true,
+      "evidence": {
+        "kind": "receipt",
+        "pointer": "receipts/x.json"
+      }
+    }
+  },
+  "expected": {
+    "exit_code": 2,
+    "worker_calls": 0
+  }
+}

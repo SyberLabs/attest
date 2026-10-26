@@ -1,0 +1,25 @@
+{
+  "id": "BR-AB-04",
+  "component": "syberwork_bridge",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R8",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "receipt_as_reconciliation_proof",
+  "title": "A spec-mode receipt for an implemented claim still says verified false",
+  "input": {
+    "disposition": "implemented"
+  },
+  "expected": {
+    "verified": false,
+    "schema": "attest.receipt/v0",
+    "disposition_not": [
+      "reconciled",
+      "committed",
+      "verified"
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "BR-PI-03",
+  "component": "syberwork_bridge",
+  "category": "PI",
+  "rubrics": [
+    "R1",
+    "R6"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Built-in worker drops model edits to files outside the ticket's app files",
+  "input": {
+    "app_files": {
+      "app.js": "let total = 0;\n"
+    },
+    "hostile_edits": [
+      "../spec.md",
+      ".git/hooks/pre-commit",
+      "/etc/profile",
+      "new-backdoor.js"
+    ],
+    "allowed_edit": {
+      "path": "app.js",
+      "content": "let total = 0;\nlet done = 0;\n"
+    }
+  },
+  "expected": {
+    "hostile_only_diff": "",
+    "mixed_diff_paths": [
+      "app.js"
+    ]
+  }
+}

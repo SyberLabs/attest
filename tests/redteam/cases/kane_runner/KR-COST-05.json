@@ -1,0 +1,20 @@
+{
+  "id": "KR-COST-05",
+  "component": "kane_runner",
+  "category": "COST",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "active",
+  "theme": "unbounded_retries_or_steps",
+  "title": "A flood of browser claims is split into files that each fit under the step cap",
+  "input": {
+    "claims": 200,
+    "max_steps": 15
+  },
+  "expected": {
+    "files": 15,
+    "max_headings_per_file": 14,
+    "claims_covered": 200
+  }
+}

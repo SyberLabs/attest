@@ -1,0 +1,20 @@
+{
+  "id": "KR-ISO-06",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "xfail",
+  "theme": null,
+  "title": "A Kane process killed at its deadline leaves its own child process running",
+  "gap": "KaneBrowserRunner._execute kills only the direct kane-cli process at the deadline (proc.kill, no process group, no ProcessSupervisor), so a browser it started keeps running.",
+  "input": {
+    "timeout_s": 0.4,
+    "tick_s": 0.05
+  },
+  "expected": {
+    "exit_code": 3,
+    "grandchild_alive": false
+  }
+}
