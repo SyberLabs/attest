@@ -11,13 +11,17 @@ lines the claims came from.
 
 from __future__ import annotations
 
+import base64
 import difflib
+import hashlib
 import html
 import json
+import os
 import re
-from urllib.parse import urlsplit
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
+from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
@@ -47,42 +51,174 @@ _HR = re.compile(r"^ {0,3}([-*_])(\s*\1){2,}\s*$")
 _TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
 
 
+_INLINE_TOKEN = re.compile(
+    r"(?P<code>`[^`]+`)"
+    r"|(?P<image>!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\))"
+    r"|(?P<link>\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))"
+    r"|(?P<url>https?://[^\s<>\"']+)"
+    r"|(?P<strong>\*\*.+?\*\*)"
+    r"|(?P<em>(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*))"
+)
+
+
+def _safe_link_target(value: str) -> str | None:
+    """Allow HTTP(S), mailto and ordinary relative links, never executable schemes."""
+    if not value or "\\" in value or any(ch.isspace() or ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F for ch in value):
+        return None
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return None
+    if parts.scheme:
+        if parts.scheme.casefold() not in {"http", "https", "mailto"}:
+            return None
+        if parts.scheme.casefold() in {"http", "https"} and not parts.hostname:
+            return None
+        if parts.scheme.casefold() == "mailto" and not parts.path:
+            return None
+    elif parts.netloc or value.startswith("//"):
+        return None
+    return value
+
+
+def _image_mime(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _read_regular_file(path: Path, max_bytes: int) -> bytes:
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(fd, "rb") as stream:
+        metadata = os.fstat(stream.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > max_bytes:
+            raise OSError("file is not a bounded regular file")
+        data = stream.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise OSError("file exceeds the size limit")
+    return data
+
+
+def _store_image_artifact(source: str, artifact_dir: Path | None) -> str | None:
+    """Copy a page-local image into a write-once, content-addressed store."""
+    if artifact_dir is None:
+        return None
+    try:
+        page_root = artifact_dir.parent.resolve(strict=True)
+        source_path = Path(source)
+        if not source_path.is_absolute():
+            source_path = page_root / source_path
+        source_path = source_path.resolve(strict=True)
+        source_path.relative_to(page_root)
+        data = _read_regular_file(source_path, 32 * 1024 * 1024)
+    except (OSError, ValueError):
+        return None
+    return _store_artifact_bytes(data, artifact_dir)
+
+
+def _store_artifact_bytes(data: bytes, artifact_dir: Path) -> str | None:
+    """Write a recognized image into ``artifact_dir`` under its SHA-256; return its page URL."""
+    if _image_mime(data) is None:
+        return None
+    digest = hashlib.sha256(data).hexdigest()
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    if artifact_dir.is_symlink():
+        raise ValueError("artifact store must not be a symlink")
+    store_root = artifact_dir.resolve(strict=True)
+    store_root.relative_to(artifact_dir.parent.resolve(strict=True))
+    target = store_root / digest
+    try:
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    except FileExistsError:
+        try:
+            existing = _read_regular_file(target, 32 * 1024 * 1024)
+        except OSError as exc:
+            raise ValueError(f"immutable artifact store entry is corrupt: {digest}") from exc
+        if hashlib.sha256(existing).hexdigest() != digest:
+            raise ValueError(f"immutable artifact store entry is corrupt: {digest}")
+    else:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+    return f"artifacts/{digest}"
+
+
+def content_security_policy(html_text: str, *, live: bool = False) -> str:
+    """Hash the page's inline code and deny all other sources by default."""
+    # browsers hash inline code after HTML newline normalization, so a page written with
+    # CRLF line endings (Windows) must be hashed as LF or every script and style is blocked
+    text = html_text.replace("\r\n", "\n").replace("\r", "\n")
+
+    def hashes(tag: str) -> str:
+        values = re.findall(rf"<{tag}\b[^>]*>(.*?)</{tag}\s*>", text, re.DOTALL | re.IGNORECASE)
+        return " ".join(
+            "'sha256-" + base64.b64encode(hashlib.sha256(value.encode("utf-8")).digest()).decode("ascii") + "'"
+            for value in values
+        ) or "'none'"
+
+    local = "'self'" if live else "'none'"
+    return "; ".join((
+        "default-src 'none'",
+        "img-src 'self'",
+        f"style-src {hashes('style')}",
+        f"script-src {hashes('script')}",
+        f"connect-src {local}",
+        f"frame-src {local}",
+        "font-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        f"frame-ancestors {local}",
+    ))
+
+
 def inline(text: str) -> str:
-    """Escape, then code, bold, italics, links and bare URLs."""
+    """Render a small Markdown subset with escaped text and validated attributes."""
     out: list[str] = []
-    parts = re.split(r"(`[^`]+`)", text)
-    for part in parts:
-        if part.startswith("`") and part.endswith("`") and len(part) > 1:
-            out.append(f"<code>{html.escape(part[1:-1])}</code>")
-            continue
-        markup: list[str] = []
-
-        def safe_url(url: str) -> bool:
-            scheme = urlsplit(url).scheme.casefold()
-            return scheme in {"", "http", "https", "mailto"}
-
-        def image(match):
-            alt, url = match.groups()
-            if not safe_url(url):
-                return html.escape(alt)
-            markup.append(f'<img alt="{html.escape(alt, quote=True)}" src="{html.escape(url, quote=True)}">')
-            return f"\x00{len(markup) - 1}\x00"
-
-        def link(match):
-            label, url = match.groups()
-            if not safe_url(url):
-                return html.escape(label)
-            markup.append(f'<a href="{html.escape(url, quote=True)}">{html.escape(label)}</a>')
-            return f"\x00{len(markup) - 1}\x00"
-
-        s = re.sub(r"!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+?)\)", image, part)
-        s = re.sub(r"\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+?)\)", link, s)
-        s = html.escape(s, quote=False)
-        s = re.sub(r"\x00(\d+)\x00", lambda m: markup[int(m.group(1))], s)
-        s = re.sub(r"(?<![\"'=>])(https?://[^\s<)]+)", r'<a href="\1">\1</a>', s)
-        s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
-        s = re.sub(r"(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*)", r"<em>\1</em>", s)
-        out.append(s)
+    cursor = 0
+    for match in _INLINE_TOKEN.finditer(text):
+        out.append(html.escape(text[cursor:match.start()]))
+        token = match.group(0)
+        kind = match.lastgroup
+        if kind == "code":
+            out.append(f"<code>{html.escape(token[1:-1])}</code>")
+        elif kind == "image":
+            image = re.fullmatch(r"!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)", token)
+            assert image is not None
+            alt, target = image.groups()
+            if re.fullmatch(r"artifacts/[0-9a-f]{64}", target):
+                out.append(f'<img alt="{html.escape(alt, quote=True)}" src="{html.escape(target, quote=True)}">')
+            else:
+                out.append(html.escape(alt))
+        elif kind == "link":
+            link = re.fullmatch(r"\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)", token)
+            assert link is not None
+            label, target = link.groups()
+            safe_target = _safe_link_target(target)
+            if safe_target is None:
+                out.append(html.escape(label))
+            else:
+                out.append(f'<a href="{html.escape(safe_target, quote=True)}">{inline(label)}</a>')
+        elif kind == "url":
+            target = token.rstrip(".,;:!?)]}")
+            tail = token[len(target):]
+            safe_target = _safe_link_target(target)
+            if safe_target is None:
+                out.append(html.escape(token))
+            else:
+                escaped = html.escape(safe_target, quote=True)
+                out.append(f'<a href="{escaped}">{html.escape(safe_target)}</a>{html.escape(tail)}')
+        elif kind == "strong":
+            out.append(f"<strong>{inline(token[2:-2])}</strong>")
+        else:
+            out.append(f"<em>{inline(token[1:-1])}</em>")
+        cursor = match.end()
+    out.append(html.escape(text[cursor:]))
     return "".join(out)
 
 
@@ -180,19 +316,26 @@ def attach_claims(blks: list[Block], claims: list[Claim]) -> list[Block]:
 def _env() -> Environment:
     env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_autoescape(["html", "j2"]))
     env.filters["inline_md"] = inline
+    env.filters["safe_href"] = lambda value: _safe_link_target(str(value or "")) or "#"
     return env
 
 
+LOGO = Path(__file__).parent / "assets" / "kane-factory.png"
 
-def logo_uri() -> str:
-    """The Kane Factory logo as a data URI (pages live in changing folders); empty if missing."""
-    import base64
 
-    path = Path(__file__).parent / "assets" / "kane-factory.png"
-    try:
-        return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
-    except OSError:
+def logo_uri(artifact_dir: Path | None) -> str:
+    """The Kane Factory logo as a page-relative artifact URL; empty if missing or no store.
+
+    The page CSP allows images from 'self' only, so the logo is served from the
+    digest-verified artifact store rather than inlined as a data: URI.
+    """
+    if artifact_dir is None:
         return ""
+    try:
+        return _store_artifact_bytes(_read_regular_file(LOGO, 1024 * 1024), artifact_dir) or ""
+    except (OSError, ValueError):
+        return ""
+
 
 def render_page(
     doc: Doc,
@@ -207,12 +350,62 @@ def render_page(
     now: str = "",
     authority: dict | None = None,
     receipts: dict | None = None,
+    artifact_dir: Path | None = None,
 ) -> str:
     """Return the HTML. ``strip`` is the ledger summary dict, already counted."""
     by_id = {v.claim_id: v for v in verdicts}
     blks = attach_claims(blocks(doc.lines), claims)
     briefs = briefs or {}
     prior_verdicts = prior_verdicts or {}
+    rendered_text = "\n".join(doc.lines)
+    rendered_hashes = {
+        hashlib.sha256(rendered_text.encode("utf-8")).hexdigest(),
+        hashlib.sha256((rendered_text + "\n").encode("utf-8")).hexdigest(),
+    }
+    has_revision = bool(prior_verdicts) and doc.sha256 not in rendered_hashes
+    after_identity = (
+        hashlib.sha256((rendered_text + "\n").encode("utf-8")).hexdigest()
+        if has_revision
+        else doc.sha256
+    )
+    artifact_urls = {
+        claim_id: url
+        for claim_id, verdict in by_id.items()
+        if verdict.evidence and verdict.evidence.screenshot
+        for url in [_store_image_artifact(verdict.evidence.screenshot, artifact_dir)]
+        if url
+    }
+    coverage_gaps = [
+        (claim.id, by_id[claim.id].status if claim.id in by_id else "no verdict")
+        for claim in claims
+        if claim.kind != "prose" and (claim.id not in by_id or by_id[claim.id].status != "proven")
+    ]
+    has_proposal = any(brief.patch and brief.patch.strip() for brief in briefs.values())
+    authority = authority or {}
+    receipts = receipts or {}
+    decisions = {
+        entry.get("decision")
+        for entry in authority.values()
+        if isinstance(entry, dict) and entry.get("decision")
+    }
+    if "doc_repair_denied" in decisions:
+        authority_status = "Refused - unresolved"
+        authority_detail = "A protected-contract refusal remains unresolved and is not a green result."
+    elif "implementation_required" in decisions:
+        authority_status = "Implementation required - unresolved"
+        authority_detail = "The application must change, not the document; this handoff is not a green result."
+    elif decisions == {"doc_repair_allowed"}:
+        authority_status = "Allowed by policy"
+        authority_detail = "Policy permits a documentation repair; this is not approval or publication."
+    else:
+        authority_status = "Unresolved"
+        authority_detail = "No recognized authority decision is recorded; protected-contract refusals remain unresolved and are not a green result."
+    proposal_status = (
+        "Unapproved proposal; not published. No publication is recorded for the displayed patch."
+        if has_proposal
+        else "No patch proposal recorded; this page does not certify publication or approval."
+    )
+    before_identity = doc.sha256 if has_revision else None
     grounding_lines = {
         claim_id: [line for line in brief.grounding if "] unavailable:" not in line]
         for claim_id, brief in briefs.items()
@@ -236,7 +429,7 @@ def render_page(
     tmpl = _env().get_template("index.html.j2")
     return tmpl.render(
         **view,
-        logo_uri=logo_uri(),
+        logo_uri=logo_uri(artifact_dir),
         title=title or _title_of(doc),
         doc=doc,
         blocks=blks,
@@ -251,9 +444,18 @@ def render_page(
         runner_notes=runner_notes,
         live=live,
         now=now,
-        authority=authority or {},
-        receipts=receipts or {},
-        receipt_views=receipt_views(receipts or {}),
+        authority=authority,
+        receipts=receipts,
+        receipt_views=receipt_views(receipts),
+        artifact_urls=artifact_urls,
+        coverage_gaps=coverage_gaps,
+        coverage_claims=sum(1 for claim in claims if claim.kind != "prose"),
+        authority_status=authority_status,
+        authority_detail=authority_detail,
+        proposal_status=proposal_status,
+        has_proposal=has_proposal,
+        before_identity=before_identity,
+        after_identity=after_identity,
     )
 
 
@@ -344,11 +546,14 @@ def _score(strip: dict) -> dict:
         tone = "stale"
     else:
         tone = "none"
-    segments = [
-        {"status": s, "count": n, "pct": round(100.0 * n / total, 3)}
-        for s, n in counts.items()
-        if n and total
-    ]
+    segments = []
+    x = 0.0
+    for s, n in counts.items():
+        if n and total:
+            # x offsets let the template draw SVG rects: the page CSP has no room for style="" widths
+            pct = round(100.0 * n / total, 3)
+            segments.append({"status": s, "count": n, "pct": pct, "x": round(x, 3)})
+            x += pct
     return {"tone": tone, "segments": segments}
 
 

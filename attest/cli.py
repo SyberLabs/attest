@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import email.utils
 import functools
 import hashlib
 import http.server
@@ -11,11 +12,13 @@ import socketserver
 import sys
 import webbrowser
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import typer
 
 from . import __version__
 from .pipeline import ATTEST_DIR, cleanup_scratch, export_badge, prove, render_result, claim_banner
+from .render import _image_mime, _read_regular_file, content_security_policy
 from .runner import FakeBrowserRunner
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Docs that can't lie: prove every step of a document.")
@@ -516,11 +519,27 @@ def _summary_lines(result, home: Path, spec: bool = False) -> list[str]:
 
 
 def _latest_dir(home: Path) -> Path:
-    pointer = home / "latest"
-    if not pointer.exists():
+    """The directory named by ``<home>/latest``, which must resolve inside ``home``."""
+    root = home.resolve()
+    pointer = root / "latest"
+    if not pointer.exists() and not pointer.is_symlink():
         typer.echo("nothing rendered yet; run `attest prove <doc>` first", err=True)
         raise typer.Exit(1)
-    return Path(pointer.read_text(encoding="utf-8").strip())
+    try:
+        pointer_path = pointer.resolve(strict=True)
+        pointer_path.relative_to(root)
+        target = Path(pointer_path.read_text(encoding="utf-8").strip())
+        if not target.is_absolute():
+            target = root / target
+        directory = target.resolve(strict=True)
+        directory.relative_to(root)
+    except (OSError, ValueError):
+        typer.echo("latest page must resolve inside the Attest home directory", err=True)
+        raise typer.Exit(1)
+    if not directory.is_dir():
+        typer.echo("latest page must name a rendered directory", err=True)
+        raise typer.Exit(1)
+    return directory
 
 
 @app.command()
@@ -587,20 +606,22 @@ def serve(
     open_page: bool = typer.Option(False, "--open", help="Open the page in a browser."),
     live: bool = typer.Option(False, "--live", help="Serve the full home directory with a live page."),
 ) -> None:
-    """Serve a rendered page on localhost."""
+    """Serve reviews on loopback only; unauthenticated and unsafe to expose through a public proxy."""
     if live:
         directory = home
         home.mkdir(parents=True, exist_ok=True)
         from .render import logo_uri
 
         wrapper = LIVE_WRAPPER
-        logo = logo_uri()
+        logo = logo_uri(home / "artifacts")
         if logo:
+            # the CSP allows images from 'self' only and no style="" attributes
             wrapper = wrapper.replace("<title>Attest live</title>", f'<title>Attest live</title><link rel="icon" type="image/png" href="{logo}">', 1)
+            wrapper = wrapper.replace("</style>", ".logo.brand{background:none;padding:0;overflow:hidden}.logo.brand img{width:100%;height:100%;object-fit:cover;display:block}\n</style>", 1)
             start = wrapper.find('<div class="logo" aria-hidden="true">')
             if start != -1:
                 end = wrapper.find("</div>", start) + len("</div>")
-                wrapper = wrapper[:start] + f'<div class="logo" aria-hidden="true" style="background:none;padding:0;overflow:hidden"><img src="{logo}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>' + wrapper[end:]
+                wrapper = wrapper[:start] + f'<div class="logo brand" aria-hidden="true"><img src="{logo}" alt=""></div>' + wrapper[end:]
         (home / "index.html").write_text(wrapper, encoding="utf-8")
     elif doc is None:
         directory = _latest_dir(home)
@@ -617,7 +638,7 @@ def serve(
         if not (directory / "index.html").is_file():
             typer.echo(f"document has not been proven yet: {doc}", err=True)
             raise typer.Exit(1)
-    handler = functools.partial(_QuietHandler, directory=str(directory))
+    handler = functools.partial(_QuietHandler, directory=str(directory), live_mode=live)
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
         url = f"http://localhost:{port}/"
@@ -632,13 +653,170 @@ def serve(
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    """Serve only review HTML, digest-verified evidence and, live, the feeds, receipts and tickets."""
+
+    def __init__(self, *args, live_mode: bool = False, **kwargs):
+        self.live_mode = live_mode
+        self._served_html = ""
+        super().__init__(*args, **kwargs)
+
+    def _request_path(self) -> str:
+        return unquote(urlsplit(self.path).path)
+
+    def _parts(self, path: str) -> list[str] | None:
+        if not path.startswith("/") or "\\" in path:
+            return None
+        parts = path[1:].split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            return None
+        return parts
+
+    def _send_bytes(self, body: bytes, content_type: str, cache_control: str = "no-store", *, head_only: bool = False,
+                    modified: float | None = None) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache_control)
+        if modified is not None:
+            # the live page reloads when its file's Last-Modified moves on
+            self.send_header("Last-Modified", email.utils.formatdate(modified, usegmt=True))
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(body)
+
+    def _serve_html(self, path: str, *, head_only: bool = False) -> bool:
+        if path in ("/", "/index.html"):
+            parts = ["index.html"]
+        elif self.live_mode:
+            parts = self._parts(path)
+            if not parts or parts[-1] != "index.html":
+                self.send_error(404)
+                return True
+        else:
+            self.send_error(404)
+            return True
+        root = Path(self.directory).resolve()
+        page = root.joinpath(*parts)
+        try:
+            if page.is_symlink():
+                raise OSError("review page must not be a symlink")
+            resolved = page.resolve(strict=True)
+            resolved.relative_to(root)
+            modified = resolved.stat().st_mtime
+            body = _read_regular_file(resolved, 32 * 1024 * 1024)
+            self._served_html = body.decode("utf-8")
+        except (OSError, ValueError, UnicodeDecodeError):
+            self.send_error(404)
+            return True
+        self._send_bytes(body, "text/html; charset=utf-8", head_only=head_only, modified=modified)
+        return True
+
+    def _serve_artifact(self, path: str) -> bool:
+        parts = self._parts(path)
+        if not parts or len(parts) < 2 or parts[-2] != "artifacts":
+            return False
+        digest = parts[-1]
+        if not re.fullmatch(r"[0-9a-f]{64}", digest) or (not self.live_mode and parts != ["artifacts", digest]):
+            self.send_error(404)
+            return True
+        root = Path(self.directory).resolve()
+        page_root = root.joinpath(*parts[:-2]) if self.live_mode else root
+        try:
+            current = root
+            for component in parts[:-2] if self.live_mode else []:
+                current = current / component
+                if current.is_symlink():
+                    raise OSError("artifact path must not contain symlinks")
+            page_root = page_root.resolve(strict=True)
+            page_root.relative_to(root)
+            artifact_dir = page_root / "artifacts"
+            if artifact_dir.is_symlink():
+                raise OSError("artifact directory must not be a symlink")
+            artifact_root = artifact_dir.resolve(strict=True)
+            artifact_root.relative_to(page_root)
+            body = _read_regular_file(artifact_root / digest, 32 * 1024 * 1024)
+        except (OSError, ValueError):
+            self.send_error(404)
+            return True
+        mime = _image_mime(body)
+        if mime is None or hashlib.sha256(body).hexdigest() != digest:
+            self.send_error(404)
+            return True
+        self._send_bytes(body, mime, "private, max-age=31536000, immutable")
+        return True
+
+    def _serve_live_feed(self, path: str) -> bool:
+        feeds = {"/latest.json": ("application/json; charset=utf-8", 1024 * 1024), "/live.log": ("text/plain; charset=utf-8", 4 * 1024 * 1024)}
+        feed = feeds.get(path)
+        if not self.live_mode or feed is None:
+            return False
+        content_type, limit = feed
+        try:
+            body = _read_regular_file(Path(self.directory) / path[1:], limit)
+        except OSError:
+            self.send_error(404)
+            return True
+        self._send_bytes(body, content_type)
+        return True
+
+    _RECORDS = {
+        ("receipts", ".json"): "application/json; charset=utf-8",
+        ("tickets", ".json"): "application/json; charset=utf-8",
+        ("tickets", ".md"): "text/plain; charset=utf-8",
+    }
+
+    def _serve_record(self, path: str) -> bool:
+        """Live only: the receipt and ticket files the page links to, one flat level deep."""
+        parts = self._parts(path)
+        if not self.live_mode or not parts or len(parts) != 2 or parts[0] not in ("receipts", "tickets"):
+            return False
+        folder, name = parts
+        content_type = self._RECORDS.get((folder, Path(name).suffix))
+        if content_type is None or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+            self.send_error(404)
+            return True
+        root = Path(self.directory).resolve()
+        try:
+            record_dir = root / folder
+            if record_dir.is_symlink():
+                raise OSError("record directory must not be a symlink")
+            record_dir.resolve(strict=True).relative_to(root)
+            body = _read_regular_file(record_dir / name, 4 * 1024 * 1024)
+        except (OSError, ValueError):
+            self.send_error(404)
+            return True
+        self._send_bytes(body, content_type)
+        return True
+
+    def do_GET(self):  # noqa: N802
+        self._served_html = ""
+        path = self._request_path()
+        if self._serve_artifact(path):
+            return
+        if path in ("/", "/index.html") or (self.live_mode and path.endswith("/index.html")):
+            self._serve_html(path)
+            return
+        if self._serve_live_feed(path) or self._serve_record(path):
+            return
+        self.send_error(404)
+
+    def do_HEAD(self):  # noqa: N802
+        self._served_html = ""
+        path = self._request_path()
+        if self.live_mode and (path in ("/", "/index.html") or path.endswith("/index.html")):
+            self._serve_html(path, head_only=True)
+            return
+        self.send_error(405)
+
+    def end_headers(self):  # noqa: N802
+        self.send_header("Content-Security-Policy", content_security_policy(self._served_html, live=self.live_mode))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "SAMEORIGIN" if self.live_mode else "DENY")
+        super().end_headers()
+
     def log_message(self, fmt, *args):  # noqa: D401
         return
-
-    def end_headers(self):
-        # pages are rewritten in place during a live run; the browser must never reuse an old copy
-        self.send_header("Cache-Control", "no-store")
-        super().end_headers()
 
 
 @app.command()
