@@ -1,0 +1,34 @@
+name: g2-quota-floor
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Gate status lives in docs/quality/G2-QUOTA-FLOOR.md; update it only from real run output.
+jobs:
+  # G2 Quota floor (FACTORY §3): fails when red-team cases per component x category
+  # fall below the §1 minimums. Counts tests/redteam/cases, and counts a case only
+  # when its bound test ran and ended as its status says. Kept in its own workflow
+  # so it does not touch tests.yml (G8/G1) or the G5/G7 workflows.
+  g2-quota-floor:
+    name: G2 Quota floor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e '.[test]'
+      # The counter's own rules first: stubs, xfails, missing tests, stale
+      # exemptions and a lowered harness quota must all be refused.
+      - name: Gate controls
+        run: python -m pytest -rsx tests/quality/test_g2_quota_floor.py
+      # Runs even if the controls failed, so one run reports the real counts.
+      - name: Quota floor
+        if: ${{ !cancelled() }}
+        run: python scripts/g2-quota-floor.py
