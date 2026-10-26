@@ -572,6 +572,20 @@ def test_pc_rs_01_twin_contract_whose_change_log_withdraws_the_requirement_block
     assert contract.read_text(encoding="utf-8") == withdrawn
 
 
+def test_pc_rs_01_twin_contract_where_another_requirement_replaces_it_blocks_the_handoff(tmp_path):
+    # the text matches and SEC-4's own section says nothing, but a newer requirement says it replaces SEC-4
+    replaced = RS_PROTECTED + "\n## SEC-9\n\nAdministrators sign in with a hardware key. This replaces SEC-4.\n"
+    contract, result, data, markdown = _run_reconcile(tmp_path, _rs_request(), contract_text=replaced)
+    assert result.exit_code == 3
+    assert data["handoff_state"] == "blocked"
+    assert data["source_state"] == "not_governing"
+    assert data["authority_state"] == "conflicting"
+    assert data["blocking_reasons"] == ["c01:source_not_governing:prose"]
+    assert data["conflicts"][0]["source_not_governing"] == ["Administrators sign in with a hardware key. This replaces SEC-4."]
+    assert "This replaces SEC-4." in markdown
+    assert contract.read_text(encoding="utf-8") == replaced
+
+
 def test_pc_rs_01_twin_reference_to_a_weaker_copy_of_the_contract_blocks_the_handoff(tmp_path):
     # the text matches the copy the reference names, but the contract under the same root says more
     copy = tmp_path / "notes" / "sec-4.md"
@@ -613,6 +627,12 @@ def test_pc_rs_01_control_fails_when_every_document_is_not_governing(tmp_path, m
 
 def test_pc_rs_01_control_fails_when_every_sentence_withdraws_the_requirement(tmp_path, monkeypatch):
     monkeypatch.setattr(reconcile_spec_mod, "_withdrawal", lambda *args, **kwargs: True)
+    with pytest.raises(AssertionError):
+        _run_rs_control(tmp_path)
+
+
+def test_pc_rs_01_control_fails_when_every_sentence_names_the_requirement_as_withdrawn(tmp_path, monkeypatch):
+    monkeypatch.setattr(reconcile_spec_mod, "_withdrawing", lambda requirement: "")
     with pytest.raises(AssertionError):
         _run_rs_control(tmp_path)
 
