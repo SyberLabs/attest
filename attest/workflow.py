@@ -17,7 +17,7 @@ from .approvals import ApprovalError, verify_approval
 from .compiler import compile_doc
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest_text, sha256_of
-from .models import Claim
+from .models import BrowserObservation, Claim
 from .policy import MaintainDocsPolicy
 from .pipeline import execute
 from .proposals import current_build_digest, proposal_digest
@@ -101,6 +101,22 @@ def _observation_build_failures(claims: list[Claim], evidence: dict, build_diges
             failures.append(f"{claim.id}:observation_build_missing")
         elif observed != build_digest:
             failures.append(f"{claim.id}:observation_build_mismatch")
+    return failures
+
+
+def _observation_run_failures(claims: list[Claim], evidence: dict, kane_runs: dict[str, str | None]) -> list[str]:
+    """Browser evidence must name the Kane run validation binds it to (the runner's own record)."""
+    failures: list[str] = []
+    for claim in claims:
+        ev = evidence.get(claim.id)
+        bound = kane_runs.get(claim.id)
+        if claim.kind != "browser" or ev is None or ev.observation is None or bound is None:
+            continue  # no binding is already stale_kane_run
+        observed = ev.observation.kane_run_id
+        if observed is None:
+            failures.append(f"{claim.id}:observation_run_missing")
+        elif observed != bound:
+            failures.append(f"{claim.id}:observation_run_mismatch")
     return failures
 
 
@@ -226,7 +242,11 @@ def resume_workflow(
             kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
             validation_data["build_digest"] = proposal["build_digest"]
             validation_data["kane_runs"] = kane_runs
-            unbound = [*stale_runs, *_observation_build_failures(claims, evidence, proposal["build_digest"])]
+            unbound = [
+                *stale_runs,
+                *_observation_run_failures(claims, evidence, kane_runs),
+                *_observation_build_failures(claims, evidence, proposal["build_digest"]),
+            ]
             if unbound:
                 validation_data["successful"] = False
                 validation_data["failed_claims"] = [*validation_data["failed_claims"], *unbound]
@@ -290,6 +310,16 @@ def promote_workflow(
     observed = [((evidence.get(claim_id) or {}).get("observation") or {}).get("build_digest") for claim_id in browser]
     if any(build != proposal.get("build_digest") for build in observed):
         raise WorkflowError("validation browser evidence was not observed on the approved app/build version; --apply refused")
+    # Stored evidence is read back as the product reads it (the subclass is lost; the note
+    # prefixes are not): only what receipt evidence would mark complete, from the bound run.
+    try:
+        stored = {claim_id: BrowserObservation.model_validate(evidence[claim_id]["observation"]) for claim_id in browser}
+    except Exception as exc:
+        raise WorkflowError(f"validation browser evidence is unreadable; --apply refused: {exc}") from exc
+    if any(obs.kane_run_id != kane_runs.get(claim_id) for claim_id, obs in stored.items()):
+        raise WorkflowError("validation browser evidence does not name the Kane run it is bound to; --apply refused")
+    if any(obs.status != "passed" or obs.simulation_only or obs.unbound for obs in stored.values()):
+        raise WorkflowError("validation browser evidence is simulated, unbound or not passed; --apply refused")
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])

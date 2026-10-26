@@ -145,9 +145,31 @@ def test_kane_run_receipt_with_no_runs_rejects_browser_evidence_naming_one():
 def test_kane_run_verified_receipt_requires_browser_evidence_to_name_its_run():
     fields = receipt_fields()
     fields["evidence"] = (evidence_for(fields, kane_run_id=None),)
-    assert isinstance(RunReceipt(**fields), RunReceipt)
+    with pytest.raises(ValidationError, match="must name the Kane run that produced it"):
+        RunReceipt(**fields)  # #47's tip accepted it: a plain receipt checked only bindings evidence named
     with pytest.raises(ValidationError, match="bound to a fresh Kane run id"):
         VerifiedRunReceipt(**fields)
+
+
+@pytest.mark.parametrize(
+    "unnamed, rejection",
+    [("build_digest", "must name the receipt's app/build version"), ("kane_run_id", "must name the Kane run that produced it")],
+    ids=["evidence-names-no-build", "evidence-names-no-run"],
+)
+def test_version_plain_receipt_naming_a_binding_rejects_complete_browser_evidence_naming_none(unnamed, rejection):
+    # A plain RunReceipt may lack bindings, but one that names its build and runs cannot carry
+    # complete browser evidence that names neither: that evidence says nothing about them.
+    fields = receipt_fields()
+    fields["evidence"] = (evidence_for(fields, **{unnamed: None}),)
+    with pytest.raises(ValidationError, match=re.escape(rejection)):
+        RunReceipt(**fields)
+    # As incomplete evidence it is still recordable, and a receipt naming neither binding may hold it.
+    partial = receipt_fields(evidence_state=EvidenceState.INCOMPLETE)
+    partial["evidence"] = (evidence_for(partial, complete=False, **{unnamed: None}),)
+    assert RunReceipt(**partial).evidence[0].complete is False
+    unbound = receipt_fields(build_digest=None, kane_run_ids=())
+    unbound["evidence"] = (evidence_for(unbound, build_digest=None, kane_run_id=None),)
+    assert RunReceipt(**unbound).evidence_state == EvidenceState.COMPLETE
 
 
 def test_control_receipt_with_matching_build_and_kane_run_verifies():
@@ -755,3 +777,175 @@ def test_control_receipt_from_observations_on_the_approved_build_verifies(tmp_pa
 
     assert receipt.build_digest == approved
     assert [item.build_digest for item in receipt.evidence] == [approved, approved]
+
+
+# -- observations name the Kane run that made them --------------------------------------
+#
+# KaneBrowserRunner stamps each pack-bound observation with its run's session id. The run
+# a receipt or a promotion binds is then the observation's own, never one the caller or a
+# stored record pairs with it, and an observation the runner cannot bind names none.
+
+
+def test_kane_run_runner_stamps_the_run_whose_pack_backs_each_observation(tmp_path, monkeypatch):
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    bound = observe_browser_claims(runner, tmp_path / "greeting.md")
+    assert {obs.kane_run_id for obs in bound.values()} == {session_of("witness_stale")} == set(runner.run_ids.values())
+
+    runner, _ = kane_runner(tmp_path / "kane-other-pack", monkeypatch, pack="author_pass")
+    unbound = observe_browser_claims(runner, tmp_path / "greeting.md")
+    assert {(obs.note.startswith("unbound:"), obs.kane_run_id) for obs in unbound.values()} == {(True, None)}
+
+
+@pytest.mark.parametrize(
+    "named, failure",
+    [("kane-session-from-yesterday", "observation_run_mismatch"), (None, "observation_run_missing")],
+    ids=["observation-from-another-run", "observation-names-no-run"],
+)
+def test_kane_run_observation_not_naming_its_bound_run_fails_validation(tmp_path, monkeypatch, named, failure):
+    # The runner's record binds both claims to the fresh run, the build is the approved one,
+    # and both are proven. Only the observations name another run, or none.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    observe = runner.observe
+    runner.observe = lambda claim, base_url: observe(claim, base_url).model_copy(update={"kane_run_id": named})
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
+
+    assert outcome.state == "rejected"
+    validation = outcome.validation
+    sid = session_of("witness_stale")
+    assert len(cli.calls) == 1 and validation["kane_runs"] == {"c07": sid, "c08": sid}
+    assert validation["statuses"]["c07"] == validation["statuses"]["c08"] == "proven"
+    assert validation["failed_claims"] == [f"c07:{failure}", f"c08:{failure}"]
+    with pytest.raises(WorkflowError):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda v: v["kane_runs"].update(c08="kane-session-from-yesterday"),
+        lambda v: v["evidence"]["c08"]["observation"].update(kane_run_id="kane-session-from-yesterday"),
+        lambda v: v["evidence"]["c08"]["observation"].pop("kane_run_id"),
+    ],
+    ids=["swapped-claim-run", "swapped-observation-run", "omitted-observation-run"],
+)
+def test_kane_run_promotion_refuses_evidence_not_naming_its_bound_run(tmp_path, monkeypatch, change):
+    # #47's promotion only asked that a claim's run binding be non-empty, so swapping it for
+    # any other session promoted. A record stored before observations named their run has
+    # to be validated again, as one without observation builds does.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    assert resume_workflow(store, workflow_id, runner=runner, llm=llm).state == "validated"
+    _tamper_validation(store, workflow_id, change)
+
+    with pytest.raises(WorkflowError, match="does not name the Kane run it is bound to"):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda o: o.update(note="simulation-only: fake runner cannot verify page state"),
+        lambda o: o.update(note="unbound: no evidence pack names Kane session (none reported)"),
+        lambda o: o.update(status="failed"),
+    ],
+    ids=["stored-simulation-note", "stored-unbound-note", "stored-failed-status"],
+)
+def test_kane_run_promotion_refuses_stored_evidence_a_receipt_would_not_count(tmp_path, monkeypatch, change):
+    # Build and run bindings all hold; the stored observation itself is simulated, unbound or
+    # failed, which receipt_evidence would never mark complete. #47's promotion read only
+    # the build and run fields of it.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    assert resume_workflow(store, workflow_id, runner=runner, llm=llm).state == "validated"
+    _tamper_validation(store, workflow_id, lambda v: change(v["evidence"]["c08"]["observation"]))
+
+    with pytest.raises(WorkflowError, match="simulated, unbound or not passed"):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+@pytest.mark.parametrize("stored", [False, True], ids=["cached-observation", "stored-cached-observation"])
+def test_kane_run_receipt_evidence_from_an_earlier_run_cannot_claim_a_fresh_one(tmp_path, monkeypatch, stored):
+    # Kane observed the approved build in an earlier run. A caller pairs those observations
+    # with a fresh run the receipt did start. On #47's tip the build matched and the run
+    # was the caller's, so the receipt verified.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = approved_repair(tmp_path, git=True)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    cached = observe_browser_claims(runner, source)
+    cached = {cid: _stored(obs) for cid, obs in cached.items()} if stored else cached
+    approved = store.get(workflow_id).proposal["build_digest"]
+    assert {obs.build_digest for obs in cached.values()} == {approved}
+
+    with pytest.raises(ValueError, match=f"made by Kane run {re.escape(session_of('witness_stale'))}, not {RUN}"):
+        _receipt_evidence_receipt(cached, approved, RUN)
+    # An observation stored before observations named their run names none: so does its evidence.
+    legacy = {cid: obs.model_copy(update={"kane_run_id": None}) for cid, obs in cached.items()}
+    with pytest.raises(ValidationError, match="bound to a fresh Kane run id"):
+        _receipt_evidence_receipt(legacy, approved, RUN)
+    with pytest.raises(ValidationError, match="must name the Kane run that produced it"):
+        _receipt_evidence_receipt(legacy, approved, RUN, cls=RunReceipt)
+
+
+def test_observation_build_scripted_fake_observation_names_no_build_or_run(tmp_path):
+    # A --fake-browser script that claims a build and a Kane run: a simulation observed neither.
+    script = tmp_path / "fake.json"
+    script.write_text(canonical_json({"c07": {"status": "passed", "observed": {"c07_label": "Hello, World!"},
+                                              "build_digest": BUILD, "kane_run_id": RUN}}), encoding="utf-8")
+    obs = FakeBrowserRunner.from_file(script).observe(_fake_claim(), "http://127.0.0.1:5000/")
+    assert isinstance(obs, SimulationBrowserObservation) and obs.status == "passed"
+    assert (obs.build_digest, obs.kane_run_id) == (None, None)
+
+    for observation in (obs, _stored(obs)):
+        evidence = _receipt_evidence_receipt({"c07": observation}, BUILD, RUN, cls=RunReceipt,
+                                             evidence_state=EvidenceState.SIMULATED).evidence
+        assert [(e.simulated, e.complete, e.build_digest, e.kane_run_id) for e in evidence] == [(True, False, None, None)]
+        with pytest.raises(ValidationError):
+            _receipt_evidence_receipt({"c07": observation}, BUILD, RUN)
+
+
+def test_kane_run_fake_runner_named_kane_cannot_validate(tmp_path, monkeypatch):
+    # A fake runner that calls itself kane gets past the runner-name check, but it starts no
+    # Kane run and names none, so validation rejects it. No product change: this holds on #47.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+    fake = FakeBrowserRunner({cid: BrowserObservation(status="passed", observed={f"{cid}_label": "Hello, World!"},
+                                                      build_digest=store.get(workflow_id).proposal["build_digest"],
+                                                      kane_run_id=RUN) for cid in ("c07", "c08")})
+    fake.name = "kane"
+
+    outcome = resume_workflow(store, workflow_id, runner=fake, llm=llm, apply=True)
+
+    assert outcome.state == "rejected"
+    assert {"c07:stale_kane_run", "c07:observation_build_missing"} <= set(outcome.validation["failed_claims"])
+    stored = outcome.validation["evidence"]["c07"]["observation"]  # c08 depends on c07, so it never ran
+    assert (stored["build_digest"], stored["kane_run_id"]) == (None, None)
+    with pytest.raises(WorkflowError):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_control_stored_observations_name_their_bound_run_and_still_count(tmp_path, monkeypatch):
+    # The new run and origin checks pass a fresh Kane run on the approved build: its stored
+    # observations name the run validation bound them to, a plain receipt naming that build
+    # and run holds their evidence, and the record promotes.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    validation = resume_workflow(store, workflow_id, runner=runner, llm=llm).validation
+    sid = session_of("witness_stale")
+    stored = observations(validation)
+
+    assert {cid: obs.kane_run_id for cid, obs in stored.items()} == validation["kane_runs"] == {"c07": sid, "c08": sid}
+    for cls in (RunReceipt, VerifiedRunReceipt):
+        receipt = _receipt_evidence_receipt(stored, validation["build_digest"], sid, cls=cls)
+        assert [(e.complete, e.kane_run_id) for e in receipt.evidence] == [(True, sid)] * 2
+    assert promote_workflow(store, workflow_id).state == "promoted"
+    assert source.read_text(encoding="utf-8") == CANDIDATE_DOC

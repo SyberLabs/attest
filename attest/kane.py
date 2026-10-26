@@ -546,6 +546,7 @@ class KaneBrowserRunner:
         pack_steps: dict[int, list[PackStep]] = {}
         if pack is not None:
             pack_steps = read_pack(unpack(pack, self.home / "packs" / pack.stem))
+        run_id = run.session_id if pack is not None else None
         for i, c in enumerate(group, start=1):
             obs = observation_for(c, i, run, pack_steps)
             if run.exit_code == 3 and obs.status != "passed":
@@ -559,9 +560,9 @@ class KaneBrowserRunner:
                 })
             if build is None:
                 obs = obs.model_copy(update={"note": f"{obs.note} | build: unknown or changed during this Kane run"})
-            obs = obs.model_copy(update={"build_digest": build})
+            obs = obs.model_copy(update={"build_digest": build, "kane_run_id": run_id})
             self.results[c.id] = (c, obs)
-            self.run_ids[c.id] = run.session_id if pack is not None else None
+            self.run_ids[c.id] = run_id
         if run.exit_code == 0:
             self._save_recordings(path, text)
         self.log(f"kane: exit {run.exit_code}, {run.authored} authored, {run.replayed} replayed, {run.credits:.1f} credits")

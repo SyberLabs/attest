@@ -63,6 +63,8 @@ class RunReceipt(BaseModel):
             build_digest=self.build_digest,
             kane_run_ids=self.kane_run_ids,
         )
+        if not isinstance(self, VerifiedRunReceipt):  # it requires every binding, with its own messages
+            validate_named_bindings(self)
         return self
 
 
@@ -111,6 +113,22 @@ def validate_receipt_evidence(
             raise ValueError("simulated evidence cannot be marked complete")
         if any(not item.complete for item in evidence):
             raise ValueError("complete evidence state requires every evidence record to be complete")
+
+
+def validate_named_bindings(receipt: RunReceipt) -> None:
+    """Complete browser evidence in a receipt that names a build or Kane runs must name them too.
+
+    A receipt may lack bindings, but once it names a build, complete browser evidence that
+    names none (the build changed during the run, or was never measured) says nothing about
+    that build. The same holds for a receipt that names the Kane runs it started.
+    """
+    for item in receipt.evidence:
+        if item.kind != "browser" or not item.complete:
+            continue
+        if receipt.build_digest is not None and item.build_digest is None:
+            raise ValueError("complete browser evidence must name the receipt's app/build version")
+        if receipt.kane_run_ids and item.kane_run_id is None:
+            raise ValueError("complete browser evidence must name the Kane run that produced it")
 
 
 def validate_verified_receipt(receipt: RunReceipt) -> None:
