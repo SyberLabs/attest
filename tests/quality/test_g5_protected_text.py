@@ -27,11 +27,21 @@ MFA = "tests/fixtures/reconcile_spec/promise_weakening_attempt.json"
 TLS = "tests/fixtures/reconcile_spec/protected_requirement_vs_observed_app.json"
 
 
+# Frozen copies of the main hooks as of this gate. The tests must not read the
+# live demo/ or reconcile_spec/ files: a PR that edits those must reach the diff
+# step, not break these controls. The names keep them out of the live scan.
+FROZEN = ROOT / "tests" / "fixtures" / "g5_protected_text"
+LAYOUT = {
+    "policy.yaml": "demo/attest.policy.yaml",
+    "counter.md": "demo/counter.md",
+    **{p.name: f"{g5.FIXTURE_DIR}/{p.name}" for p in FROZEN.glob("*.json")},
+}
+
+
 def _copy_repo_hooks(dest: Path) -> Path:
-    """The real protected-text hooks from this checkout, so the tests track main."""
-    for rel in ["demo/attest.policy.yaml", "demo/counter.md", *sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / g5.FIXTURE_DIR).glob("*.json"))]:
+    for name, rel in LAYOUT.items():
         (dest / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / rel, dest / rel)
+        shutil.copyfile(FROZEN / name, dest / rel)
     return dest
 
 
