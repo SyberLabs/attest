@@ -259,6 +259,38 @@ def _refuse_unsealed_validation(store: SQLiteWorkflowStore, record: WorkflowReco
         raise WorkflowError("validation record is not the one its validated event recorded; --apply refused")
 
 
+def _authority_refusal(store: SQLiteWorkflowStore, proposal: dict[str, Any], policy: MaintainDocsPolicy) -> str | None:
+    """Re-derive the patch authority from the approved artifacts: why the policy refuses
+    this candidate now, or None when it still authorizes it.
+
+    The decision stored at proposal time is this Attest's word only while its authority
+    logic is unchanged. Equal policy digests don't show that: the digest covers the
+    policy's fields, not the code that reads them. So validation and --apply ask again.
+    """
+    artifacts = proposal.get("artifact_digests") or {}
+    try:
+        base_text = store.get_artifact(artifacts["base"]).decode("utf-8")
+        candidate_text = store.get_artifact(artifacts["candidate"]).decode("utf-8")
+        diff = store.get_artifact(artifacts["diff"]).decode("utf-8")
+        baseline = json.loads(store.get_artifact(artifacts["baseline_claims"]))
+        kinds = [c.get("kind") for c in baseline if c.get("id") == proposal["target_claim_id"]]
+        decision = policy.authorize(
+            diff=diff,
+            doc_name=Path(proposal["source_path"]).name,
+            base_text=base_text,
+            candidate_text=candidate_text,
+            target_start=int(proposal["target_start_line"]),
+            target_end=int(proposal["target_end_line"]),
+            target_claim_id=str(proposal["target_claim_id"]),
+            base_digest=str(proposal["base_digest"]),
+            candidate_digest=str(proposal["candidate_digest"]),
+            target_kind=kinds[0] if len(kinds) == 1 else None,  # unknown: judged as prose, the stricter
+        )
+    except Exception as exc:
+        return f"its patch authority cannot be re-derived: {type(exc).__name__}: {exc}"
+    return None if decision.allowed else decision.reason
+
+
 def resume_workflow(
     store: SQLiteWorkflowStore,
     workflow_id: str,
@@ -315,6 +347,8 @@ def resume_workflow(
         or hashlib.sha256(candidate_bytes).hexdigest() != proposal.get("candidate_digest")
     ):
         return _unresolved(store, record, "base or candidate artifact digest mismatch")
+    if refusal := _authority_refusal(store, proposal, policy):
+        return _unresolved(store, record, f"Maintain Docs policy no longer authorizes this candidate ({refusal}); promotion refused")
     source_path = Path(proposal["source_path"])
     if not source_path.is_file() or source_path.is_symlink():
         return _unresolved(store, record, "source file is missing or is a symlink")
@@ -472,6 +506,8 @@ def promote_workflow(
     _refuse_unbacked_browser_evidence(record.validation, [c for c in validated if c.kind == "browser"])
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
+    if refusal := _authority_refusal(store, proposal, policy):
+        raise WorkflowError(f"Maintain Docs policy no longer authorizes this candidate ({refusal}); --apply refused")
     path = Path(proposal["source_path"])
     if not path.is_file() or path.is_symlink():
         raise WorkflowError("source file is missing or is a symlink")

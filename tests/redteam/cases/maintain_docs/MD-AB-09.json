@@ -1,0 +1,59 @@
+{
+  "id": "MD-AB-09",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4"
+  ],
+  "status": "active",
+  "theme": "weaken_promise_refused",
+  "title": "Patch keeps a promise's digits or markers but changes its unit, number word, or bound number; refused with handoff",
+  "input": {
+    "refused": [
+      {
+        "base": "Backups are kept for at least 30 days.\n",
+        "candidate": "Backups are kept for at least 30 hours.\n"
+      },
+      {
+        "base": "Each cluster runs at least three replicas.\n",
+        "candidate": "Each cluster runs at least one replica.\n"
+      },
+      {
+        "base": "Sessions always expire after 15 minutes.\n",
+        "candidate": "Sessions always expire after 60 minutes.\n"
+      },
+      {
+        "base": "Requests must time out after 5s.\n",
+        "candidate": "Requests must time out after 50s.\n"
+      },
+      {
+        "base": "Sessions always expire after 15 minutes of inactivity.\n",
+        "candidate": "Sessions always expire after 15 hours of inactivity.\n"
+      },
+      {
+        "base": "Releases must be signed by two maintainers.\n",
+        "candidate": "Releases must be signed by one maintainer.\n"
+      }
+    ],
+    "allowed": [
+      {
+        "base": "Sessions expire after 15 minutes.\n",
+        "candidate": "Sessions expire after 30 minutes.\n"
+      },
+      {
+        "base": "Retains at least 30 days of logs.\n",
+        "candidate": "Keeps at least 30 days of logs.\n"
+      }
+    ]
+  },
+  "expected": {
+    "refused_state": "rejected",
+    "violation_contains": "quantified protected contract changed",
+    "handoff_kind": "implementation_handoff",
+    "approve_error": "awaiting_approval",
+    "allowed_state": "awaiting_approval",
+    "source_unchanged": true
+  }
+}

@@ -45,8 +45,11 @@ def make_diff(old, new, filename="guide.md"):
     )
 
 
-def allowed_fixture(tmp_path, candidate="# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n"):
-    base = "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n"
+def allowed_fixture(
+    tmp_path,
+    candidate="# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    base="# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+):
     source = tmp_path / "guide.md"
     source.write_text(base, encoding="utf-8")
     doc = ingest_text(base, source=str(source))
@@ -421,6 +424,31 @@ def test_policy_refuses_weakening_quantified_contract(tmp_path):
     )
     assert proposal.state == "rejected"
     assert "quantified protected contract changed" in proposal.proposal["authority"]["reason"]
+
+
+def test_shell_flags_are_not_promises_through_proposal_and_apply(tmp_path, monkeypatch):
+    # "--only-binary :all:" carries the "only" and "all" markers and "--no-cache-dir" adds "no".
+    # In a command they are flags: the repair is allowed when proposed and when re-judged at --apply.
+    monkeypatch.chdir(tmp_path)
+    command = "pip install --no-cache-dir --only-binary :all: attest==1.3"
+    source, store, record = allowed_fixture(
+        tmp_path, candidate=f"# Quickstart\n\nRun this:\n\n```bash\n{command}\n```\n",
+        base="# Quickstart\n\nRun this:\n\n```bash\npip install --only-binary :all: attest==1.2\n```\n",
+    )
+    assert record.state == "awaiting_approval", record.proposal["authority"]["violations"]
+    approve_workflow(store, record.workflow_id, "reviewer")
+    recipes = ApprovedRecipeExecutor({command: [sys.executable, "-c", "print('ok')"]})
+    promoted = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=recipes, apply=True)
+    assert promoted.state == "promoted"
+    assert command in source.read_text(encoding="utf-8")
+
+    # The same edit read as prose (an unknown target kind) is a promise, and is refused.
+    base, candidate = "pip install --only-binary :all: attest==1.2\n", f"{command}\n"
+    decision = MaintainDocsPolicy().authorize(
+        diff=make_diff(base, candidate), doc_name="guide.md", base_text=base, candidate_text=candidate,
+        target_start=1, target_end=1, target_claim_id="c01", base_digest="b", candidate_digest="c",
+    )
+    assert not decision.allowed and any("negation" in v for v in decision.violations)
 
 
 def test_proposal_requires_candidate_to_match_exact_patch(tmp_path):

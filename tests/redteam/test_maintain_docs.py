@@ -5,6 +5,7 @@ Inputs and expected invariants live in cases/maintain_docs/<ID>.json.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sqlite3
 import sys
@@ -47,6 +48,7 @@ def _prose_target(text: str, start: int, end: int) -> Claim:
 
 def propose(tmp_path: Path, base: str, candidate: str, *, target: Claim | None = None, policy=None,
             plan: str = "Repair only c01; preserve all promises."):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     source = tmp_path / "guide.md"
     # LF bytes on every platform: text mode writes CRLF on Windows, and the CRLF-resave case
     # (MD-DS-05) needs the approved bytes to differ from the resaved ones
@@ -261,6 +263,90 @@ def test_policy_swapped_after_approval_is_unresolved(rt_case, tmp_path):
     assert result.state == x["state"]
     assert x["reason_contains"] in result.validation["reason"]
     assert source.read_text(encoding="utf-8") == i["base"]
+
+
+def _refused_and_allowed(rt_case, tmp_path, check_refused):
+    """Each refused pair is rejected with a handoff and can't be approved; each allowed one awaits approval."""
+    i, x = rt_case["input"], rt_case["expected"]
+    for n, item in enumerate(i["refused"]):
+        base = item["base"]
+        source, store, record = propose(tmp_path / f"refused-{n}", base, item["candidate"],
+                                        target=_prose_target(base, 1, 1), plan="Match the app.")
+        assert record.state == x["refused_state"], item
+        authority = record.proposal["authority"]
+        check_refused(item, authority["violations"])
+        assert authority["implementation_handoff"]["kind"] == x["handoff_kind"]
+        with pytest.raises(ApprovalError, match=x["approve_error"]):
+            approve_workflow(store, record.workflow_id, "reviewer")
+        assert source.read_text(encoding="utf-8") == base
+    # negative control: the same gate still lets a descriptive repair through
+    for n, item in enumerate(i["allowed"]):
+        base = item["base"]
+        _, _, record = propose(tmp_path / f"allowed-{n}", base, item["candidate"], target=_prose_target(base, 1, 1))
+        assert record.state == x["allowed_state"], (item, record.proposal["authority"]["violations"])
+
+
+@case("MD-AB-08")
+def test_negated_or_excepted_promise_is_refused(rt_case, tmp_path):
+    def check(item, violations):
+        assert any(item["violation"] in v for v in violations), (item, violations)
+
+    _refused_and_allowed(rt_case, tmp_path, check)
+
+
+@case("MD-AB-09")
+def test_changed_unit_or_number_word_in_a_promise_is_refused(rt_case, tmp_path):
+    def check(item, violations):
+        assert rt_case["expected"]["violation_contains"] in violations, (item, violations)
+
+    _refused_and_allowed(rt_case, tmp_path, check)
+
+
+class _OlderAuthority(MaintainDocsPolicy):
+    """An authority that allowed every patch: the same fields, so the same policy digest."""
+
+    def authorize(self, **kwargs):
+        decision = super().authorize(**kwargs)
+        return dataclasses.replace(decision, allowed=True, reason="authorized for Maintain Docs", violations=[],
+                                   implementation_handoff=None)
+
+
+@case("MD-AB-10")
+def test_approval_under_an_older_authority_is_rejudged_before_apply(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    older = _OlderAuthority()
+    assert older.digest == MaintainDocsPolicy().digest
+
+    def approved(name, candidate):
+        source, store, record = propose(tmp_path / name, i["base"], candidate, policy=older)
+        assert record.state == "awaiting_approval"
+        approve_workflow(store, record.workflow_id, i["approver"])
+        command = candidate.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        return source, store, record, ApprovedRecipeExecutor({command: [sys.executable, "-c", "print('ready')"]})
+
+    # Validation re-judges the patch before running anything.
+    source, store, record, ready = approved("resume", i["candidate"])
+    result = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, apply=True)
+    assert result.state == x["resume_state"]
+    assert x["reason_contains"] in result.validation["reason"]
+    assert source.read_text(encoding="utf-8") == i["base"]
+
+    # A record validated under the older authority is re-judged at --apply.
+    source, store, record, ready = approved("promote", i["candidate"])
+    validated = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, policy=older)
+    assert validated.state == x["validated_state"]
+    with pytest.raises(WorkflowError, match=x["promote_error"]):
+        promote_workflow(store, record.workflow_id)
+    with pytest.raises(WorkflowError, match=x["promote_error"]):
+        resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, apply=True)
+    assert store.get(record.workflow_id).state == x["validated_state"]
+    assert source.read_text(encoding="utf-8") == i["base"]
+
+    # negative control: a descriptive repair approved the same way still promotes
+    source, store, record, ready = approved("control", i["control_candidate"])
+    resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, policy=older)
+    assert promote_workflow(store, record.workflow_id).state == x["control_state"]
+    assert source.read_text(encoding="utf-8") == i["control_candidate"]
 
 
 # -- DS: digest swap / identity confusion ----------------------------------------------

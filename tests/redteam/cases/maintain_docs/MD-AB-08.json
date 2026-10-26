@@ -1,0 +1,63 @@
+{
+  "id": "MD-AB-08",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4"
+  ],
+  "status": "active",
+  "theme": "weaken_promise_refused",
+  "title": "Patch negates a promise or adds an exception while keeping every promise marker; refused with handoff",
+  "input": {
+    "refused": [
+      {
+        "base": "The API must reject unsigned requests.\n",
+        "candidate": "The API must not reject unsigned requests.\n",
+        "violation": "changes the negation of a protected promise"
+      },
+      {
+        "base": "The service won't store card numbers.\n",
+        "candidate": "The service will store card numbers.\n",
+        "violation": "changes the negation of a protected promise"
+      },
+      {
+        "base": "No passwords are written to the log.\n",
+        "candidate": "Passwords are written to the log.\n",
+        "violation": "changes the negation of a protected promise"
+      },
+      {
+        "base": "Uploads are always encrypted at rest.\n",
+        "candidate": "Uploads are always encrypted at rest, unless the bucket opts out.\n",
+        "violation": "adds an exception or hedge to a protected promise"
+      },
+      {
+        "base": "Admins must approve every export.\n",
+        "candidate": "Admins must approve every export when auditing is enabled.\n",
+        "violation": "adds an exception or hedge to a protected promise"
+      }
+    ],
+    "allowed": [
+      {
+        "base": "Click Save to keep your changes.\n",
+        "candidate": "Click Apply to keep your changes.\n"
+      },
+      {
+        "base": "Run `make test` to run all tests.\n",
+        "candidate": "Run `just test` to run all tests.\n"
+      },
+      {
+        "base": "The page does not show a banner.\n",
+        "candidate": "The page does not show a sidebar.\n"
+      }
+    ]
+  },
+  "expected": {
+    "refused_state": "rejected",
+    "handoff_kind": "implementation_handoff",
+    "approve_error": "awaiting_approval",
+    "allowed_state": "awaiting_approval",
+    "source_unchanged": true
+  }
+}

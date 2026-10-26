@@ -87,6 +87,47 @@ _PROTECTED = (
     "guarantee",
     "guarantees",
 )
+# Words that negate a promise, counted after "n't" is spelled "not". A protected
+# target may not gain or lose one: "must reject" -> "must not reject" keeps every
+# promise marker above and still inverts the promise.
+_NEGATIONS = ("no", "not", "never", "none", "nor", "neither", "cannot", "without")
+# Words that turn a promise into an exception or a hedge. A protected target may
+# not gain one: "always encrypted" -> "always encrypted, unless ..." keeps "always".
+_EXCEPTIONS = (
+    "unless",
+    "except",
+    "excluding",
+    "other than",
+    "if",
+    "when",
+    "where",
+    "may",
+    "might",
+    "could",
+    "should",
+    "usually",
+    "typically",
+    "generally",
+    "normally",
+    "often",
+    "sometimes",
+    "mostly",
+    "optionally",
+    "ideally",
+    "by default",
+    "best effort",
+    "best-effort",
+    "in most cases",
+)
+_QUANTIFIERS = ("at least", "no fewer than", "minimum of", "at most", "no more than", "maximum of", "up to", "within", "exactly")
+# A promise these bind may not change a number, its unit or a number word.
+_QUANTITY_BOUND = (*_QUANTIFIERS, "must", "shall", "always", "never", "cannot", "required", "guarantee", "guarantees")
+_NUMBER_WORDS = (
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty",
+    "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million", "billion",
+    "once", "twice", "thrice", "single", "double", "half", "dozen",
+)
 
 
 def _canonical_digest(value: object) -> str:
@@ -101,6 +142,9 @@ class MaintainDocsPolicy:
     policy_id: str = _POLICY_ID
     protected_contracts: tuple[str, ...] = field(default_factory=tuple)
     protected_markers: tuple[str, ...] = _PROTECTED
+    negation_markers: tuple[str, ...] = _NEGATIONS
+    exception_markers: tuple[str, ...] = _EXCEPTIONS
+    quantity_markers: tuple[str, ...] = _QUANTITY_BOUND
 
     @property
     def digest(self) -> str:
@@ -118,6 +162,7 @@ class MaintainDocsPolicy:
         target_claim_id: str,
         base_digest: str,
         candidate_digest: str,
+        target_kind: str | None = None,
     ) -> "PatchAuthorityDecision":
         problems = validate_diff_scope(diff, doc_name, target_start, target_end)
         old_lines = base_text.splitlines()
@@ -137,10 +182,26 @@ class MaintainDocsPolicy:
         weakened = [marker for marker, count in old_markers.items() if new_markers.get(marker, 0) < count]
         if weakened:
             problems.append("repair weakens protected promise marker(s): " + ", ".join(weakened))
-        quantifier = r"\b(?:at least|no fewer than|minimum of|at most|no more than|maximum of|up to|within|exactly)\b"
-        if re.search(quantifier, old_target, re.IGNORECASE):
-            numbers = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?(?:\s*%)?")
-            if numbers.findall(old_target) != numbers.findall(new_target):
+        old_negations = _markers(old_target, self.negation_markers)
+        if target_kind == "shell":
+            # In a command, "--no-cache" or "--all" is a flag, not a promise: only a
+            # quantified line keeps its numbers.
+            if _markers(old_target, _QUANTIFIERS) and _NUMBERS.findall(old_target) != _NUMBERS.findall(new_target):
+                problems.append("quantified protected contract changed")
+        elif old_markers or old_negations:
+            # Any promise marker or negation makes the target a promise. Keeping its markers
+            # is not enough: it must keep its negations and gain no exception or hedge.
+            new_negations = _markers(new_target, self.negation_markers)
+            flipped = sorted(m for m in {*old_negations, *new_negations} if old_negations.get(m, 0) != new_negations.get(m, 0))
+            if flipped:
+                problems.append("repair changes the negation of a protected promise: " + ", ".join(flipped))
+            old_exceptions = _markers(old_target, self.exception_markers)
+            new_exceptions = _markers(new_target, self.exception_markers)
+            added = [m for m, count in new_exceptions.items() if old_exceptions.get(m, 0) < count]
+            if added:
+                problems.append("repair adds an exception or hedge to a protected promise: " + ", ".join(added))
+            # A quantified or binding promise keeps its quantities, units and number words too.
+            if _markers(old_target, self.quantity_markers) and _quantities(old_target) != _quantities(new_target):
                 problems.append("quantified protected contract changed")
         reason = "authorized for Maintain Docs" if not problems else "; ".join(dict.fromkeys(problems))
         handoff = None if not problems else {
@@ -180,14 +241,37 @@ class PatchAuthorityDecision:
         return asdict(self)
 
 
+def _fold(text: str) -> str:
+    # "won't", "mustn't", "doesn’t" negate as "not" does; spell them so.
+    return " ".join(re.sub(r"n['’]t(?!\w)", " not", text.casefold()).split())
+
+
 def _markers(text: str, markers: tuple[str, ...]) -> dict[str, int]:
-    folded = " ".join(text.casefold().split())
+    folded = _fold(text)
     found: dict[str, int] = {}
     for marker in sorted(markers, key=len, reverse=True):
         pattern = r"(?<!\w)" + re.escape(marker.casefold()) + r"(?!\w)"
         count = len(re.findall(pattern, folded))
         if count:
             found[marker] = count
+    return found
+
+
+_NUMBERS = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?(?:\s*%)?")
+# Digits may carry their unit attached ("5s", "10GB"); a number word stands alone.
+_NUMBER = r"\d+(?:[.,]\d+)*|(?:" + "|".join(_NUMBER_WORDS) + r")(?!\w)"
+_QUANTITY = re.compile(r"(?<!\w)(" + _NUMBER + r")\s*(%|[^\W\d_]+)?")
+_QUANTIFIED = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(q) for q in _QUANTIFIERS) + r")(?!\w)((?:\s+[^\s,.;:]+){1,3})")
+
+
+def _quantities(text: str) -> list[str]:
+    """What a promise quantifies: each number (digits or a number word) with its unit,
+    and the words each quantifier binds. "30 days" -> "30 hours" and "three replicas" ->
+    "one replica" change it; a reworded sentence around the same quantities does not.
+    """
+    folded = _fold(text)
+    found = [f"{number} {unit or ''}".strip() for number, unit in _QUANTITY.findall(folded)]
+    found += [" ".join(bound.split()) for bound in _QUANTIFIED.findall(folded)]
     return found
 
 
