@@ -120,6 +120,27 @@ def _observation_run_failures(claims: list[Claim], evidence: dict, kane_runs: di
     return failures
 
 
+def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[str], build_digest: str | None) -> None:
+    """Promotion: each browser claim's stored evidence is from its bound fresh Kane run, on the approved build."""
+    kane_runs = validation.get("kane_runs") or {}
+    if any(not kane_runs.get(claim_id) for claim_id in browser):
+        raise WorkflowError("validation browser evidence is not bound to a fresh Kane run; --apply refused")
+    evidence = validation.get("evidence") or {}
+    observed = [((evidence.get(claim_id) or {}).get("observation") or {}).get("build_digest") for claim_id in browser]
+    if any(build is None or build != build_digest for build in observed):
+        raise WorkflowError("validation browser evidence was not observed on the approved app/build version; --apply refused")
+    # Stored evidence is read back as the product reads it (the subclass is lost; the note
+    # prefixes are not): only what receipt evidence would mark complete, from the bound run.
+    try:
+        stored = {claim_id: BrowserObservation.model_validate(evidence[claim_id]["observation"]) for claim_id in browser}
+    except Exception as exc:
+        raise WorkflowError(f"validation browser evidence is unreadable; --apply refused: {exc}") from exc
+    if any(obs.kane_run_id != kane_runs.get(claim_id) for claim_id, obs in stored.items()):
+        raise WorkflowError("validation browser evidence does not name the Kane run it is bound to; --apply refused")
+    if any(obs.status != "passed" or obs.simulation_only or obs.unbound for obs in stored.values()):
+        raise WorkflowError("validation browser evidence is simulated, unbound or not passed; --apply refused")
+
+
 def resume_workflow(
     store: SQLiteWorkflowStore,
     workflow_id: str,
@@ -302,24 +323,8 @@ def promote_workflow(
     proposal = record.proposal
     if record.validation.get("build_digest") != proposal.get("build_digest"):
         raise WorkflowError("validation evidence is not bound to the approved app/build version; --apply refused")
-    kane_runs = record.validation.get("kane_runs") or {}
     browser = [c.get("id") for c in record.validation.get("validated_claims") or [] if c.get("kind") == "browser"]
-    if any(not kane_runs.get(claim_id) for claim_id in browser):
-        raise WorkflowError("validation browser evidence is not bound to a fresh Kane run; --apply refused")
-    evidence = record.validation.get("evidence") or {}
-    observed = [((evidence.get(claim_id) or {}).get("observation") or {}).get("build_digest") for claim_id in browser]
-    if any(build != proposal.get("build_digest") for build in observed):
-        raise WorkflowError("validation browser evidence was not observed on the approved app/build version; --apply refused")
-    # Stored evidence is read back as the product reads it (the subclass is lost; the note
-    # prefixes are not): only what receipt evidence would mark complete, from the bound run.
-    try:
-        stored = {claim_id: BrowserObservation.model_validate(evidence[claim_id]["observation"]) for claim_id in browser}
-    except Exception as exc:
-        raise WorkflowError(f"validation browser evidence is unreadable; --apply refused: {exc}") from exc
-    if any(obs.kane_run_id != kane_runs.get(claim_id) for claim_id, obs in stored.items()):
-        raise WorkflowError("validation browser evidence does not name the Kane run it is bound to; --apply refused")
-    if any(obs.status != "passed" or obs.simulation_only or obs.unbound for obs in stored.values()):
-        raise WorkflowError("validation browser evidence is simulated, unbound or not passed; --apply refused")
+    _refuse_unbound_browser_evidence(record.validation, browser, proposal.get("build_digest"))
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])

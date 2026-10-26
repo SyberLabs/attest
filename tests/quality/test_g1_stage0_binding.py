@@ -949,3 +949,262 @@ def test_control_stored_observations_name_their_bound_run_and_still_count(tmp_pa
         assert [(e.complete, e.kane_run_id) for e in receipt.evidence] == [(True, sid)] * 2
     assert promote_workflow(store, workflow_id).state == "promoted"
     assert source.read_text(encoding="utf-8") == CANDIDATE_DOC
+
+
+# -- spec mode: an approved candidate app validated on Kane evidence ---------------------
+#
+# Spec mode (``spec_app``) validated and promoted on statuses alone: an observation cached
+# from an earlier run, one naming another run or build, or none, and a stored record whose
+# run and build bindings were dropped all validated and wrote the original app. Validation
+# and promotion now bind them as the Maintain Docs path does. The runner measures the
+# spec's worktree, so that is the build approval records (``spec_build_digest``).
+
+APP_JS = "const greeting = 'Hello, World!';\n"
+
+
+def approved_spec_promotion(tmp_path: Path, git: bool = False, spec_repo: bool = False, spec_source: str | None = None):
+    """A spec-mode proposal to promote a changed candidate app, approved by a human, awaiting validation.
+
+    The app and the spec share ``repo`` (``git`` makes it a Git worktree). ``spec_repo`` puts the
+    spec in a Git worktree of its own and leaves the app unversioned. ``spec_source`` names the
+    spec by URL instead.
+    """
+    from attest.app_promotion import create_app_promotion_proposal
+    from attest.implement import make_candidate
+
+    repo = tmp_path / "repo"
+    app = (tmp_path if spec_repo else repo) / "app"
+    app.mkdir(parents=True)
+    repo.mkdir(exist_ok=True)
+    (app / "app.js").write_text(APP_JS, encoding="utf-8")
+    spec = repo / "greeting.md"
+    spec.write_text(CANDIDATE_DOC, encoding="utf-8")
+    if git or spec_repo:
+        _git(repo, "init", "-q")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "baseline")
+    doc = ingest_text(CANDIDATE_DOC, source=spec_source or str(spec))
+    claims = compile_doc(doc, llm=DeterministicCompiler(), use_cache=False)
+    candidate = make_candidate(app, doc.sha256, tmp_path / "home")  # outside the repo: not a build input
+    (candidate.root / "app.js").write_text(APP_JS + "render(greeting);\n", encoding="utf-8")
+    store = SQLiteWorkflowStore(tmp_path / "workflow.sqlite3")
+    record = create_app_promotion_proposal(store, candidate=candidate, doc=doc, claims=claims, implemented=["c08"])
+    assert record.state == "awaiting_approval", record.proposal.get("authority")
+    approve_workflow(store, record.workflow_id, "maintainer@example.test")
+    return app, spec, store, record.workflow_id
+
+
+def app_unchanged(app: Path) -> bool:
+    return (app / "app.js").read_text(encoding="utf-8") == APP_JS
+
+
+def test_control_spec_mode_fresh_kane_run_on_the_approved_build_validates_and_promotes(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, workflow_id = approved_spec_promotion(tmp_path, git=True)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+
+    validated = resume_workflow(store, workflow_id, runner=runner)
+
+    assert validated.state == "validated", validated.validation
+    validation = validated.validation
+    sid = session_of("witness_stale")
+    assert validation["kane_runs"] == {"c07": sid, "c08": sid} and len(cli.calls) == 1
+    assert validation["spec_build_digest"] == validated.proposal["spec_build_digest"] == build_of(spec)
+    assert {(obs.build_digest, obs.kane_run_id) for obs in observations(validation).values()} == {
+        (validation["spec_build_digest"], sid)}
+    assert promote_workflow(store, workflow_id).state == "promoted"
+    assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")
+
+
+def test_kane_run_spec_mode_cached_observation_from_an_earlier_run_is_stale(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, workflow_id = approved_spec_promotion(tmp_path, git=True)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    observe_browser_claims(runner, spec)  # the same runner observed these claims before validation
+    assert len(cli.calls) == 1
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert len(cli.calls) == 1  # validation started no Kane run of its own
+    assert outcome.state == "rejected", outcome.validation
+    assert outcome.validation["statuses"]["c07"] == outcome.validation["statuses"]["c08"] == "proven"
+    assert outcome.validation["failed_claims"] == ["c07:stale_kane_run", "c08:stale_kane_run"]
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize(
+    "named, failure",
+    [("kane-session-from-yesterday", "observation_run_mismatch"), (None, "observation_run_missing")],
+    ids=["observation-from-another-run", "observation-names-no-run"],
+)
+def test_kane_run_spec_mode_observation_not_naming_its_bound_run_fails_validation(tmp_path, monkeypatch, named, failure):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path, git=True)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    observe = runner.observe
+    runner.observe = lambda claim, base_url: observe(claim, base_url).model_copy(update={"kane_run_id": named})
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert outcome.state == "rejected"
+    sid = session_of("witness_stale")
+    assert len(cli.calls) == 1 and outcome.validation["kane_runs"] == {"c07": sid, "c08": sid}
+    assert outcome.validation["failed_claims"] == [f"c07:{failure}", f"c08:{failure}"]
+    with pytest.raises(WorkflowError):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize(
+    "build, failure",
+    [(None, "observation_build_missing"), (digest("a build nobody approved"), "observation_build_mismatch")],
+    ids=["omitted-build", "wrong-build"],
+)
+def test_observation_build_spec_mode_omitted_or_wrong_fails_validation(tmp_path, monkeypatch, build, failure):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path, git=True)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    observe = runner.observe
+    runner.observe = lambda claim, base_url: observe(claim, base_url).model_copy(update={"build_digest": build})
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert outcome.state == "rejected"
+    sid = session_of("witness_stale")
+    assert len(cli.calls) == 1 and outcome.validation["kane_runs"] == {"c07": sid, "c08": sid}
+    assert outcome.validation["failed_claims"] == [f"c07:{failure}", f"c08:{failure}"]
+    assert app_unchanged(app)
+
+
+def test_observation_build_spec_mode_url_spec_names_no_build_and_cannot_validate(tmp_path, monkeypatch):
+    # A spec named by URL: the runner measures no build around its run, so there is none to bind.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path, spec_source="https://docs.example.test/greeting.md")
+    assert store.get(workflow_id).proposal["spec_build_digest"] is None
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert outcome.state == "rejected" and len(cli.calls) == 1
+    assert outcome.validation["failed_claims"] == ["c07:observation_build_missing", "c08:observation_build_missing"]
+    assert app_unchanged(app)
+
+
+def test_version_spec_mode_build_change_during_validation_is_unresolved(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, workflow_id = approved_spec_promotion(tmp_path, git=True)
+    # The worktree changes while Kane observes it (outside the app tree, so only the build moves).
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, side_effect=lambda: deploy(spec, "// mid-run\n"))
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert outcome.state == "unresolved"
+    assert outcome.validation["reason"].startswith("changed during validation: build identity changed")
+    assert app_unchanged(app)
+
+
+def test_version_spec_mode_spec_build_change_after_approval_is_unresolved(tmp_path, monkeypatch):
+    # The spec lives in its own worktree, so the app's build check cannot see it change. Kane
+    # would stamp the new build on every observation, and nothing compared it to approval.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, workflow_id = approved_spec_promotion(tmp_path, spec_repo=True)
+    approved = store.get(workflow_id).proposal["spec_build_digest"]
+    deploy(spec)
+    assert build_of(spec) != approved
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert outcome.state == "unresolved" and not cli.calls
+    assert "spec build identity changed after approval" in outcome.validation["reason"]
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda v: v.update(spec_build_digest=digest("some other build")),
+        lambda v: v.pop("spec_build_digest"),
+    ],
+    ids=["swapped-build", "omitted-build"],
+)
+def test_version_spec_mode_promotion_refuses_validation_not_bound_to_the_approved_build(tmp_path, monkeypatch, change):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    assert resume_workflow(store, workflow_id, runner=runner).state == "validated"
+    _tamper_validation(store, workflow_id, change)
+
+    with pytest.raises(WorkflowError, match="not bound to the approved app/build version"):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda v: v["kane_runs"].pop("c08"),
+        lambda v: v["kane_runs"].update(c08=None),
+        lambda v: v.pop("kane_runs"),
+    ],
+    ids=["dropped-claim-run", "nulled-claim-run", "omitted-runs"],
+)
+def test_kane_run_spec_mode_promotion_refuses_validation_without_kane_run_bindings(tmp_path, monkeypatch, change):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    assert resume_workflow(store, workflow_id, runner=runner).state == "validated"
+    _tamper_validation(store, workflow_id, change)
+
+    with pytest.raises(WorkflowError, match="not bound to a fresh Kane run"):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda v: v["evidence"]["c08"]["observation"].update(build_digest=digest("some other build")),
+        lambda v: v["evidence"]["c08"]["observation"].pop("build_digest"),
+        lambda v: v["evidence"].pop("c08"),
+    ],
+    ids=["swapped-observation-build", "omitted-observation-build", "dropped-evidence"],
+)
+def test_observation_build_spec_mode_promotion_refuses_evidence_not_observed_on_the_approved_build(tmp_path, monkeypatch, change):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    assert resume_workflow(store, workflow_id, runner=runner).state == "validated"
+    _tamper_validation(store, workflow_id, change)
+
+    with pytest.raises(WorkflowError, match="not observed on the approved app/build version"):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize(
+    "change, refusal",
+    [
+        (lambda v: v["kane_runs"].update(c08="kane-session-from-yesterday"), "does not name the Kane run"),
+        (lambda v: v["evidence"]["c08"]["observation"].update(kane_run_id="kane-session-from-yesterday"),
+         "does not name the Kane run"),
+        (lambda v: v["evidence"]["c08"]["observation"].pop("kane_run_id"), "does not name the Kane run"),
+        (lambda v: v["evidence"]["c08"]["observation"].update(note="simulation-only: fake runner cannot verify page state"),
+         "simulated, unbound or not passed"),
+        (lambda v: v["evidence"]["c08"]["observation"].update(note="unbound: no evidence pack names Kane session (none reported)"),
+         "simulated, unbound or not passed"),
+        (lambda v: v["evidence"]["c08"]["observation"].update(status="failed"), "simulated, unbound or not passed"),
+    ],
+    ids=["swapped-claim-run", "swapped-observation-run", "omitted-observation-run",
+         "stored-simulation-note", "stored-unbound-note", "stored-failed-status"],
+)
+def test_kane_run_spec_mode_promotion_refuses_stored_evidence_a_receipt_would_not_count(tmp_path, monkeypatch, change, refusal):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    assert resume_workflow(store, workflow_id, runner=runner).state == "validated"
+    _tamper_validation(store, workflow_id, change)
+
+    with pytest.raises(WorkflowError, match=refusal):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
