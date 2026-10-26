@@ -12,6 +12,12 @@ from attest.verdict import Rules
 
 PY = sys.executable
 
+
+class KaneTestRunner(FakeBrowserRunner):
+    """Test runner for spec-mode mechanics; live evidence comes from Kane in production."""
+
+    name = "kane"
+
 SPEC = textwrap.dedent(
     """\
     # Deals spec
@@ -74,7 +80,7 @@ def setup(tmp_path, monkeypatch, agent_body, env="ATTEST_WORKER_CMD"):
 def test_candidate_is_a_fresh_copy_and_reaches_the_shell(tmp_path, monkeypatch):
     app, spec = setup(tmp_path, monkeypatch, IMPL_AGENT)
     home = tmp_path / "home"
-    result = prove(str(spec), runner=FakeBrowserRunner(), home=home, app_dir=app, keep_servers=True)
+    result = prove(str(spec), runner=KaneTestRunner(), home=home, app_dir=app, keep_servers=True)
     cand = result.candidate
     assert cand.root.parent.parent == home / "candidates"
     assert cand.root.parent.name == f"{result.doc.sha256[:12]}-1"
@@ -92,7 +98,7 @@ def test_candidate_is_a_fresh_copy_and_reaches_the_shell(tmp_path, monkeypatch):
 def test_failing_claim_gets_ticket_implementation_and_recheck(tmp_path, monkeypatch):
     app, spec = setup(tmp_path, monkeypatch, IMPL_AGENT)
     home = tmp_path / "home"
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(spec), runner=runner, home=home, app_dir=app, keep_servers=True)
     doc_lines = list(result.doc.lines)
     result = run_loop(result, runner, home=home, rules=Rules(), agent_cmd='raise "the doc agent must not be called"')
@@ -146,7 +152,7 @@ def test_failing_claim_gets_ticket_implementation_and_recheck(tmp_path, monkeypa
 def test_diff_outside_app_root_is_rejected(tmp_path, monkeypatch):
     app, spec = setup(tmp_path, monkeypatch, ESCAPE_AGENT, env="ATTEST_IMPL_CMD")  # the old name still works
     home = tmp_path / "home"
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(spec), runner=runner, home=home, app_dir=app, keep_servers=True)
     result = run_loop(result, runner, home=home, rules=Rules())
     after = result.by_id["c02"]
@@ -166,7 +172,7 @@ def test_safe_app_paths():
     assert app_diff_paths("diff --git a/x.js b/../y.js\n--- a/x.js\n+++ b/../y.js\n") == {"x.js", "../y.js"}
 
 
-class DiskRunner(FakeBrowserRunner):
+class DiskRunner(KaneTestRunner):
     """Stands in for Kane: reads the candidate app from disk and caches per claim until forgotten."""
 
     def __init__(self, app_root_ref):
@@ -238,8 +244,11 @@ def test_cli_app_flag_runs_spec_mode(tmp_path, monkeypatch):
     from attest.cli import app as cli_app
 
     app, spec = setup(tmp_path, monkeypatch, IMPL_AGENT)
+    import attest.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
     home = tmp_path / "home"
-    out = CliRunner().invoke(cli_app, ["prove", str(spec), "--runner", "fake", "--app", str(app), "--home", str(home)])
+    out = CliRunner().invoke(cli_app, ["prove", str(spec), "--runner", "kane", "--app", str(app), "--home", str(home)])
     assert out.exit_code == 0, out.output
     assert "TICKET    line 12  Missing capability:" in out.output
     assert "WORKER    line 12  sending ticket to " in out.output and "app change:" in out.output

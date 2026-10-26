@@ -12,6 +12,12 @@ from attest.runner import FakeBrowserRunner
 from attest.verdict import Rules
 
 
+class KaneTestRunner(FakeBrowserRunner):
+    """Test runner for repair mechanics; live evidence comes from Kane in production."""
+
+    name = "kane"
+
+
 def _request(**overrides):
     conflict = {
         "claim_id": "c01",
@@ -151,23 +157,32 @@ def test_maintain_docs_descriptive_repair_path_still_allows_apply(tmp_path, monk
     )
     result = prove(
         str(source),
-        runner=FakeBrowserRunner(),
+        runner=KaneTestRunner(),
         home=tmp_path / "home",
         keep_servers=True,
     )
     assert result.by_id["c01"].status == "broken"
 
+    from attest.approvals import approve_workflow
     from attest.loop import run_loop
+    from attest.storage import SQLiteWorkflowStore
+    from attest.workflow import resume_workflow
 
-    repaired = run_loop(
+    proposed = run_loop(
         result,
-        FakeBrowserRunner(),
+        KaneTestRunner(),
         home=tmp_path / "home",
         rules=Rules(),
         agent_cmd=f'"{sys.executable}" "{agent}"',
-        apply_to_source=True,
     )
+    assert proposed.by_id["c01"].status == "broken"  # proposals are not evidence
+    assert "exit 1" in source.read_text(encoding="utf-8")
 
-    assert repaired.by_id["c01"].status == "proven"
+    store = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3")
+    workflow_id = proposed.proposals["c01"]
+    approve_workflow(store, workflow_id, "maintainer")
+    promoted = resume_workflow(store, workflow_id, runner=KaneTestRunner(), apply=True)
+
+    assert promoted.state == "promoted"
     assert "echo ready && exit 0" in source.read_text(encoding="utf-8")
     assert "exit 1" not in source.read_text(encoding="utf-8")

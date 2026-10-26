@@ -8,11 +8,12 @@ ProveResult with everything render and the loop need.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .compiler import compile_doc
+from .compiler import CompileError, compile_doc
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest
 from .ledger import Ledger
@@ -23,6 +24,26 @@ from .shell import ShellSession, new_scratch
 from .verdict import Rules, judge, load_rules
 
 ATTEST_DIR = Path(os.environ.get("ATTEST_HOME", ".attest"))
+_UNCOMPILED_ACTION = re.compile(
+    r"\b(?:click|type|select|press|navigate to|visit|head over to|go to)\b|"
+    r"\bopen\s+(?:the|a|your|this)\s+(?:browser|page|site|url|menu|app|button|link|tab)\b|"
+    r"\b(?:you should see|you will see|you'll see)\b",
+    re.IGNORECASE,
+)
+
+
+def _uncompiled_required_lines(doc: Doc, claims: list[Claim]) -> list[int]:
+    covered = {
+        line
+        for claim in claims
+        for line in range(claim.span.start_line, claim.span.end_line + 1)
+    }
+    fenced = {line for fence in doc.fences for line in range(fence.start_line - 1, fence.end_line + 2)}
+    return [
+        number
+        for number, line in enumerate(doc.lines, 1)
+        if number not in covered and number not in fenced and _UNCOMPILED_ACTION.search(line)
+    ]
 
 
 def out_dir_for(doc: Doc, home: Path = ATTEST_DIR) -> Path:
@@ -41,6 +62,9 @@ class ProveResult:
     briefs: dict[str, Brief] = field(default_factory=dict)
     prior: dict[str, Verdict] = field(default_factory=dict)
     scratch: Path | None = None
+    simulation: bool = False
+    proposals: dict[str, str] = field(default_factory=dict)
+    proposal_states: dict[str, str] = field(default_factory=dict)
 
     @property
     def by_id(self) -> dict[str, Verdict]:
@@ -66,13 +90,9 @@ def execute(
     on_start=None,
     recipes_only: bool = False,
     recipe_executor: ApprovedRecipeExecutor | None = None,
+    simulation: bool = False,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
-    """Run claims in doc order and judge each as soon as its evidence exists.
-
-    ``only`` restricts execution to those claim ids; the rest reuse ``prior``
-    verdicts. The ShellSession is returned open so a caller can keep servers up;
-    callers must close it.
-    """
+    """Run claims in doc order; simulation evidence can never produce a proven verdict."""
     evidence: dict[str, Evidence] = {}
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
@@ -137,6 +157,8 @@ def execute(
                     if src is not None and src.kind == "shell":
                         ev = src.model_copy(update={"claim_id": c.id})
             v = judge(c, ev, reached, rules)
+            if simulation:
+                v = v.model_copy(update={"status": "unverifiable", "reason": f"simulation only; not verification evidence: {v.reason}"})
             if ev is not None:
                 evidence[c.id] = ev
             reached[c.id] = v
@@ -164,10 +186,16 @@ def prove(
     on_start=None,
     recipes_only: bool = False,
     recipe_executor: ApprovedRecipeExecutor | None = None,
+    simulation: bool = False,
     app_dir: Path | None = None,
 ) -> ProveResult:
     rules = rules or load_rules()
-    runner = runner or FakeBrowserRunner()
+    if runner is None:
+        raise ValueError("an explicit browser runner is required; use FakeBrowserRunner with simulation=True for a demo")
+    if getattr(runner, "name", None) == "fake" and not simulation:
+        raise ValueError("fake browser evidence requires simulation=True and cannot verify claims")
+    if simulation and getattr(runner, "name", None) != "fake":
+        raise ValueError("simulation=True is only valid with the fake browser runner")
     doc = ingest(source)
     candidate = None
     if app_dir is not None:
@@ -177,6 +205,12 @@ def prove(
         candidate = make_candidate(Path(app_dir), doc.sha256, home)
         shell_env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
     claims = compile_doc(doc, llm=llm)
+    uncovered = _uncompiled_required_lines(doc, claims)
+    if uncovered:
+        raise CompileError(
+            "incomplete compilation; required browser/actionable lines were not claimed: "
+            + ", ".join(map(str, uncovered))
+        )
     doc = doc.model_copy(update={"claims": claims})
     if stop_before is not None and stop_before not in {claim.id for claim in claims}:
         valid_ids = ", ".join(claim.id for claim in claims) or "(none)"
@@ -189,55 +223,63 @@ def prove(
         raise ValueError(f"unknown claim id(s) {unknown_ids!r}; valid ids: {valid_ids}")
     prepare = getattr(runner, "prepare", None)
     if prepare is not None:
-        # a batching runner plans its test files from the claims that will run
         stop_index = next((i for i, c in enumerate(claims) if c.id == stop_before), len(claims))
         run_claims = [c for i, c in enumerate(claims) if i < stop_index and c.id not in skip]
         prepare(run_claims, doc.source)
     scratch = new_scratch()
     out_dir = out_dir_for(doc, home)
     live_state = {"now": "Preparing claims"}
-    if live:
-        result = ProveResult(doc, claims, {}, [], 0, out_dir, scratch=scratch)
-        _write_live_page(result, home, runner.name, live_state["now"], True)
-
-    def announce(claim):
-        if on_start:
-            on_start(claim)
-        if not live:
-            return
-        live_state["now"] = claim_banner(claim)
-        _write_live_page(result, home, runner.name, live_state["now"], True)
-
-    def record(c, v):
-        if log:
-            log(c, v)
+    session = None
+    try:
         if live:
-            result.verdicts.append(v)
+            result = ProveResult(doc, claims, {}, [], 0, out_dir, scratch=scratch, simulation=simulation)
             _write_live_page(result, home, runner.name, live_state["now"], True)
 
-    evidence, verdicts, session = execute(
-        claims, runner, rules, scratch, shell_env=shell_env, log=record if live else log,
-        stop_before=stop_before, skip=skip, on_start=announce,
-        recipes_only=recipes_only, recipe_executor=recipe_executor,
-    )
-    if not keep_servers:
-        session.close()
-    ledger = Ledger(home / "ledger.jsonl")
-    turn = ledger.next_turn()
-    ledger.record(doc.sha256, turn, claims, verdicts)
-    runs = getattr(runner, "runs", None)
-    if runs is not None:
-        run_count = ledger.record_new_kane_runs(doc.sha256, turn, runs)
-    else:
-        run_count = 0
-    result = ProveResult(doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch)
-    result._kane_runs_count = run_count  # type: ignore[attr-defined]
-    result._session = session  # type: ignore[attr-defined]
-    result.candidate = candidate  # type: ignore[attr-defined]
-    render_result(result, home, runner.name)
-    if live:
-        _write_live_page(result, home, runner.name, "Proof complete", False)
-    return result
+        def announce(claim):
+            if on_start:
+                on_start(claim)
+            if not live:
+                return
+            live_state["now"] = claim_banner(claim)
+            _write_live_page(result, home, runner.name, live_state["now"], True)
+
+        def record(c, v):
+            if log:
+                log(c, v)
+            if live:
+                result.verdicts.append(v)
+                _write_live_page(result, home, runner.name, live_state["now"], True)
+
+        evidence, verdicts, session = execute(
+            claims, runner, rules, scratch, shell_env=shell_env, log=record if live else log,
+            stop_before=stop_before, skip=skip, on_start=announce, simulation=simulation,
+            recipes_only=recipes_only, recipe_executor=recipe_executor,
+        )
+        if not keep_servers:
+            session.close()
+        ledger = Ledger(home / "ledger.jsonl")
+        turn = ledger.next_turn()
+        ledger.record(doc.sha256, turn, claims, verdicts)
+        runs = getattr(runner, "runs", None)
+        if runs is not None:
+            run_count = ledger.record_new_kane_runs(doc.sha256, turn, runs)
+        else:
+            run_count = 0
+        result = ProveResult(
+            doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch, simulation=simulation
+        )
+        result._kane_runs_count = run_count  # type: ignore[attr-defined]
+        result._session = session  # type: ignore[attr-defined]
+        result.candidate = candidate  # type: ignore[attr-defined]
+        render_result(result, home, runner.name)
+        if live:
+            _write_live_page(result, home, runner.name, "Proof complete", False)
+        return result
+    except BaseException:
+        if session is not None:
+            session.close()
+        cleanup_scratch(scratch)
+        raise
 
 
 def claim_banner(claim: Claim) -> str:

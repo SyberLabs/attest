@@ -4,6 +4,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from attest.loop import (
     brief_text,
     build_brief,
@@ -18,6 +20,12 @@ from attest.models import BrowserObservation, Claim, Evidence, Span, Verdict
 from attest.pipeline import prove
 from attest.runner import FakeBrowserRunner
 from attest.verdict import Rules
+
+
+class KaneTestRunner(FakeBrowserRunner):
+    """Test runner for loop mechanics; live evidence comes from Kane in production."""
+
+    name = "kane"
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
@@ -141,45 +149,40 @@ def test_shift_spans():
 # -- end to end ------------------------------------------------------------------------
 
 
-def test_loop_fixes_broken_shell_step(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # fences only, no model
+def test_loop_creates_approval_gated_proposal_without_changing_source(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home", keep_servers=True)
     assert [v.status for v in result.verdicts] == ["proven", "broken"]
-    failing = result.failing()
-    assert [c.id for c in failing] == ["c02"]
+    assert [c.id for c in result.failing()] == ["c02"]
 
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT))
-    after = result.by_id["c02"]
-    assert after.status == "proven", after.reason
-    assert "(after loop)" in after.reason
+    assert result.by_id["c02"].status == "broken"  # proposals are not evidence
+    assert result.proposals["c02"]
     brief = result.briefs["c02"]
     assert brief.attempts == 1
     assert brief.patch and "+echo ready && exit 0" in brief.patch and "-echo ready && exit 1" in brief.patch
     assert result.prior["c02"].status == "broken"
-    # the re-compiled claim carries the new command verbatim and the same id
-    c02 = next(c for c in result.claims if c.id == "c02")
-    assert c02.command == "echo ready && exit 0"
-    assert result.doc.lines[c02.span.start_line - 1] == "echo ready && exit 0"
-    # the source file was not modified (apply_to_source defaults to False)
-    assert "exit 1" in doc_path.read_text()
-    # both verdicts under one turn in the ledger
-    rows = [json.loads(l) for l in (tmp_path / "home" / "ledger.jsonl").read_text().splitlines()]
-    c02_rows = [r for r in rows if r["claim_id"] == "c02"]
-    assert [r["status"] for r in c02_rows] == ["broken", "proven"]
-    assert {r["turn"] for r in c02_rows} == {result.turn}
-    assert c02_rows[1]["looped"] is True
-    # the ledger strip now counts the claim as proven and the loop as closed
-    from attest.ledger import Ledger
+    from attest.storage import SQLiteWorkflowStore
 
-    s = Ledger(tmp_path / "home" / "ledger.jsonl").summary(result.doc.sha256, result.turn)
-    assert (s["proven"], s["broken"], s["loops_closed"]) == (2, 0, 1)
+    record = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get(result.proposals["c02"])
+    assert record.state == "awaiting_approval"
+    candidate = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get_artifact(
+        record.proposal["artifact_digests"]["candidate"]
+    ).decode()
+    assert "echo ready && exit 0" in candidate
+    assert "exit 1" in doc_path.read_text()
+    rows = [json.loads(l) for l in (tmp_path / "home" / "ledger.jsonl").read_text().splitlines()]
+    assert [r["status"] for r in rows if r["claim_id"] == "c02"] == ["broken"]
     receipt = json.loads(next((tmp_path / "home" / "receipts").glob("*.json")).read_text())
     assert receipt["schema"] == "attest.receipt/v0"
-    assert receipt["disposition"] == "repaired"
+    assert receipt["case_id"]
+    assert (tmp_path / "home" / "receipts" / f"{receipt['case_id']}.json").is_file()
+    assert receipt["disposition"] == "awaiting_approval"
+    assert receipt["verified"] is False
     assert receipt["proposal"]["patch_sha256"]
     assert set(receipt) == {"schema", "case_id", "created_at", "doc", "claim", "authority", "proposal", "approval", "evidence", "handoff", "disposition", "verified"}
 
@@ -191,8 +194,11 @@ def test_protected_claim_hands_off_without_calling_agent(tmp_path, monkeypatch):
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
     policy = tmp_path / "attest.policy.yaml"
     policy.write_text('protected:\n  - claim: c02\n', encoding="utf-8")
-    result = prove(str(doc_path), runner=FakeBrowserRunner(), home=tmp_path / "home")
-    result = run_loop(result, FakeBrowserRunner(), home=tmp_path / "home", rules=Rules(), agent_cmd='raise "agent must not be called"')
+    result = prove(str(doc_path), runner=KaneTestRunner(), home=tmp_path / "home")
+    result = run_loop(
+        result, KaneTestRunner(), home=tmp_path / "home", rules=Rules(),
+        agent_cmd='raise "agent must not be called"', policy_path=policy,
+    )
     assert "doc repair refused" in result.by_id["c02"].reason
     receipt = json.loads(next((tmp_path / "home" / "receipts").glob("*.json")).read_text())
     assert receipt["disposition"] == "handoff_implementation"
@@ -227,7 +233,7 @@ def test_loop_rejects_diff_touching_other_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "rogue", ROGUE_AGENT))
     after = result.by_id["c02"]
@@ -242,7 +248,7 @@ def test_loop_handles_agent_without_diff(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "silent", SILENT_AGENT))
     assert result.by_id["c02"].status == "broken"
@@ -250,15 +256,16 @@ def test_loop_handles_agent_without_diff(tmp_path, monkeypatch):
     assert result.briefs["c02"].patch is None
 
 
-def test_loop_apply_writes_source(tmp_path, monkeypatch):
+def test_loop_apply_flag_cannot_write_source(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     doc_path = tmp_path / "loop.md"
     doc_path.write_text(BROKEN_DOC, encoding="utf-8")
-    runner = FakeBrowserRunner()
+    runner = KaneTestRunner()
     result = prove(str(doc_path), runner=runner, home=tmp_path / "home")
-    run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), apply_to_source=True)
-    assert "exit 0" in doc_path.read_text() and "exit 1" not in doc_path.read_text()
+    with pytest.raises(ValueError, match="source application is disabled"):
+        run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "fix", FIX_AGENT), apply_to_source=True)
+    assert "exit 1" in doc_path.read_text()
 
 
 STALE_DOC = textwrap.dedent(
@@ -274,7 +281,7 @@ STALE_DOC = textwrap.dedent(
 HEADING_AGENT = FIX_AGENT.replace('old.replace("exit 1", "exit 0")', 'old.replace(\'"Vite + React"\', \'"Get started"\')')
 
 
-class BatchingRunner(FakeBrowserRunner):
+class BatchingRunner(KaneTestRunner):
     """Stands in for the Kane runner: answers from today's page and keeps every observation."""
 
     PAGE = {"c01": "Get started", "c02": "Count is 0"}
@@ -300,7 +307,7 @@ def stale_claims(doc):
     return [b("c01", 3, "Vite + React", []), b("c02", 4, "count is 0", ["c01"])]
 
 
-def test_loop_fixes_stale_browser_step_and_rejudges_dependents(tmp_path, monkeypatch):
+def test_loop_proposes_stale_browser_repair_without_replaying_kane(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # re-compile follows the new quote without a model
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("attest.pipeline.compile_doc", lambda doc, llm=None: stale_claims(doc))
@@ -312,13 +319,19 @@ def test_loop_fixes_stale_browser_step_and_rejudges_dependents(tmp_path, monkeyp
 
     result = run_loop(result, runner, home=tmp_path / "home", rules=Rules(), agent_cmd=agent_cmd(tmp_path, "heading", HEADING_AGENT))
     c01 = next(c for c in result.claims if c.id == "c01")
-    assert c01.expects == "Get started" and '"Get started"' in c01.objective
-    assert result.by_id["c01"].status == "proven", result.by_id["c01"].reason
-    assert result.by_id["c02"].status == "proven" and "after loop on c01" in result.by_id["c02"].reason
-    assert result.prior["c02"].status == "skipped"
-    rows = [json.loads(l) for l in (tmp_path / "home" / "ledger.jsonl").read_text().splitlines()]
-    assert [r["status"] for r in rows if r["claim_id"] == "c01"] == ["stale", "proven"]
-    assert len({r["turn"] for r in rows}) == 1
+    assert c01.expects == "Vite + React"  # candidate stays pending human approval
+    assert result.by_id["c01"].status == "stale"
+    assert result.by_id["c02"].status == "skipped"
+    assert result.proposals["c01"]
+    from attest.storage import SQLiteWorkflowStore
+
+    record = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get(result.proposals["c01"])
+    candidate = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3").get_artifact(
+        record.proposal["artifact_digests"]["candidate"]
+    ).decode()
+    assert '"Get started"' in candidate
+    assert doc_path.read_text(encoding="utf-8") == STALE_DOC
+    assert [claim_id for claim_id, _ in runner.calls] == ["c01"]  # proposal creation does not replay Kane
 
 
 def test_brief_carries_kane_failure_record_and_screenshot():

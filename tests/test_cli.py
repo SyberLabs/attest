@@ -7,12 +7,25 @@ from attest.cli import _log, _step
 from attest.models import Claim, Evidence, Span, Verdict, BrowserObservation
 
 
+class KaneTestRunner:
+    name = "kane"
+
+    def observe(self, claim, base_url):
+        return BrowserObservation(status="passed", observed={claim.store_as or f"{claim.id}_label": claim.expects or ""})
+
+    def close(self):
+        pass
+
+
 def _prove(tmp_path, monkeypatch, body: str):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # fences only, no model
     monkeypatch.chdir(tmp_path)
     doc = tmp_path / "doc.md"
     doc.write_text(f"# Doc\n\n```bash\n{body}\n```\n", encoding="utf-8")
-    return CliRunner().invoke(app, ["prove", str(doc), "--runner", "fake", "--home", str(tmp_path / "home")])
+    import attest.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
+    return CliRunner().invoke(app, ["prove", str(doc), "--runner", "kane", "--home", str(tmp_path / "home")])
 
 
 def test_prove_exits_zero_when_every_claim_holds(tmp_path, monkeypatch):
@@ -142,7 +155,10 @@ def _prove_live(tmp_path, monkeypatch, home):
     monkeypatch.chdir(tmp_path)
     doc = tmp_path / "doc.md"
     doc.write_text("# Doc\n\n```bash\necho hello\n```\n", encoding="utf-8")
-    return CliRunner().invoke(app, ["prove", str(doc), "--runner", "fake", "--home", str(home), "--live"], color=True)
+    import attest.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
+    return CliRunner().invoke(app, ["prove", str(doc), "--runner", "kane", "--home", str(home), "--live"], color=True)
 
 
 def test_live_wrapper_has_terminal_pane_that_polls_live_log(tmp_path, monkeypatch):
