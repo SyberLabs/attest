@@ -4,7 +4,7 @@
 
 **Check:** `g5-protected-text / G5 Protected-text diff` (`.github/workflows/g5-protected-text.yml`). It runs `tests/quality/test_g5_protected_text.py`, then `scripts/g5-protected-text.py --base <base> --head HEAD`. On a PR the base is the first parent of the merge commit; on a push to `main` it is the previous `main` tip.
 
-**Status:** Proposed until a hosted run is green. Update this line only from real run output.
+**Status:** **Measured (attest, scoped to the two hooks below)** on PR #33. On `6112bc5`, hosted [run 40297703999](https://github.com/SyberLabs/attest/actions/runs/40297703999) passed 24 control tests and compared 3 protected units, with 0 changed. Negative control: on `0cdc93a`, which weakened the `demo/counter.md` promise, [run 40297561925](https://github.com/SyberLabs/attest/actions/runs/40297561925) failed in the diff step, while `pytest` stayed green. Not yet a required check. Update this line only from real run output.
 
 ## What is protected
 
