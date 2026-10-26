@@ -369,10 +369,12 @@ def run_loop(
         from .implement import implement_claim
 
         env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
-        for claim in result.failing():
+        failing = result.failing()
+        for claim in failing:
             implement_claim(result, claim, candidate, runner, rules, ledger, policy, shell_env=env, log=log, on_update=on_update)
         for s in getattr(result, "_rerun_sessions", []):
             s.close()
+        _propose_app_promotion(result, candidate, failing, home)
         return result
     for claim in result.failing():
         authority = policy.decide(claim)
@@ -488,6 +490,40 @@ def run_loop(
     for session in getattr(result, "_rerun_sessions", []):
         session.close()
     return result
+
+
+def _propose_app_promotion(result: ProveResult, candidate, failing: list[Claim], home: Path) -> None:
+    """Spec mode: the candidate's changes wait for `attest approve` and `attest resume --apply`; never promoted here."""
+    from .app_promotion import create_app_promotion_proposal
+
+    if not candidate.baseline or candidate.git("diff", "--quiet", candidate.baseline).returncode == 0:
+        return  # nothing was applied to the candidate, so there is nothing to promote
+    implemented = [c.id for c in failing if result.by_id[c.id].status == "proven"]
+    try:
+        record = create_app_promotion_proposal(
+            SQLiteWorkflowStore(home / "workflow.sqlite3"),
+            candidate=candidate, doc=result.doc, claims=result.claims, implemented=implemented,
+        )
+    except Exception as exc:
+        # fail closed: without a durable, approvable proposal the candidate can never reach the app
+        typer.echo(typer.style(f"PROMOTION refused: {exc}; the original app is unchanged", fg=typer.colors.RED))
+        return
+    result.proposals["app"] = record.workflow_id
+    result.proposal_states["app"] = record.state
+    for claim in failing:
+        ref = result.receipts.get(claim.id)
+        if not ref:
+            continue
+        path = Path(ref["path"])
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+        receipt["promotion"] = {"workflow_id": record.workflow_id, "state": record.state,
+                                "candidate_digest": record.proposal["candidate_digest"]}
+        _write_receipt(home, receipt)
+    typer.echo(typer.style(
+        f"PROMOTION {record.workflow_id} {record.state}: the original app is unchanged until "
+        f"`attest approve {record.workflow_id} --by <you>` and `attest resume {record.workflow_id} --apply`",
+        fg=typer.colors.CYAN,
+    ))
 
 
 def _observed(ev, verdict_status=None):

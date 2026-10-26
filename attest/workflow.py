@@ -12,6 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from .app_promotion import SPEC_APP_KIND, promote_app_workflow, resume_app_workflow
 from .approvals import ApprovalError, verify_approval
 from .compiler import compile_doc
 from .execution.recipes import ApprovedRecipeExecutor
@@ -107,6 +108,10 @@ def resume_workflow(
     model-authored, so it may select an approved recipe but never reach a shell.
     """
     record = store.get(workflow_id)
+    if record.proposal.get("kind") == SPEC_APP_KIND:
+        return resume_app_workflow(
+            store, workflow_id, runner=runner, apply=apply, simulation=simulation, rules=rules, shell_env=shell_env,
+        )
     policy = policy or MaintainDocsPolicy()
     if simulation or getattr(runner, "name", None) != "kane":
         raise WorkflowError("promotion validation requires fresh Kane evidence; simulation/fake evidence is not accepted")
@@ -250,6 +255,8 @@ def promote_workflow(
     policy: MaintainDocsPolicy | None = None,
 ) -> WorkflowRecord:
     record = store.get(workflow_id)
+    if record.proposal.get("kind") == SPEC_APP_KIND:
+        return promote_app_workflow(store, workflow_id)
     policy = policy or MaintainDocsPolicy()
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")

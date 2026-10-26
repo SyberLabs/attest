@@ -249,7 +249,9 @@ def test_cli_app_flag_runs_spec_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
     home = tmp_path / "home"
     out = CliRunner().invoke(cli_app, ["prove", str(spec), "--runner", "kane", "--app", str(app), "--home", str(home)])
-    assert out.exit_code == 0, out.output
+    # 3: the implemented candidate waits for approval, as a Maintain Docs proposal does
+    assert out.exit_code == 3, out.output
+    assert "state=awaiting_approval; app unchanged" in out.output
     assert "TICKET    line 12  Missing capability:" in out.output
     assert "WORKER    line 12  sending ticket to " in out.output and "app change:" in out.output
     assert "implemented in the app and re-proven" in out.output
