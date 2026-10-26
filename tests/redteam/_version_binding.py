@@ -3,11 +3,15 @@
 The scenario: Kane observed the doc's browser steps on build A. The app is then
 redeployed (build B), a repair is proposed and approved on B, and validation runs
 with the runner that still holds A's observations. Evidence from A, or from no
-Kane run of this validation, must not validate, verify a receipt or promote.
+Kane run of this validation, must not validate, verify a receipt or promote. The
+build is read off the ``BrowserObservation`` (the runner stamps the build it measured
+around its own run), and receipts are built from the observations with
+``BrowserObservation.receipt_evidence``, so the receipt's build is the one Kane saw.
 
 Real code paths: ``KaneBrowserRunner``, ``create_repair_proposal`` /
 ``approve_workflow`` / ``resume_workflow`` / ``promote_workflow``,
-``current_build_digest`` and ``attest/receipts.py``. Stand-ins: the kane-cli
+``current_build_digest``, ``BrowserObservation.receipt_evidence`` and
+``attest/receipts.py``. Stand-ins: the kane-cli
 subprocess (a recorded event-day capture from tests/fixtures/kane/) and the compiler
 model (deterministic). This is not a live Kane run.
 
@@ -34,8 +38,9 @@ from attest.compiler import ClaimSet, LLMClaim, compile_doc
 from attest.contracts import AuthorityState, ComparisonState, EvidenceState, ExecutionState, RepairState
 from attest.ingest import ingest_text
 from attest.kane import KaneBrowserRunner, parse_events
+from attest.models import BrowserObservation, Evidence
 from attest.proposals import create_repair_proposal, current_build_digest
-from attest.receipts import ReceiptEvidence, RunReceipt, VerifiedRunReceipt
+from attest.receipts import RunReceipt, VerifiedRunReceipt
 from attest.storage import SQLiteWorkflowStore
 from attest.workflow import WorkflowError, promote_workflow, resume_workflow
 
@@ -150,8 +155,13 @@ def approved_repair(source: Path, store_path: Path, llm) -> tuple[SQLiteWorkflow
     return store, record.workflow_id
 
 
-def receipt_fields(build: str | None, runs: tuple[str, ...], evidence: list[dict]) -> dict:
-    """A receipt whose states would all verify; only its build and Kane run bindings vary."""
+def receipt_fields(build: str | None, runs: tuple[str, ...],
+                   evidence: list[tuple[BrowserObservation, str | None]]) -> dict:
+    """A receipt whose states would all verify; only its build and Kane run bindings vary.
+
+    Each evidence record is an observation and the Kane run it is bound to, turned into
+    receipt evidence by the product (``BrowserObservation.receipt_evidence``).
+    """
     fields = {
         "snapshot_id": uuid4(),
         "source_version_id": uuid4(),
@@ -165,11 +175,16 @@ def receipt_fields(build: str | None, runs: tuple[str, ...], evidence: list[dict
         "kane_run_ids": runs,
     }
     fields["evidence"] = tuple(
-        ReceiptEvidence(kind="browser", source_version_id=fields["source_version_id"],
-                        content_sha256=fields["content_sha256"], complete=True, **item)
-        for item in evidence
+        observation.receipt_evidence(source_version_id=fields["source_version_id"],
+                                     content_sha256=fields["content_sha256"], kane_run_id=run)
+        for observation, run in evidence
     )
     return fields
+
+
+def observations(validation: dict, claim_ids) -> dict[str, BrowserObservation]:
+    """The browser observations a validation record stored, as the product reads them back."""
+    return {cid: Evidence.model_validate(validation["evidence"][cid]).observation for cid in sorted(claim_ids)}
 
 
 def run_case(rt_case: dict, tmp_path: Path, monkeypatch) -> None:
@@ -189,6 +204,8 @@ def run_case(rt_case: dict, tmp_path: Path, monkeypatch) -> None:
             assert runner.observe(claim, None).status == "passed", claim.id  # good evidence, for build A
     earlier_run = runner.run_ids["c07"]
     assert set(runner.run_ids) == browser and set(runner.run_ids.values()) == {earlier_run} and cli.calls == 1
+    # The runner stamps each observation with the build it measured around its own Kane run.
+    assert {cid: runner.results[cid][1].build_digest for cid in browser} == {cid: build_a for cid in browser}
 
     # The app is redeployed; the repair is proposed and approved on build B.
     deploy(source, i["deploy"])
@@ -208,21 +225,34 @@ def run_case(rt_case: dict, tmp_path: Path, monkeypatch) -> None:
     with pytest.raises(WorkflowError):
         promote_workflow(store, workflow_id)
     assert source.read_text(encoding="utf-8") == BASE_DOC
+    # The stored evidence still names the build Kane saw: A, not the approved B.
+    served = observations(outcome.validation, browser)
+    assert {obs.build_digest for obs in served.values()} == {build_a}
 
-    # 3. The same facts as a receipt cannot verify. Each variant differs from a receipt
-    #    that would verify in one binding only; the real one is "evidence_from_earlier_run",
-    #    since this validation (build B) started no Kane run.
+    # 3. The same facts as a receipt cannot verify. The real receipt is built from the
+    #    observations validation was served, bound to the run that made them: it names
+    #    build A in a receipt for B, and a run this validation did not start.
     fresh_runs = tuple(r.session_id for r in runner.runs[runs_before:] if r.session_id)
     assert fresh_runs == ()
-    bound = {"build_digest": build_b, "kane_run_id": earlier_run}
-    assert VerifiedRunReceipt(**receipt_fields(build_b, (earlier_run,), [bound])).build_digest == build_b
     rejections = x["receipt_rejections"]
+    real = [(obs, earlier_run) for obs in served.values()]
+    for receipt in (RunReceipt, VerifiedRunReceipt):
+        with pytest.raises(ValidationError, match=re.escape(rejections["evidence_from_earlier_build"])):
+            receipt(**receipt_fields(build_b, fresh_runs, real))
+    # Each variant below differs from a receipt that would verify in one binding only. To
+    # isolate the run binding, a copy of the observation is restamped with build B; that copy
+    # is test-made, the product never produces it from a cached run.
+    seen_on_a = served["c07"]
+    seen_on_b = seen_on_a.model_copy(update={"build_digest": build_b})
+    unmeasured = seen_on_a.model_copy(update={"build_digest": None})
+    bound = (seen_on_b, earlier_run)
+    assert VerifiedRunReceipt(**receipt_fields(build_b, (earlier_run,), [bound])).build_digest == build_b
     cases = {
-        "evidence_from_earlier_build": (build_b, (earlier_run,), {**bound, "build_digest": build_a}),
-        "evidence_build_stripped": (build_b, (earlier_run,), {**bound, "build_digest": None}),
-        "receipt_build_stripped": (None, (earlier_run,), {**bound, "build_digest": None}),
+        "evidence_from_earlier_build": (build_b, (earlier_run,), (seen_on_a, earlier_run)),
+        "evidence_build_stripped": (build_b, (earlier_run,), (unmeasured, earlier_run)),
+        "receipt_build_stripped": (None, (earlier_run,), (unmeasured, earlier_run)),
         "evidence_from_earlier_run": (build_b, fresh_runs, bound),
-        "evidence_run_stripped": (build_b, (earlier_run,), {**bound, "kane_run_id": None}),
+        "evidence_run_stripped": (build_b, (earlier_run,), (seen_on_b, None)),
     }
     assert set(cases) == set(rejections)
     for name, (build, runs, evidence) in cases.items():
@@ -242,11 +272,19 @@ def run_case(rt_case: dict, tmp_path: Path, monkeypatch) -> None:
                               during=lambda: deploy(source, i["redeploy"]))
     outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
     assert cli.calls == 1
-    assert outcome.state == x["build_change_during_run"]["state"]
-    assert x["build_change_during_run"]["reason"] in outcome.validation["reason"]
+    mid_run = x["build_change_during_run"]
+    assert outcome.state == mid_run["state"]
+    assert mid_run["reason"] in outcome.validation["reason"]
     with pytest.raises(WorkflowError):
         promote_workflow(store, workflow_id)
     assert source.read_text(encoding="utf-8") == BASE_DOC
+    # The runner saw the build change around its run, so its observations name no build,
+    # and a receipt made from them cannot verify even for the run that made them.
+    seen = [runner.results[cid][1] for cid in sorted(browser)]
+    assert [obs.build_digest for obs in seen] == [None] * len(browser)
+    with pytest.raises(ValidationError, match=re.escape(mid_run["receipt"])):
+        VerifiedRunReceipt(**receipt_fields(build_of(source), (runner.run_ids["c07"],),
+                                            [(obs, runner.run_ids[cid]) for cid, obs in zip(sorted(browser), seen)]))
 
     # 5. Control: a fresh Kane run on the approved build validates, its receipt verifies,
     #    and it promotes. A product that refuses everything fails here.
@@ -261,9 +299,11 @@ def run_case(rt_case: dict, tmp_path: Path, monkeypatch) -> None:
     fresh = parse_events((KANE_FIX / f"{i['fixture']}.ndjson").read_text(encoding="utf-8").splitlines()).session_id
     assert cli.calls == 1 and validation["build_digest"] == build
     assert validation["kane_runs"] == {cid: fresh for cid in browser}
+    seen = observations(validation, browser)
+    assert {obs.build_digest for obs in seen.values()} == {build}
     receipt = VerifiedRunReceipt(**receipt_fields(
         validation["build_digest"], tuple(sorted(set(validation["kane_runs"].values()))),
-        [{"build_digest": validation["build_digest"], "kane_run_id": run} for run in validation["kane_runs"].values()],
+        [(obs, validation["kane_runs"][cid]) for cid, obs in seen.items()],
     ))
     assert receipt.build_digest == build and receipt.kane_run_ids == (fresh,)
 
