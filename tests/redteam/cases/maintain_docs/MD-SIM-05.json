@@ -1,0 +1,40 @@
+{
+  "id": "MD-SIM-05",
+  "component": "maintain_docs",
+  "category": "SIM",
+  "rubrics": [
+    "R1",
+    "R3",
+    "R5",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "A sibling workflow's sealed validation, copied into an approved but unvalidated workflow for the same candidate, does not let it promote",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approved_recipes": {
+      "echo ready && exit 0": "print('ready')"
+    },
+    "approver": "reviewer",
+    "variants": {
+      "copied": {},
+      "rebound": {
+        "rebind": [
+          "workflow_id",
+          "approval_digest"
+        ]
+      }
+    }
+  },
+  "expected": {
+    "validated": "validated",
+    "same_proposal_digest": true,
+    "errors": {
+      "copied": "not bound to this workflow's approval and candidate",
+      "rebound": "does not match its own digests"
+    },
+    "source_unchanged": true
+  }
+}

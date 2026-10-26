@@ -1,0 +1,23 @@
+{
+  "id": "KR-ISO-09",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "xfail",
+  "theme": "escape_disposable_environment",
+  "title": "kane-cli does not receive Attest's own model key or an unrelated secret from Attest's environment",
+  "gap": "KaneBrowserRunner._execute starts kane-cli with no env=, so kane-cli inherits Attest's whole environment, including OPENAI_API_KEY (the compiler's key) and any other secret the caller exported. Scoping it needs a product hook that names the variables Kane needs (its own credentials, PATH, HOME); this repository does not record that list.",
+  "input": {
+    "environment": {
+      "OPENAI_API_KEY": "fixture-not-a-key",
+      "ATTEST_RT_UNRELATED_SECRET": "fixture-not-a-secret"
+    },
+    "timeout_s": 30
+  },
+  "expected": {
+    "exit_code": 0,
+    "visible_to_kane": []
+  }
+}

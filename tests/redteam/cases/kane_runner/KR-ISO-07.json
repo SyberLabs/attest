@@ -1,0 +1,22 @@
+{
+  "id": "KR-ISO-07",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "active",
+  "theme": "cleanup_in_finally",
+  "title": "An interrupt while Attest reads kane-cli's stream stops kane-cli and the child it started before the interrupt reaches the caller",
+  "input": {
+    "tick_s": 0.1,
+    "interrupt_after_s": 1.0,
+    "timeout_s": 60
+  },
+  "expected": {
+    "interrupt_propagates": true,
+    "max_elapsed_s": 10,
+    "kane_alive": false,
+    "child_alive": false
+  }
+}
