@@ -142,3 +142,11 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Full loop through SyberWork dispatch (SyberWork #92 head): Acme CRM, line 15 broken, ticket admitted and routed to `python -m attest.worker` (gpt-6-sol), Kane re-check 4/4 proven, receipt `0ca486124ac8-c05-46`. Kane credits: 54.4 (first pass, authored fresh) + 17.1 (re-check).
 - `demo/beat_factory.ps1` now routes through SyberWork by default when `.attest\syberwork` holds the checkout; `-Direct` calls the worker without it.
 - Windows: `main` fails 12 tests locally that pass on the Ubuntu CI (line endings in the proposal and workflow code); issue #23.
+
+## Oct 26: G3 Adversarial pass gate
+
+- FACTORY §3 G3 is a separate workflow, `.github/workflows/g3-adversarial-pass.yml` (check `G3 Adversarial pass`), so `tests.yml` (G8/G1) and the G5/G7 workflows stay untouched. Details: `docs/quality/G3-ADVERSARIAL-PASS.md`.
+- `scripts/g3-adversarial-pass.py` reads `tests/redteam/cases/*/*.json` (#26 layout), runs `pytest -m redteam tests/redteam` in-process with a small plugin that maps each test to its case through the `redteam(case_id=..., status=...)` marker, and fails on any active case that doesn't pass (skip and xfail included), any active case with no test, any xfail/stub case whose test no longer behaves as its status says, a malformed case file, or an inventory with no active adversarial case or no active `CONTROL` case.
+- Only `active` cases are enforced. `xfail` and `stub` cases are printed as open gaps and are never counted as passes, so a green job is not "G3 over every §1 case".
+- `main` at b0989ac has no `tests/redteam/`, so the job runs with `--allow-missing-inventory` and reports INACTIVE (exit 0, nothing ran, not a pass) until #26 merges. The flag has no effect once the directory exists; drop it after #26 merges.
+- G3 doesn't count floors (that's G2) and doesn't run #31's `tests/test_positive_controls.py` (G8 runs it).
