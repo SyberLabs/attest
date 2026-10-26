@@ -6,15 +6,17 @@ Inputs and expected invariants live in cases/maintain_docs/<ID>.json.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from attest.approvals import ApprovalError, approve_workflow
+from attest.approvals import ApprovalError, approval_bindings, approve_workflow, verify_approval
 from attest.compiler import ClaimSet, CompileError, compile_doc, fences_by_regex
 from attest.contracts import RepairProposal
 from attest.execution.recipes import ApprovedRecipeExecutor
@@ -30,7 +32,8 @@ from attest.runner import FakeBrowserRunner
 from attest.snapshots import SourceVersion
 from attest.storage import SQLiteWorkflowStore, canonical_json
 from attest.verdict import Rules, judge
-from attest.workflow import WorkflowError, promote_workflow, resume_workflow
+from attest import workflow as workflow_module
+from attest.workflow import DOCS_APPROVAL_CODES, WorkflowError, promote_workflow, resume_workflow
 
 from ._harness import KaneTestRunner, case, make_diff
 
@@ -347,6 +350,115 @@ def test_approval_under_an_older_authority_is_rejudged_before_apply(rt_case, tmp
     resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, policy=older)
     assert promote_workflow(store, record.workflow_id).state == x["control_state"]
     assert source.read_text(encoding="utf-8") == i["control_candidate"]
+
+
+def _digest_correct_approval(record, actor: str, approved_at: str | None = None) -> dict:
+    """An approval verify_approval accepts (bindings and digest right) that `attest approve` didn't write."""
+    approval = {**approval_bindings(record.proposal), "actor": actor,
+                "approved_at": approved_at or datetime.now(timezone.utc).isoformat()}
+    approval["approval_digest"] = hashlib.sha256(canonical_json(approval).encode("utf-8")).hexdigest()
+    return approval
+
+
+def _write_row(store, workflow_id: str, state: str, approval: dict) -> None:
+    with sqlite3.connect(store.path) as db:
+        db.execute("UPDATE workflows SET state = ?, approval_json = ? WHERE workflow_id = ?",
+                   (state, canonical_json(approval), workflow_id))
+
+
+def _forged_approval(tmp_path, i, shape: str):
+    """A workflow in `validating` whose approval verify_approval accepts but no approve event of its own backs."""
+    candidate = i["denied_candidate"] if shape == "denied_offer" else i["candidate"]
+    source, store, record = propose(tmp_path, i["base"], candidate)
+    wid = record.workflow_id
+    if shape == "denied_offer":
+        assert record.state == "rejected"
+        _write_row(store, wid, "validating", _digest_correct_approval(record, i["approver"]))
+    elif shape == "row_written":
+        _write_row(store, wid, "validating", _digest_correct_approval(record, i["approver"]))
+    elif shape == "unnamed_event":
+        store.transition(wid, "awaiting_approval", "validating", approval=_digest_correct_approval(record, i["approver"]))
+    elif shape == "twin_swapped":
+        claims = fences_by_regex(ingest_text(i["base"], source=str(source)))
+        twin = create_repair_proposal(store, source_path=source, base_text=i["base"], candidate_text=candidate,
+                                      diff=make_diff(i["base"], candidate), target_claim=claims[0], baseline_claims=claims,
+                                      plan="Repair only c01; preserve all promises.")
+        assert twin.proposal["proposal_digest"] == record.proposal["proposal_digest"]
+        approve_workflow(store, wid, i["approver"])
+        _write_row(store, wid, "validating", approve_workflow(store, twin.workflow_id, "intruder").approval)
+    elif shape == "policy_actor":
+        approve_workflow(store, wid, "policy:auto-approve")
+    elif shape == "backdated":
+        approval = _digest_correct_approval(record, i["approver"], approved_at="2020-01-01T00:00:00+00:00")
+        store.transition(wid, "awaiting_approval", "validating", approval=approval,
+                         event={"actor": approval["actor"], "approval_digest": approval["approval_digest"]})
+    else:
+        raise AssertionError(f"unknown forgery shape {shape!r}")
+    verify_approval(store.get(wid))  # digest-correct: the older gate accepts every one
+    return source, store, wid
+
+
+def _marking_recipes(marker: Path) -> ApprovedRecipeExecutor:
+    """The candidate's command, approved as a recipe that leaves a marker when it runs."""
+    return ApprovedRecipeExecutor({"echo ready && exit 0": [sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"]})
+
+
+@case("MD-AB-11")
+def test_approval_attest_approve_did_not_record_is_refused_before_validation(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    for item in i["forgeries"]:
+        assert item["code"] in DOCS_APPROVAL_CODES
+        root = tmp_path / item["shape"]
+        source, store, wid = _forged_approval(root, i, item["shape"])
+        marker = root / "ran"
+        result = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker), apply=True)
+        assert result.state == x["resume_state"], item
+        assert result.validation["reason"].startswith(f"{x['reason_prefix']} ({item['code']})"), (item, result.validation)
+        assert x["nothing_ran"] and "statuses" not in result.validation and not marker.exists(), item
+        assert source.read_text(encoding="utf-8") == i["base"], item
+
+    # negative control: the same candidate, approved with `attest approve`, validates and promotes
+    source, store, record = propose(tmp_path / "control", i["base"], i["candidate"])
+    approve_workflow(store, record.workflow_id, i["approver"])
+    marker = tmp_path / "control" / "ran"
+    promoted = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker), apply=True)
+    assert promoted.state == x["control_state"] and marker.exists()
+    assert source.read_text(encoding="utf-8") == i["candidate"]
+
+
+@case("MD-AB-12")
+def test_record_validated_without_the_approve_event_is_refused_at_apply(rt_case, tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    import attest.cli as cli_module
+
+    i, x = rt_case["input"], rt_case["expected"]
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
+    for item in i["forgeries"]:
+        root = tmp_path / item["shape"]
+        source, store, wid = _forged_approval(root, i, item["shape"])
+        with monkeypatch.context() as older:
+            # an Attest whose gate stopped at verify_approval validated this record
+            older.setattr(workflow_module, "verify_docs_approval", lambda store, record: verify_approval(record))
+            validated = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(root / "ran"))
+        assert validated.state == x["validated_state"], item
+
+        error = x["promote_error"].format(code=item["code"])
+        with pytest.raises(WorkflowError, match=error):
+            promote_workflow(store, wid)
+        with pytest.raises(WorkflowError, match=error):
+            resume_workflow(store, wid, runner=KaneTestRunner(), apply=True)
+        out = CliRunner().invoke(cli_module.app, ["resume", wid, "--apply", "--home", str(store.path.parent)])
+        assert out.exit_code == x["cli_exit"] and x["cli_output"].format(code=item["code"]) in out.output, (item, out.output)
+        assert store.get(wid).state == x["validated_state"], item
+        assert source.read_text(encoding="utf-8") == i["base"], item
+
+    # negative control: a record validated after `attest approve` still promotes
+    source, store, record = propose(tmp_path / "control", i["base"], i["candidate"])
+    approve_workflow(store, record.workflow_id, i["approver"])
+    resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=_marking_recipes(tmp_path / "control" / "ran"))
+    assert promote_workflow(store, record.workflow_id).state == x["control_state"]
+    assert source.read_text(encoding="utf-8") == i["candidate"]
 
 
 # -- DS: digest swap / identity confusion ----------------------------------------------
