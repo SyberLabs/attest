@@ -11,4 +11,7 @@ services:
     ready_timeout_s: 60
 substitute:
   "cargo install gateway": "cargo install --path crates/gateway/app"
+expects:
+  - match: 'curl -H "Authorization: Bearer wrong-token"'
+    output: unauthorized   # the chapter promises this error code in prose
 browser_claims: false   # neither chapter asks the reader to open a browser

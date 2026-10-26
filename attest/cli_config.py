@@ -11,6 +11,9 @@ that a command doc assumes a reader already has, kept beside the doc so the doc 
         ready_timeout_s: 60
     substitute:
       "cargo install gateway": "cargo install --path crates/gateway/app"  # only with --substitute
+    expects:
+      - match: 'curl -H "Authorization: Bearer wrong-token"'  # a command that starts this way
+        output: unauthorized                                  # must print this; the text must appear in the doc
     browser_claims: false  # the doc has no browser steps; prose about pages is not a claim
 
 Everything is validated when loaded; an unknown key or an unsafe path is an error, never ignored.
@@ -55,15 +58,28 @@ class ServiceSpec:
 
 
 @dataclass(frozen=True)
+class ExpectSpec:
+    match: str
+    output: str
+
+    def matches(self, command: str) -> bool:
+        return command.strip().startswith(self.match)
+
+
+@dataclass(frozen=True)
 class CliConfig:
     fixtures: dict[str, FixtureSpec] = field(default_factory=dict)
     services: tuple[ServiceSpec, ...] = ()
     substitutes: dict[str, str] = field(default_factory=dict)
+    expects: tuple[ExpectSpec, ...] = ()
     browser_claims: bool = True
     path: Path | None = None
 
     def service_for(self, command: str) -> ServiceSpec | None:
         return next((s for s in self.services if s.matches(command)), None)
+
+    def expects_for(self, command: str) -> str | None:
+        return next((e.output for e in self.expects if e.matches(command)), None)
 
     def substitute_for(self, command: str) -> str | None:
         return self.substitutes.get(command.strip())
@@ -108,7 +124,7 @@ def load_cli_config(path: str | Path) -> CliConfig:
         raise CliConfigError(f"cannot read sidecar {path}: {exc}") from exc
     if not isinstance(data, dict):
         raise CliConfigError(f"{path}: expected a mapping at the top level")
-    known = {"fixtures", "services", "substitute", "browser_claims"}
+    known = {"fixtures", "services", "substitute", "expects", "browser_claims"}
     unknown = set(data) - known
     if unknown:
         raise CliConfigError(f"{path}: unknown keys {sorted(unknown)}; known keys are {sorted(known)}")
@@ -151,8 +167,22 @@ def load_cli_config(path: str | Path) -> CliConfig:
             raise CliConfigError(f"{path}: substitute for {cmd!r} must be a non-empty command")
         substitutes[str(cmd).strip()] = repl
 
+    expects: list[ExpectSpec] = []
+    raw_expects = data.get("expects") or []
+    if not isinstance(raw_expects, list):
+        raise CliConfigError(f"{path}: expects must be a list")
+    for i, spec in enumerate(raw_expects):
+        if not isinstance(spec, dict) or set(spec) != {"match", "output"}:
+            raise CliConfigError(f"{path}: expects entry {i + 1} needs exactly match and output")
+        match, output = str(spec["match"]).strip(), str(spec["output"])
+        if not match or not output.strip():
+            raise CliConfigError(f"{path}: expects entry {i + 1}: match and output must not be empty")
+        expects.append(ExpectSpec(match=match, output=output))
+
     browser_claims = data.get("browser_claims", True)
     if not isinstance(browser_claims, bool):
         raise CliConfigError(f"{path}: browser_claims must be true or false")
 
-    return CliConfig(fixtures=fixtures, services=tuple(services), substitutes=substitutes, browser_claims=browser_claims, path=path)
+    return CliConfig(
+        fixtures=fixtures, services=tuple(services), substitutes=substitutes, expects=tuple(expects), browser_claims=browser_claims, path=path
+    )

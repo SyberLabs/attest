@@ -100,32 +100,35 @@ def execute(
     cli_config: CliConfig | None = None,
     allow_substitutes: bool = False,
     prompt_runner: PromptRunner | None = None,
+    session: ShellSession | None = None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
     """Run claims in doc order; simulation evidence can never produce a proven verdict.
 
     Prompt claims go to ``prompt_runner``; without one they get no evidence and end
-    unverifiable."""
+    unverifiable. A ``session`` passed in is shared across the docs of a book: its
+    servers stay up and its fixtures are written once."""
     evidence: dict[str, Evidence] = {}
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
     skip = skip or set()
     cli_config = cli_config or CliConfig()
     check_setup(claims, cli_config)
-    session = ShellSession(
-        workdir=scratch,
-        timeout_s=rules.shell_timeout_s,
-        env=shell_env or {},
-        recipes_only=recipes_only,
-        recipe_executor=recipe_executor,
-        services=cli_config.services,
-        substitutes=cli_config.substitutes,
-        allow_substitutes=allow_substitutes,
-        ready_timeout_s=rules.ready_timeout_s,
-    )
+    if session is None:
+        session = ShellSession(
+            workdir=scratch,
+            timeout_s=rules.shell_timeout_s,
+            env=shell_env or {},
+            recipes_only=recipes_only,
+            recipe_executor=recipe_executor,
+            services=cli_config.services,
+            substitutes=cli_config.substitutes,
+            allow_substitutes=allow_substitutes,
+            ready_timeout_s=rules.ready_timeout_s,
+        )
     stop_index = next((i for i, claim in enumerate(claims) if claim.id == stop_before), None)
     try:
-        # fixtures land before the first claim, whatever kind it is
-        if cli_config.fixtures:
+        # fixtures land before the first claim, whatever kind it is, once per session
+        if cli_config.fixtures and not getattr(session, "fixtures_written", None):
             session.write_fixtures(cli_config.fixtures)
         for i, c in enumerate(claims):
             if c.id in skip:
@@ -216,6 +219,25 @@ def annotate_setup(claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
     return out
 
 
+def annotate_expects(doc: Doc, claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
+    """The sidecar's ``expects`` gives a shell claim the output the doc promises in
+    prose. The promised text must appear in the doc, so the sidecar can only
+    point at a promise the doc makes, never invent one."""
+    if not cli_config.expects:
+        return claims
+    source = "\n".join(doc.lines)
+    out = []
+    for c in claims:
+        output = cli_config.expects_for(c.command) if c.kind == "shell" and c.command else None
+        if output is not None and not c.expects:
+            if output not in source:
+                where = f" ({cli_config.path})" if cli_config.path else ""
+                raise ValueError(f"sidecar{where} expects {output!r} for {c.id}, but the document never says that")
+            c = c.model_copy(update={"expects": output})
+        out.append(c)
+    return out
+
+
 def prove(
     source: str,
     runner: BrowserRunner | None = None,
@@ -236,7 +258,11 @@ def prove(
     cli_config: CliConfig | Path | str | None = None,
     allow_substitutes: bool = False,
     prompt_runner: PromptRunner | None = None,
+    session: ShellSession | None = None,
 ) -> ProveResult:
+    """Prove one doc. A ``session`` passed in is a book's shared shell session: the
+    doc runs in its scratch directory, against the servers earlier docs started,
+    and the caller closes it when the book is done."""
     rules = rules or load_rules()
     if runner is None:
         raise ValueError("an explicit browser runner is required; use FakeBrowserRunner with simulation=True for a demo")
@@ -262,7 +288,7 @@ def prove(
 
         candidate = make_candidate(Path(app_dir), doc.sha256, home)
         shell_env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
-    claims = annotate_setup(compile_doc(doc, llm=llm), cli_config)
+    claims = annotate_expects(doc, annotate_setup(compile_doc(doc, llm=llm), cli_config), cli_config)
     check_setup(claims, cli_config)
     if getattr(runner, "name", None) == "none":
         browser = [c.id for c in claims if c.kind == "browser"]
@@ -295,10 +321,10 @@ def prove(
         stop_index = next((i for i, c in enumerate(claims) if c.id == stop_before), len(claims))
         run_claims = [c for i, c in enumerate(claims) if i < stop_index and c.id not in skip]
         prepare(run_claims, doc.source)
-    scratch = new_scratch()
+    shared = session is not None
+    scratch = session.workdir if shared else new_scratch()
     out_dir = out_dir_for(doc, home)
     live_state = {"now": "Preparing claims"}
-    session = None
     try:
         if live:
             result = ProveResult(doc, claims, {}, [], 0, out_dir, scratch=scratch, simulation=simulation)
@@ -324,8 +350,9 @@ def prove(
             stop_before=stop_before, skip=skip, on_start=announce, simulation=simulation,
             recipes_only=recipes_only, recipe_executor=recipe_executor,
             cli_config=cli_config, allow_substitutes=allow_substitutes, prompt_runner=prompt_runner,
+            session=session,
         )
-        if not keep_servers:
+        if not keep_servers and not shared:
             session.close()
         ledger = Ledger(home / "ledger.jsonl")
         turn = ledger.next_turn()
@@ -347,10 +374,34 @@ def prove(
             _write_live_page(result, home, runner.name, "Proof complete", False)
         return result
     except BaseException:
-        if session is not None:
+        if session is not None and not shared:
             session.close()
-        cleanup_scratch(scratch)
+            cleanup_scratch(scratch)
         raise
+
+
+def book_session(
+    cli_config: CliConfig | Path | str | None,
+    rules: Rules | None = None,
+    shell_env: dict[str, str] | None = None,
+    allow_substitutes: bool = False,
+) -> ShellSession:
+    """The one shell session a book's docs share: one scratch directory, the
+    sidecar's services kept up from doc to doc, fixtures written once."""
+    rules = rules or load_rules()
+    if cli_config is None:
+        cli_config = CliConfig()
+    elif not isinstance(cli_config, CliConfig):
+        cli_config = load_cli_config(cli_config)
+    return ShellSession(
+        workdir=new_scratch("attest-book-"),
+        timeout_s=rules.shell_timeout_s,
+        env=shell_env or {},
+        services=cli_config.services,
+        substitutes=cli_config.substitutes,
+        allow_substitutes=allow_substitutes,
+        ready_timeout_s=rules.ready_timeout_s,
+    )
 
 
 def claim_banner(claim: Claim) -> str:

@@ -150,7 +150,8 @@ def test_prompt_fence_needs_markdown_tag_and_runvil_frontmatter():
     no_frontmatter = Fence(start_line=1, end_line=2, lang="markdown", text="## Setup\n```lua\nx\n```")
     assert classify_fence(no_frontmatter) == "prose"
     wrong_tag = Fence(start_line=1, end_line=5, lang="yaml", text="---\nname: x\nrunvil: 0\n---\n# X")
-    assert classify_fence(wrong_tag) == "assert"
+    assert classify_fence(wrong_tag) == "prose"  # yaml is configuration, never a prompt or a command
+    assert classify_fence(Fence(start_line=1, end_line=5, lang="python", text="---\nname: x\nrunvil: 0\n---\n# X")) == "assert"
     assert classify_fence(Fence(start_line=1, end_line=1, lang="lua", text="return 1")) == "prose"
     # untouched: shell, output and other-language fences classify as before
     assert classify_fence(Fence(start_line=1, end_line=1, lang="", text="ls")) == "shell"
@@ -278,3 +279,25 @@ def test_argument_string_in_the_introducing_line_becomes_the_claims_args():
             save_cache(intro, [claim.model_copy(update={"args": None})], Path(d))
         save_cache(intro, [claim], Path(d))
         assert load_cached(intro, Path(d)) == [claim]
+
+
+def test_untagged_config_and_json_fences_are_never_run():
+    from attest.compiler import looks_like_config, looks_like_json
+
+    toml = Fence(start_line=1, end_line=3, lang="", text='config-version = 0\n\n[server]\nbind = "127.0.0.1:8081"')
+    unit = Fence(start_line=1, end_line=3, lang="", text="ExecStart=/usr/local/bin/runvil-gateway --config /etc/runvil/gateway.toml --profile main\nRestart=on-failure\nRestartSec=5")
+    table = Fence(start_line=1, end_line=2, lang="", text="[[endpoint]]\nid = \"openai\"")
+    response = Fence(start_line=1, end_line=1, lang="", text='{"profile": "travel", "restart_required": true}')
+    command = Fence(start_line=1, end_line=1, lang="", text="curl -H \"Authorization: Bearer $GATEWAY_KEY\" http://127.0.0.1:8081/v1/models")
+    install = Fence(start_line=1, end_line=1, lang="", text="cargo install gateway")
+    env_prefix = Fence(start_line=1, end_line=1, lang="", text="FOO=1 ./run")
+    assert looks_like_config(toml.text) and looks_like_config(unit.text) and looks_like_config(table.text)
+    assert not looks_like_config(command.text) and not looks_like_config(install.text) and not looks_like_config(env_prefix.text)
+    assert looks_like_json(response.text) and not looks_like_json(command.text)
+    assert [classify_fence(f) for f in (toml, unit, table, response, command, install, env_prefix)] == ["prose", "prose", "prose", "assert", "shell", "shell", "shell"]
+    # a tagged config language is prose too; a tagged json response stays an assert
+    assert classify_fence(Fence(start_line=1, end_line=1, lang="toml", text="a = 1")) == "prose"
+    assert classify_fence(Fence(start_line=1, end_line=1, lang="json", text="{}")) == "assert"
+    # the Gateway chapter compiles to its six commands and the systemd snippet as prose
+    doc = ingest(str(ROOT / "tests" / "fixtures" / "runvil" / "gateway-01-install-and-run.md"))
+    assert [c.kind for c in fences_by_regex(doc)] == ["shell"] * 6 + ["prose"]

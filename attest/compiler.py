@@ -18,6 +18,11 @@ Rules from docs/CLI-RUNNER-SPEC.md, applied with no model call:
    byte for byte. The claim's span covers both fences.
 6. A ``lua`` or ``markdown`` fence that is not a complete prompt file is a
    fragment and compiles to prose: it promises nothing a run can check.
+7. An untagged fence that parses as TOML, or is unit-file ``NAME=value`` lines
+   throughout, is configuration and compiles to prose; one that parses as JSON
+   is a printed response and compiles to an assert on the command before it.
+   The Gateway guide tags none of its fences (docs/CLI-RUNNER-SPEC.md asks
+   upstream to; this is the interim).
 
 The LLM output is checked post-hoc against the doc. On failure the call is
 retried once with the failing line quoted; on a second failure the fenced
@@ -46,6 +51,8 @@ OUTPUT_LANGS = {"text", "txt", "output", "plaintext", "log", "console-output"}
 PROMPT_LANGS = {"markdown"}
 # a lua or markdown fence that is not a complete prompt file is a fragment: prose, never run
 FRAGMENT_LANGS = {"lua", "markdown", "md"}
+# configuration a doc shows, never a command to run
+CONFIG_LANGS = {"toml", "yaml", "yml", "ini", "cfg", "conf"}
 DEFAULT_MODEL = os.environ.get("ATTEST_OPENAI_MODEL", "gpt-5-mini")
 
 
@@ -203,17 +210,60 @@ def is_prompt_fence(fence: Fence) -> bool:
     return False
 
 
+def looks_like_json(text: str) -> bool:
+    """An untagged fence holding one JSON value: the response a command printed."""
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "{[":
+        return False
+    try:
+        json.loads(stripped)
+    except ValueError:
+        return False
+    return True
+
+
+_ASSIGNMENT_LINE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*=\S")
+
+
+def looks_like_config(text: str) -> bool:
+    """An untagged fence holding configuration, never a command: a TOML
+    document (tables, key = value pairs), or unit-file style NAME=value lines
+    such as a systemd snippet, every line."""
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    if not lines:
+        return False
+    # two or more NAME=value lines are a unit file; one alone may be `FOO=1 ./run`
+    if len(lines) >= 2 and all(_ASSIGNMENT_LINE.match(ln.strip()) for ln in lines):
+        return True
+    if not any("=" in ln or ln.strip().startswith("[") for ln in lines):
+        return False
+    try:
+        import tomllib
+
+        tomllib.loads(text)
+    except (ValueError, ImportError):
+        return False
+    return True
+
+
 def classify_fence(fence: Fence) -> Literal["shell", "assert", "prompt", "prose"]:
     lang = fence.lang.lower()
     lines = [ln for ln in fence.text.splitlines() if ln.strip()]
     if is_prompt_fence(fence):
         return "prompt"
-    if lang in FRAGMENT_LANGS:
+    if lang in FRAGMENT_LANGS or lang in CONFIG_LANGS:
         return "prose"
     if lang in OUTPUT_LANGS:
         return "assert"
     if lang not in SHELL_LANGS:
         return "assert"
+    if lang == "":
+        # the Gateway guide tags nothing: tell a config snippet and a printed
+        # response apart from a command by their shape, never run the first two
+        if looks_like_json(fence.text):
+            return "assert"
+        if looks_like_config(fence.text):
+            return "prose"
     if lines and all(ln.lstrip().startswith("#") for ln in lines):
         return "assert"
     return "shell"
@@ -636,6 +686,11 @@ def compile_doc(doc: Doc, llm: LLM | None = None, cache_dir: Path = CACHE_DIR, u
                 print(f"warning: {doc.source}: browser steps were not compiled (no OPENAI_API_KEY and no cache)", file=sys.stderr)
             if required_browser_lines(doc):
                 raise CompileError("browser instructions require a compiler; no verified cache or model is available")
+            if not doc.fences:
+                # a chapter with no fenced block makes no claim a run can check:
+                # an empty proof, so a book's prose-only chapters pass through
+                print(f"warning: {doc.source}: no fenced blocks, so no claims", file=sys.stderr)
+                return []
             claims = chain_dependencies(fences_by_regex(doc))
             problems = _validate_compiled_claims(doc, claims)
             if problems:

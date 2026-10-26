@@ -352,7 +352,7 @@ def _main(version: bool = typer.Option(False, "--version", help="Show the versio
 
 @app.command("prove")
 def prove_cmd(
-    source: str = typer.Argument(..., help="Path or URL of the document to prove."),
+    sources: list[str] = typer.Argument(..., help="Path or URL of the document to prove. Several docs run as one book: one page and one ledger turn each, sharing the servers the earlier docs start."),
     runner: str = typer.Option("kane", "--runner", help="Browser runner: kane (default), none (docs with no browser steps) or fake (offline)."),
     headless: bool = typer.Option(False, "--headless", help="Kane runs Chrome without a window (automated runs only)."),
     report: bool = typer.Option(False, "--report", help="File each Kane run with the event's `kanehack report`."),
@@ -376,6 +376,16 @@ def prove_cmd(
     prompt_observations: Path | None = typer.Option(None, "--prompt-observations", help="JSON of recorded PromptObservation records for the fake prompt runner."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
+    if len(sources) > 1:
+        if loop or live or app_dir is not None or stop_before or skip:
+            typer.echo("a book of several docs runs without --loop, --live, --app, --stop-before or --skip; prove those docs one at a time.", err=True)
+            raise typer.Exit(2)
+        _prove_book(
+            sources, runner, headless, report, cdp_endpoint, fake_observations, simulation, recipes_only,
+            keep_scratch, home, cli_config, substitute, prompt_runner, prompt_observations,
+        )
+        return
+    source = sources[0]
     if apply:
         typer.echo("--apply is disabled here; use `attest approve` then `attest resume <id> --apply`.", err=True)
         raise typer.Exit(2)
@@ -516,6 +526,63 @@ def reconcile_spec_cmd(
     if apply:
         typer.echo("refused: Reconcile Spec cannot apply or promote protected-contract text", err=True)
         raise typer.Exit(2)
+
+
+def _prove_book(
+    sources, runner, headless, report, cdp_endpoint, fake_observations, simulation, recipes_only,
+    keep_scratch, home, cli_config, substitute, prompt_runner, prompt_observations,
+) -> None:
+    """Several docs as one book: one shell session, one page and one ledger turn per doc,
+    exit 1 when any claim of any doc ends other than proven."""
+    from .cli_config import find_cli_config
+    from .pipeline import book_session
+
+    if runner == "fake" and not simulation:
+        typer.echo("fake observations require --simulation and cannot verify claims.", err=True)
+        raise typer.Exit(2)
+    if prompt_runner == "fake" and not simulation:
+        typer.echo("fake prompt observations require --simulation and cannot verify claims.", err=True)
+        raise typer.Exit(2)
+    br = _runner(runner, fake_observations, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
+    pr = _prompt_runner(prompt_runner, prompt_observations)
+    side = cli_config or find_cli_config(sources[0])
+    session = book_session(side, allow_substitutes=substitute)
+    results = []
+    try:
+        for source in sources:
+            _header(source, br.name)
+            try:
+                result = prove(
+                    source, runner=br, home=home, log=_log, on_start=_step, simulation=simulation,
+                    recipes_only=recipes_only, cli_config=side, allow_substitutes=substitute, prompt_runner=pr,
+                    session=session,
+                )
+            except ValueError as e:
+                raise typer.BadParameter(str(e)) from e
+            except Exception as e:
+                typer.echo(f"proof failed closed: {e}", err=True)
+                raise typer.Exit(1) from e
+            render_result(result, home, br.name)
+            for line in _summary_lines(result, home):
+                typer.echo(line)
+            typer.echo(f"   {typer.style('page', dim=True)}      {result.page}")
+            typer.echo("")
+            results.append(result)
+    finally:
+        br.close()
+        session.close()
+        if not keep_scratch:
+            cleanup_scratch(session.workdir)
+    failing = [
+        (r.doc.source, c.id)
+        for r in results
+        for c in r.claims
+        if c.kind in {"shell", "browser", "assert", "prompt"} and r.by_id[c.id].status != "proven"
+    ]
+    total = sum(1 for r in results for c in r.claims if c.kind != "prose")
+    typer.echo(typer.style(f"   BOOK      {len(results)} docs | {total - len(failing)}/{total} proven", bold=True))
+    if failing and not simulation:
+        raise typer.Exit(1)
 
 
 def _header(source: str, runner_name: str) -> None:

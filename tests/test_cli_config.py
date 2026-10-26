@@ -108,6 +108,8 @@ def test_sidecar_beside_the_fixture_chapters_loads_and_matches_the_spec_example(
     assert cfg.substitute_for("cargo install gateway") == "cargo install --path crates/gateway/app"
     assert cfg.substitute_for("cargo install gateway2") is None
     assert cfg.browser_claims is False
+    assert cfg.expects_for('curl -H "Authorization: Bearer wrong-token" http://127.0.0.1:8081/v1/models') == "unauthorized"
+    assert cfg.expects_for("curl http://127.0.0.1:8081/health") is None
     assert cfg.fixtures_named_in("runvil-gateway --config gateway.toml") == ["gateway-config"]
     assert cfg.fixtures_named_in("curl http://127.0.0.1:8081/health") == []
     assert find_cli_config("https://example.test/doc.md") is None
@@ -272,8 +274,9 @@ def test_gateway_chapter_install_step_is_broken_and_everything_after_is_skipped(
     home = tmp_path / "home"
     result = prove(str(doc), runner=StubBrowserRunner(), home=home, shell_env=env, cli_config=side)
     statuses = [result.by_id[c.id].status for c in result.claims]
-    assert [c.kind for c in result.claims] == ["shell"] * 7
-    assert statuses == ["broken", "skipped", "skipped", "skipped", "skipped", "skipped", "skipped"]
+    # the untagged systemd snippet (NAME=value lines) is configuration, so prose, never run
+    assert [c.kind for c in result.claims] == ["shell"] * 6 + ["prose"]
+    assert statuses == ["broken", "skipped", "skipped", "skipped", "skipped", "skipped", "unverifiable"]
     assert "exit code 101" in result.by_id["c01"].reason
     assert result.by_id["c01"].evidence.substitute is None
     assert not port_open(port)
@@ -292,11 +295,12 @@ def test_gateway_chapter_runs_against_the_fake_gateway_under_substitute(tmp_path
     assert v["c03"].status == "proven" and f"http://127.0.0.1:{port}/health" in v["c03"].reason
     assert result.claims[2].setup == ["gateway-config"]
     assert v["c04"].status == "proven" and result.evidence["c04"].stdout_tail.strip().endswith("ok")
-    assert v["c05"].status == "proven" and "unauthorized" in result.evidence["c05"].stdout_tail
+    # the sidecar's expects gives the wrong-token step the output the doc promises in prose
+    assert result.claims[4].expects == "unauthorized"
+    assert v["c05"].status == "proven" and "promised output found" in v["c05"].reason
     assert v["c06"].status == "proven" and '"data"' in result.evidence["c06"].stdout_tail
-    # the untagged systemd snippet runs as shell: its last line `RestartSec=5` is a valid assignment,
-    # so the block exits 0 and the config fence is a false proven (worse than the spec's false broken)
-    assert v["c07"].status == "proven" and result.evidence["c07"].exit_code == 0
+    # the untagged systemd snippet (NAME=value lines) is configuration: prose, never run
+    assert result.claims[6].kind == "prose" and v["c07"].status == "unverifiable" and "c07" not in result.evidence
     assert result.fixtures and result.fixtures[0]["path"] == "gateway.toml" and len(result.fixtures[0]["sha256"]) == 64
     assert (result.out_dir / "fixtures.json").exists()
     assert (result.out_dir / "index.html").exists()
@@ -330,8 +334,64 @@ def test_cli_flags_pass_the_sidecar_and_substitute_through(tmp_path, monkeypatch
     assert "BROKEN" in plain.output and "exit code 101" in plain.output
     allowed = CliRunner().invoke(app, ["prove", str(doc), "--runner", "kane", "--home", home, "--cli-config", str(side), "--substitute"])
     assert allowed.exit_code == 1, allowed.output  # c01 is stale, so the gate still fails
-    assert "STALE" in allowed.output and "6/7 proven" in allowed.output and "1 stale" in allowed.output
+    assert "STALE" in allowed.output and "5/6 proven" in allowed.output and "1 stale" in allowed.output
     assert "via substitute `cargo install --path crates/gateway/app`" in allowed.output
     assert f"service ready, http://127.0.0.1:{port}/health answered 200" in allowed.output
     time.sleep(0.5)
     assert not port_open(port)
+
+
+def test_sidecar_expects_only_points_at_a_promise_the_doc_makes(tmp_path):
+    from attest.cli_config import ExpectSpec
+    from attest.pipeline import annotate_expects
+    from attest.ingest import ingest_text
+
+    doc = ingest_text("A wrong token is rejected with error code `unauthorized`.\n\n```bash\ncurl -H x http://127.0.0.1:1/v1/models\n```\n")
+    claim = Claim(id="c01", kind="shell", span=Span(start_line=3, end_line=3, text="x"), command="curl -H x http://127.0.0.1:1/v1/models")
+    good = CliConfig(expects=(ExpectSpec(match="curl -H x", output="unauthorized"),))
+    assert annotate_expects(doc, [claim], good)[0].expects == "unauthorized"
+    invented = CliConfig(expects=(ExpectSpec(match="curl -H x", output="forbidden"),))
+    with pytest.raises(ValueError, match="never says that"):
+        annotate_expects(doc, [claim], invented)
+    # a claim that already carries expects keeps it
+    kept = claim.model_copy(update={"expects": "already"})
+    assert annotate_expects(doc, [kept], good)[0].expects == "already"
+
+
+# -- a book: several docs sharing one shell session ------------------------------------------------
+
+
+def test_book_shares_the_service_a_first_doc_started(tmp_path, monkeypatch):
+    from attest.cli import app
+    import attest.cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    port = free_port()
+    _, side = gateway_doc(tmp_path, port)
+    env = fake_tools(tmp_path)
+    monkeypatch.setenv("PATH", env["PATH"])
+    monkeypatch.setattr(cli_module, "_runner", lambda *a, **k: StubBrowserRunner())
+    first = tmp_path / "01-start.md"
+    first.write_text("# Start\n\n````\nrunvil-gateway --config gateway.toml --profile main\n````\n", encoding="utf-8")
+    second = tmp_path / "02-check.md"
+    second.write_text(
+        f"# Check\n\nA wrong token is rejected with error code `unauthorized`.\n\n````\ncurl -H \"Authorization: Bearer wrong-token\" http://127.0.0.1:{port}/v1/models\n````\n",
+        encoding="utf-8",
+    )
+    home = str(tmp_path / "home")
+    book = CliRunner().invoke(app, ["prove", str(first), str(second), "--runner", "kane", "--home", home, "--cli-config", str(side)])
+    assert book.exit_code == 0, book.output
+    assert book.output.count("ATTEST  proving") == 2
+    assert "service ready" in book.output and "promised output found" not in book.output or "PROVEN" in book.output
+    assert "BOOK      2 docs | 2/2 proven" in book.output
+    # the session closed with the book: the port is free again
+    time.sleep(0.5)
+    assert not port_open(port)
+    # one page and one ledger turn per doc
+    from attest.ledger import Ledger
+
+    rows = Ledger(Path(home) / "ledger.jsonl").rows()
+    assert sorted({r.turn for r in rows}) == [1, 2]
+    # a book refuses the single-doc-only options
+    refused = CliRunner().invoke(app, ["prove", str(first), str(second), "--runner", "kane", "--home", home, "--loop"])
+    assert refused.exit_code == 2
