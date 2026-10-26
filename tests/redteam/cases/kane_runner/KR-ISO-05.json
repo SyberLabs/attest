@@ -1,0 +1,30 @@
+{
+  "id": "KR-ISO-05",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R1",
+    "R7"
+  ],
+  "status": "active",
+  "theme": "escape_disposable_environment",
+  "title": "The pack extractor run_group uses keeps hostile members inside the pack directory",
+  "input": {
+    "inside": "tests/t/steps/1-0-1/step.json",
+    "escaping": [
+      "../outside.txt",
+      "/abs-outside.txt",
+      "tests/../../outside-2.txt"
+    ],
+    "symlink": {
+      "name": "tests/t/steps/1-0-1/screenshot.png",
+      "target": "../../../../outside-link"
+    },
+    "har": "network/session.har"
+  },
+  "expected": {
+    "outside_files": [],
+    "symlinks": 0,
+    "har_extracted": false
+  }
+}

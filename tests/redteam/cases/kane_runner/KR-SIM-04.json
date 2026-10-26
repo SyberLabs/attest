@@ -1,0 +1,24 @@
+{
+  "id": "KR-SIM-04",
+  "component": "kane_runner",
+  "category": "SIM",
+  "rubrics": [
+    "R1",
+    "R5"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "A passed step whose stored label is the browser's own error page",
+  "input": {
+    "expects": "Dashboard",
+    "stored": [
+      "This site can't be reached",
+      "net::ERR_CONNECTION_REFUSED",
+      "DNS_PROBE_FINISHED_NXDOMAIN"
+    ]
+  },
+  "expected": {
+    "observation_status": "unreachable",
+    "verdict": "unverifiable"
+  }
+}

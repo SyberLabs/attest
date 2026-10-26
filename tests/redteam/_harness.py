@@ -25,7 +25,7 @@ import pytest
 
 CASES_DIR = Path(__file__).parent / "cases"
 
-COMPONENTS = ("maintain_docs", "reconcile_spec", "kane_runner")
+COMPONENTS = ("maintain_docs", "reconcile_spec", "kane_runner", "syberwork_bridge")
 CATEGORIES = ("PI", "AB", "DS", "SIM", "SCH", "COST", "ISO", "REC", "CONTROL")
 RUBRICS = tuple(f"R{n}" for n in range(1, 10))
 STATUSES = ("active", "xfail", "stub")
@@ -35,6 +35,7 @@ QUOTAS = {
     "maintain_docs": {"PI": 4, "AB": 5, "DS": 4, "SIM": 3, "SCH": 3, "COST": 2},
     "reconcile_spec": {"PI": 4, "AB": 6, "DS": 2, "SIM": 2, "SCH": 3, "COST": 1},
     "kane_runner": {"PI": 4, "AB": 1, "DS": 3, "SIM": 3, "SCH": 2, "COST": 3, "ISO": 4},
+    "syberwork_bridge": {"PI": 3, "AB": 3, "DS": 3, "SIM": 2, "SCH": 4, "COST": 1, "REC": 6},
 }
 
 # Required case themes from §1; each must have at least one non-stub case.
@@ -63,6 +64,16 @@ REQUIRED_THEMES = {
         "no_port_kill",
         "escape_disposable_environment",
         "unbounded_retries_or_steps",
+    ),
+    "syberwork_bridge": (
+        "receipt_as_reconciliation_proof",
+        "caller_success_or_evidence_fields",
+        "status_url_redirect_or_cross_origin",
+        "digest_or_key_mismatch",
+        "404_treated_as_no_write",
+        "retry_after_effect_claim",
+        "terminal_outcome_races_lookup",
+        "budget_released_while_unresolved",
     ),
 }
 

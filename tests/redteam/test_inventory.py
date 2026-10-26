@@ -13,12 +13,23 @@ from collections import Counter
 
 import pytest
 
-from . import test_kane_runner, test_maintain_docs, test_reconcile_spec
+from . import test_kane_runner, test_maintain_docs, test_reconcile_spec, test_syberwork_bridge
 from ._harness import CASES, CATEGORIES, COMPONENTS, QUOTAS, REQUIRED_THEMES, RUBRICS, STATUSES
 
-MODULES = {"maintain_docs": test_maintain_docs, "reconcile_spec": test_reconcile_spec, "kane_runner": test_kane_runner}
-PREFIX = {"maintain_docs": "MD", "reconcile_spec": "RS", "kane_runner": "KR"}
+MODULES = {
+    "maintain_docs": test_maintain_docs,
+    "reconcile_spec": test_reconcile_spec,
+    "kane_runner": test_kane_runner,
+    "syberwork_bridge": test_syberwork_bridge,
+}
+PREFIX = {"maintain_docs": "MD", "reconcile_spec": "RS", "kane_runner": "KR", "syberwork_bridge": "BR"}
 COUNTED = {"active", "xfail"}
+
+# SyberWork is not in this repository. Only the categories with an Attest-side
+# check are filled here; the rest need the SyberWork bridge itself (N3/N4).
+BRIDGE_ATTEST_SIDE = ("PI", "AB")
+BRIDGE_ATTEST_SIDE_THEMES = ("receipt_as_reconciliation_proof", "caller_success_or_evidence_fields")
+BRIDGE_BELOW_FLOOR = "SyberWork bridge is below its §1 floor: DS, SIM, SCH, COST and REC need the SyberWork side"
 
 
 def counted(component: str) -> Counter:
@@ -58,20 +69,37 @@ def test_maintain_docs_has_a_positive_control():
     assert [c["status"] for c in controls] == ["active"]
 
 
-@pytest.mark.parametrize("component", ["maintain_docs", "reconcile_spec"])
+@pytest.mark.parametrize("component", [
+    "maintain_docs",
+    "reconcile_spec",
+    "kane_runner",
+    pytest.param("syberwork_bridge", marks=pytest.mark.xfail(strict=True, reason=BRIDGE_BELOW_FLOOR)),
+])
 def test_g2_floor_met(component):
     assert shortfall(component) == {}
 
 
-@pytest.mark.xfail(strict=True, reason="Kane runner is below its §1 floor: live-run cases are stubs")
-def test_g2_floor_met_kane_runner():
-    assert shortfall("kane_runner") == {}
+def test_g2_floor_met_syberwork_bridge_attest_side():
+    assert {cat: v for cat, v in shortfall("syberwork_bridge").items() if cat in BRIDGE_ATTEST_SIDE} == {}
 
 
-@pytest.mark.parametrize("component", COMPONENTS)
+def themes(component: str) -> set[str]:
+    return {c["theme"] for c in CASES.values() if c["component"] == component and c["status"] in COUNTED}
+
+
+@pytest.mark.parametrize("component", [
+    "maintain_docs",
+    "reconcile_spec",
+    "kane_runner",
+    pytest.param("syberwork_bridge", marks=pytest.mark.xfail(strict=True, reason=BRIDGE_BELOW_FLOOR)),
+])
 def test_required_themes_have_an_executable_case(component):
-    themes = {c["theme"] for c in CASES.values() if c["component"] == component and c["status"] in COUNTED}
-    assert set(REQUIRED_THEMES[component]) - themes == set()
+    assert set(REQUIRED_THEMES[component]) - themes(component) == set()
+
+
+def test_bridge_attest_side_themes_have_an_executable_case():
+    assert set(BRIDGE_ATTEST_SIDE_THEMES) <= set(REQUIRED_THEMES["syberwork_bridge"])
+    assert set(BRIDGE_ATTEST_SIDE_THEMES) - themes("syberwork_bridge") == set()
 
 
 def test_inventory_summary(capsys):

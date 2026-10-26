@@ -1,0 +1,26 @@
+{
+  "id": "BR-PI-02",
+  "component": "syberwork_bridge",
+  "category": "PI",
+  "rubrics": [
+    "R1",
+    "R6"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "A worker diff that writes the spec, git hooks or absolute paths is refused before any write",
+  "input": {
+    "targets": [
+      "../spec.md",
+      ".git/hooks/post-commit",
+      "/etc/profile",
+      "C:/Windows/win.ini",
+      "~/.bashrc"
+    ],
+    "allowed": "app.js"
+  },
+  "expected": {
+    "applied": false,
+    "message": "outside the app root"
+  }
+}
