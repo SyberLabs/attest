@@ -6,7 +6,16 @@ FACTORY-REDTEAM-AND-RUBRICS §3 G4: block merge when "the allowed Maintain Docs 
 
 **Stacking:** the controls themselves (`tests/test_positive_controls.py`) come from PR #31, which is not on `main` yet. This branch stacks on #31's tip and does not change that file. Without it the gate fails closed (`positive-control file is missing`), so the job must not land on `main` before #31.
 
-**Status:** Proposed. Update from hosted run output only.
+**Status:** Measured (attest, scoped), from hosted run output only. Each run below is on this PR's branch, stacked on #31 (`a65975b`):
+
+- Green: [run 40303204215](https://github.com/SyberLabs/attest/actions/runs/40303204215) on `c57b037`: 28 cases passed (16 positive-control ids from #31 plus 12 gate cases), every section non-empty.
+- Fails closed, product refuses promotion: [run 40303296190](https://github.com/SyberLabs/attest/actions/runs/40303296190) on `83fedca`, a temporary commit that made `promote_workflow` raise for every call. `md-control` and `kane-control` failed (2 failed, 26 passed); twins and mutants still passed.
+- Fails closed, controls absent: [run 40303402812](https://github.com/SyberLabs/attest/actions/runs/40303402812) on `b1c2e1a`, which removed `tests/test_positive_controls.py` for one run: `positive-control file is missing`, all 16 control ids `not run`.
+- Green again: [run 40303476442](https://github.com/SyberLabs/attest/actions/runs/40303476442) on `c0654e9`, after both temporary changes were reverted (tree identical to `c57b037`): 28 passed.
+
+The scope is the listed ids only. See "Not covered" below. No coverage percentage is claimed.
+
+Overlap with G8: the promotion mutant also failed the existing `pytest` job (5 failed, including existing workflow promotion tests), so for that mutant G4 and G8 both block. What G4 adds is a fixed list that can't be deleted, skipped or xfailed without failing: with the controls file removed, `pytest` failed only because this PR's own `test_manifest_lists_every_collected_positive_control` is in the suite.
 
 ## What fails the job
 
