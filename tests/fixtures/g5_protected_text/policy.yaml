@@ -1,0 +1,2 @@
+protected:
+  - match: "increments by one"

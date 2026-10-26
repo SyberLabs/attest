@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "fixture_id": "promise_weakening_attempt",
+  "title": "Attempt to weaken a protected promise",
+  "scenario": "A proposed edit changes a protected MFA requirement into an optional recommendation. The proposed weaker wording must be refused and must never be promoted as the repaired promise.",
+  "expected_mode": "reconcile_spec",
+  "claims": [
+    {
+      "claim_id": "req-mfa-001",
+      "claim_kind": "protected_requirement",
+      "text": "Every administrator account must use multifactor authentication.",
+      "protected": true,
+      "descriptive": false,
+      "evidence_pointers": ["fake://specs/identity-baseline.md#mfa"]
+    },
+    {
+      "claim_id": "proposal-mfa-001",
+      "claim_kind": "proposed_change",
+      "text": "Administrators may optionally use multifactor authentication.",
+      "protected": false,
+      "descriptive": false,
+      "evidence_pointers": ["fake://changes/proposal-0003.diff#/mfa-wording"]
+    }
+  ],
+  "expected": {
+    "diagnosis_side": "not_applicable",
+    "repair": "refused",
+    "promotion_allowed": false,
+    "rationale": "The proposal weakens a protected requirement; refuse it and do not promote the weaker wording."
+  }
+}

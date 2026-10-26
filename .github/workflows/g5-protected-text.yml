@@ -1,0 +1,43 @@
+name: g5-protected-text
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Gate status lives in docs/quality/G5-PROTECTED-TEXT.md; update it only from real run output.
+jobs:
+  # G5 Protected-text diff: protected requirement text must be byte-identical
+  # between base and head unless an approved change decision already on the
+  # base branch binds the exact before/after digests. Kept in its own workflow
+  # so it does not touch tests.yml (G8/G1).
+  g5-protected-text:
+    name: G5 Protected-text diff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e '.[test]'
+      # Controls first: the checker must refuse the weakening fixtures and pass
+      # the allowed Maintain Docs repair, or the diff check below proves nothing.
+      - run: python -m pytest -rsx tests/quality/test_g5_protected_text.py
+      # On a PR, HEAD is the merge commit and HEAD^1 is the base branch tip it
+      # was merged onto. On push, compare with the previous main tip.
+      - name: Protected-text diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            base=$(git rev-parse HEAD^1)
+          else
+            base="$BEFORE"
+          fi
+          python scripts/g5-protected-text.py --base "$base" --head HEAD
