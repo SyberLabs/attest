@@ -533,6 +533,7 @@ def _gate(results, baseline: Path | None, write_baseline: Path | None) -> bool:
     from .baseline import compare, load_baseline, write_baseline as record
 
     failed = False
+    only = None
     if baseline is not None:
         try:
             entries = load_baseline(baseline)
@@ -541,6 +542,12 @@ def _gate(results, baseline: Path | None, write_baseline: Path | None) -> bool:
             baseline = None
         else:
             diff = compare(results, entries)
+            by_name = {}
+            for r in results:
+                from .baseline import doc_name
+
+                by_name[doc_name(r.doc.source)] = r.doc.source
+            only = {(by_name[ch.doc], ch.claim_id) for ch in diff.new_failures}
             word = typer.style("NEW", fg=typer.colors.RED, bold=True) if diff.new_failures else typer.style("SAME", fg=typer.colors.GREEN, bold=True)
             typer.echo(
                 f"   {typer.style('baseline', dim=True)}  {word}  {len(diff.new_failures)} new stale or broken | "
@@ -560,10 +567,42 @@ def _gate(results, baseline: Path | None, write_baseline: Path | None) -> bool:
             for c in r.claims
             if c.kind in {"shell", "browser", "assert", "prompt"}
         )
+    _root_causes(results, only)
     if write_baseline is not None:
         path = record(write_baseline, results)
         typer.echo(f"   {typer.style('baseline', dim=True)}  written to {path}")
     return failed
+
+
+def _root_causes(results, only, limit: int = 12) -> None:
+    """Print the stale and broken claims grouped by root cause, with the drift radius,
+    and write them to rootcauses.json beside the first doc's page."""
+    import json
+
+    from .rootcause import group
+
+    causes = group(results, only)
+    if not causes:
+        return
+    if results and getattr(results[0], "out_dir", None) is not None:
+        home = results[0].out_dir.parent
+        (home / "rootcauses.json").write_text(json.dumps([c.as_dict() for c in causes], indent=1), encoding="utf-8")
+    scope = "new " if only is not None else ""
+    total = sum(len(c.claims) for c in causes)
+    _section(f"ROOT CAUSES   {total} {scope}stale or broken claim{'' if total == 1 else 's'} from {len(causes)} cause{'' if len(causes) == 1 else 's'}")
+    for c in causes[:limit]:
+        what = f"{c.label} `{c.name}`" if c.name else f"{c.label}: {c.signature}"
+        typer.echo(f"   {len(c.claims):>4} x  {_ascii(_clip(what, 100))}")
+        docs = sorted({d.replace(chr(92), '/').rsplit('/', 1)[-1] for d, _, _ in c.claims})
+        typer.echo(typer.style(f"           in {', '.join(docs)[:110]}", dim=True))
+        if c.prose or c.unrun:
+            typer.echo(typer.style(
+                f"           also named in {len(c.prose)} prose line{'' if len(c.prose) == 1 else 's'}"
+                f" and {len(c.unrun)} example{'' if len(c.unrun) == 1 else 's'} that did not run",
+                fg=typer.colors.YELLOW,
+            ))
+    if len(causes) > limit:
+        typer.echo(typer.style(f"   ... and {len(causes) - limit} more in rootcauses.json", dim=True))
 
 
 def _prove_book(
