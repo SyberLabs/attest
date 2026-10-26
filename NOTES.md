@@ -190,3 +190,9 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Validation fails `<id>:observation_build_missing` / `<id>:observation_build_mismatch`. Promotion refuses stored evidence whose observation build isn't the approved one. Receipts filled from the observation build fail #41's checks when it is `None` or different.
 - G1 binding gate: new `observation-build` section (`test_observation_build_*`), Measured (scoped) on #44. Green run 40312676697, fails closed on the negative control `89237c4` (run 40312713440), green on the revert (run 40312768841). Details are in `docs/quality/G1-STAGE0-BINDING.md`.
 - Not covered: the build is the worktree identity, not read from the served app. No product code turns observations into `ReceiptEvidence`. Shell evidence has no build.
+
+## Oct 26: KR-SIM-03 on the observation build (stacked on #44)
+
+- `BrowserObservation.receipt_evidence` turns an observation into browser `ReceiptEvidence`. The build comes from the observation, never the caller. Only a passed observation is complete. This closes #44's "no product code turns observations into `ReceiptEvidence`" for whoever calls it. Nothing in the product builds receipts yet, so no runtime path calls it today.
+- KR-SIM-03 reads the build off the observations: cached observations name build A, validation on B also fails `<id>:observation_build_mismatch`, and receipts made from the observations with `receipt_evidence` are refused. On #42's or #44's `attest/` without this change the case fails. Proof, mutations and the G3 run over the #45 stack are in `docs/quality/G3-KR-SIM-03.md`.
+- Still open: KR-PI-03 and KR-ISO-04 (stubs, need live Kane). The build is still the worktree identity, not read from the served app.
