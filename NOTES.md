@@ -370,3 +370,9 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
   - All 11 were run with `PYTHONDONTWRITEBYTECODE=1` after clearing `__pycache__`, then reverted. None was committed.
 - Local, on this tip: full suite 761 passed, 4 skipped, 7 xfailed (#62 at `5454cab`: 753 passed, 4 skipped, 5 xfailed). G2 exits 0 in both `active+xfail` and `--count active`, with every enforced cell met. G3 exits 0. Active adversarial cases passed: kane_runner 30 → 33, maintain_docs 30 → 33, reconcile_spec 34 → 36, with 0 active not passing. G1, G4, G5 (`--base 5454cab`), G7 (`port-kill`, `tests`) and `tests/quality/test_g2_quota_floor.py` exit 0.
 - Path overlap with the open lanes is `NOTES.md` only, which every PR appends to. This doesn't touch G1/#58, MD product/#59, RS/#57/#61, spec mode/#60, SyberWork #96, KR-PI-03, KR-ISO-04, #24, #38 or ablit. No coverage figure is claimed; the counts are cases at this commit.
+- Hosted on PR #64 at `b9ca356` (merge ref with #62's branch at `5454cab`), all 8 checks green.
+  - tests [run 40366915149](https://github.com/SyberLabs/attest/actions/runs/40366915149): 761 passed, 4 skipped, 7 xfailed.
+  - G2 [run 40366916648](https://github.com/SyberLabs/attest/actions/runs/40366916648) PASS.
+  - G3 [run 40366915326](https://github.com/SyberLabs/attest/actions/runs/40366915326): kane_runner 33, maintain_docs 33 + 1 control, reconcile_spec 36 + 1 control, 0 active not passing, 5 xfail + 2 stub open gaps.
+  - G1, G4, G5 and G7 are green ([40366915152](https://github.com/SyberLabs/attest/actions/runs/40366915152), [40366915086](https://github.com/SyberLabs/attest/actions/runs/40366915086), [40366915025](https://github.com/SyberLabs/attest/actions/runs/40366915025), [40366915052](https://github.com/SyberLabs/attest/actions/runs/40366915052)).
+  - No negative-control push: no product hook changed, and the 11 local mutations above stand in for it.
