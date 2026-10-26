@@ -569,18 +569,31 @@ def resume(
     cdp_endpoint: str | None = typer.Option(None, "--cdp-endpoint"),
     apply: bool = typer.Option(False, "--apply", help="Promote only after successful fresh validation."),
     simulation: bool = typer.Option(False, "--simulation", help="Simulation cannot validate or promote."),
+    recipes: Path | None = typer.Option(None, "--recipes", help="Trusted shell-recipe allow-list, YAML or JSON: `recipes:` maps each exact command to a fixed argv list."),
     home: Path = typer.Option(ATTEST_DIR, "--home"),
 ) -> None:
     """Resume an approved workflow with fresh whole-document evidence.
 
-    Shell claims always run recipes-only here; no shell recipes are configured, so they fail closed.
+    Shell claims always run recipes-only here. A shell claim runs only when its
+    exact command is a key in the `--recipes` file, and then as that fixed argv
+    without a shell; without `--recipes` every shell claim fails closed.
     """
+    from .execution.recipes import RecipeConfigError, load_recipe_config
     from .storage import SQLiteWorkflowStore, WorkflowStorageError
     from .workflow import WorkflowError, resume_workflow
 
     if simulation or runner != "kane":
         typer.echo("resume requires fresh Kane evidence; fake/simulation evidence cannot validate or promote.", err=True)
         raise typer.Exit(2)
+    recipe_executor = None
+    if recipes is not None:
+        # load before starting the runner so a bad allow-list never consumes the approval
+        try:
+            recipe_executor = load_recipe_config(recipes)
+        except RecipeConfigError as exc:
+            typer.echo(f"resume failed closed: {exc}", err=True)
+            raise typer.Exit(2) from exc
+        typer.echo(f"recipes: {len(recipe_executor)} approved ({recipe_executor.digest[:12]}) from {recipes}")
     try:
         br = _runner(runner, None, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
     except Exception as exc:
@@ -589,7 +602,7 @@ def resume(
     try:
         record = resume_workflow(
             SQLiteWorkflowStore(home / "workflow.sqlite3"), workflow_id, runner=br, apply=apply,
-            simulation=simulation,
+            simulation=simulation, recipe_executor=recipe_executor,
         )
     except (WorkflowError, WorkflowStorageError, ValueError, NotImplementedError) as exc:
         typer.echo(f"resume failed closed: {exc}", err=True)

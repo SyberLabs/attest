@@ -184,6 +184,97 @@ def test_resume_validation_passes_recipes_only_to_execute(tmp_path, monkeypatch)
     assert seen["recipe_executor"] is READY
 
 
+def _cli_resume(tmp_path, monkeypatch, workflow_id, *extra):
+    from typer.testing import CliRunner
+
+    import attest.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
+    return CliRunner().invoke(cli_module.app, ["resume", workflow_id, "--home", str(tmp_path), *extra])
+
+
+def _recipes_file(tmp_path, recipes):
+    import json
+
+    path = tmp_path / "recipes.json"
+    path.write_text(json.dumps({"recipes": recipes}), encoding="utf-8")
+    return path
+
+
+def test_cli_resume_with_recipes_validates_and_promotes_approved_shell_step(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, proposal = allowed_fixture(tmp_path)
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    recipes = _recipes_file(tmp_path, {"echo ready && exit 0": [sys.executable, "-c", "print('ready')"]})
+
+    result = _cli_resume(tmp_path, monkeypatch, proposal.workflow_id, "--recipes", str(recipes), "--apply")
+
+    assert result.exit_code == 0, result.output
+    assert "recipes: 1 approved" in result.output
+    record = store.get(proposal.workflow_id)
+    assert record.state == "promoted"
+    assert record.validation["shell_mode"] == "recipes_only"
+    assert record.validation["recipe_digest"] == READY.digest
+    assert record.validation["evidence"]["c01"]["exit_code"] == 0
+    assert "exit 0" in source.read_text(encoding="utf-8")
+
+
+def test_cli_resume_without_recipes_still_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, proposal = allowed_fixture(tmp_path)
+    base = source.read_text(encoding="utf-8")
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+
+    result = _cli_resume(tmp_path, monkeypatch, proposal.workflow_id, "--apply")
+
+    assert result.exit_code == 1, result.output
+    record = store.get(proposal.workflow_id)
+    assert record.state == "rejected"
+    assert record.validation["recipe_digest"] == ApprovedRecipeExecutor({}).digest
+    assert record.validation["evidence"]["c01"]["exit_code"] == 126
+    assert source.read_text(encoding="utf-8") == base
+
+
+def test_cli_resume_recipes_never_run_an_unapproved_shell_step(tmp_path, monkeypatch):
+    """An allow-list for other commands, or for a prefix of this one, does not reach a shell."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    marker = tmp_path / "pwned"
+    candidate = f"# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0; echo pwned > '{marker.as_posix()}'\n```\n"
+    source, store, proposal = allowed_fixture(tmp_path, candidate)
+    base = source.read_text(encoding="utf-8")
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    recipes = _recipes_file(tmp_path, {"echo ready && exit 0": [sys.executable, "-c", "print('ready')"]})
+
+    result = _cli_resume(tmp_path, monkeypatch, proposal.workflow_id, "--recipes", str(recipes), "--apply")
+
+    assert result.exit_code == 1, result.output
+    assert not marker.exists(), "an unapproved shell step reached a shell"
+    record = store.get(proposal.workflow_id)
+    assert record.state == "rejected"
+    assert record.validation["recipe_digest"] == READY.digest
+    evidence = record.validation["evidence"]["c01"]
+    assert evidence["exit_code"] == 126
+    assert "no approved recipe" in evidence["stdout_tail"]
+    assert source.read_text(encoding="utf-8") == base
+
+
+def test_cli_resume_bad_recipe_config_fails_closed_before_validation(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, proposal = allowed_fixture(tmp_path)
+    base = source.read_text(encoding="utf-8")
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    bad = tmp_path / "recipes.yaml"
+    bad.write_text("recipes:\n  echo ready && exit 0: [a]\n  echo ready && exit 0: [b]\n", encoding="utf-8")
+
+    for path in (bad, tmp_path / "missing.yaml"):
+        result = _cli_resume(tmp_path, monkeypatch, proposal.workflow_id, "--recipes", str(path), "--apply")
+        assert result.exit_code == 2, result.output
+        assert "resume failed closed" in result.output
+        # the approval is not consumed: fix the config and resume again
+        assert store.get(proposal.workflow_id).state == "validating"
+    assert source.read_text(encoding="utf-8") == base
+
+
 def test_fake_or_simulated_validation_cannot_advance_or_promote(tmp_path):
     source, store, proposal = allowed_fixture(tmp_path)
     approve_workflow(store, proposal.workflow_id, "reviewer")
