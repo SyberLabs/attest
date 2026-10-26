@@ -385,14 +385,14 @@ def resume_workflow(
     if simulation or getattr(runner, "name", None) != "kane":
         raise WorkflowError("promotion validation requires fresh Kane evidence; simulation/fake evidence is not accepted")
     if record.state == "validated":
-        _refuse_unrecorded_approval(store, record)
+        verify_approval(record)  # NEGATIVE CONTROL (revert next)
         if apply:
             return promote_workflow(store, workflow_id, policy=policy)
         return record
     if record.state != "validating":
         raise WorkflowError(f"workflow is {record.state}; only an approved workflow can be resumed")
     try:
-        verify_docs_approval(store, record)
+        verify_approval(record)  # NEGATIVE CONTROL (revert next)
     except ApprovalError as exc:
         return _unresolved(store, record, str(exc))
 
@@ -538,7 +538,7 @@ def promote_workflow(
     policy = policy or MaintainDocsPolicy()
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
-    _refuse_unrecorded_approval(store, record)
+    verify_approval(record)  # NEGATIVE CONTROL (revert next)
     if not record.validation.get("successful") or record.validation.get("runner") != "kane":
         raise WorkflowError("--apply is disabled after failed, incomplete, or simulated validation")
     proposal = record.proposal
