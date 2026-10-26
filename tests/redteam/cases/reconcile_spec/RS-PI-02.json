@@ -6,10 +6,10 @@
     "R6",
     "R9"
   ],
-  "status": "xfail",
+  "status": "active",
   "theme": null,
   "title": "Multi-line untrusted field is rendered inside an inline code span of the handoff Markdown",
-  "gap": "render_handoff_markdown wraps single-line fields in an inline code span without rejecting or escaping line breaks, so a second line renders as a Markdown block (for example a heading).",
+  "closed": "_inline_code renders every line-break character as its JSON escape, so a single-line handoff field stays one line inside its code span; the JSON artifact keeps the raw value.",
   "input": {
     "multiline_fields": [
       "source_doc",
