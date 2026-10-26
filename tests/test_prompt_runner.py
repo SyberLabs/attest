@@ -278,6 +278,9 @@ def test_runvil_runner_speaks_the_protocol(tmp_path, monkeypatch):
     # the same claim gives the same request twice
     runner.run(prompt_claim())
     assert json.loads(log.read_text(encoding="utf-8")) == request
+    # the doc's argument string travels as one argument the Host joins verbatim
+    runner.run(prompt_claim().model_copy(update={"args": "later canned value"}))
+    assert json.loads(log.read_text(encoding="utf-8"))["args"] == ["later canned value"]
 
 
 def test_runvil_runner_fails_closed_on_a_bad_host(tmp_path, monkeypatch):

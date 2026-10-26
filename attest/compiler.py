@@ -13,8 +13,9 @@ Rules from docs/CLI-RUNNER-SPEC.md, applied with no model call:
 
 4. A ``markdown`` fence whose text opens with frontmatter carrying a ``runvil:``
    key is a ``prompt`` claim; ``command`` is the fence text byte for byte.
-5. A ``text`` fence that follows it with only blank lines between becomes that
-   claim's ``expects``, byte for byte. The claim's span covers both fences.
+5. A ``text`` fence that follows it with only blank lines between, or one
+   introducing line that ends in a colon, becomes that claim's ``expects``,
+   byte for byte. The claim's span covers both fences.
 6. A ``lua`` or ``markdown`` fence that is not a complete prompt file is a
    fragment and compiles to prose: it promises nothing a run can check.
 
@@ -229,12 +230,37 @@ class FencePlan:
     fence: Fence
     role: FenceRole
     result: Fence | None = None
+    # the argument string the introducing line names: "Run it with the argument string `rust`:"
+    args: str | None = None
 
 
-def _only_blank_between(doc: Doc, first: Fence, second: Fence) -> bool:
-    """True when nothing but blank lines sits between the closing fence of
-    ``first`` and the opening fence of ``second``."""
-    return all(not ln.strip() for ln in doc.lines[first.end_line + 1 : second.start_line - 2])
+_ARGUMENT_STRING = re.compile(r"argument string `([^`]*)`")
+
+
+def _introducing_line(doc: Doc, first: Fence, second: Fence) -> str | None | bool:
+    """What sits between the closing fence of ``first`` and the opening fence of
+    ``second``: ``None`` for blank lines only, the line when it is one line that
+    ends in a colon, the way the Runvil guides introduce a result or an error
+    message ("the run result is:", "and this message:"), else ``False``."""
+    between = [ln for ln in doc.lines[first.end_line + 1 : second.start_line - 2] if ln.strip()]
+    if not between:
+        return None
+    if len(between) == 1 and between[0].rstrip().endswith(":"):
+        return between[0]
+    return False
+
+
+def _introduces_result(doc: Doc, first: Fence, second: Fence) -> bool:
+    """True when ``second`` is ``first``'s result fence."""
+    return _introducing_line(doc, first, second) is not False
+
+
+def _args_in(line: str | None | bool) -> str | None:
+    """The argument string an introducing line names, when it names one."""
+    if not isinstance(line, str):
+        return None
+    m = _ARGUMENT_STRING.search(line)
+    return m.group(1) if m else None
 
 
 def plan_fences(doc: Doc) -> list[FencePlan]:
@@ -248,8 +274,8 @@ def plan_fences(doc: Doc) -> list[FencePlan]:
         role = classify_fence(f)
         if role == "prompt" and i + 1 < len(fences):
             nxt = fences[i + 1]
-            if nxt.lang.lower() in OUTPUT_LANGS and _only_blank_between(doc, f, nxt):
-                plan.append(FencePlan(f, "prompt", nxt))
+            if nxt.lang.lower() in OUTPUT_LANGS and _introduces_result(doc, f, nxt):
+                plan.append(FencePlan(f, "prompt", nxt, _args_in(_introducing_line(doc, f, nxt))))
                 plan.append(FencePlan(nxt, "result"))
                 i += 2
                 continue
@@ -258,7 +284,7 @@ def plan_fences(doc: Doc) -> list[FencePlan]:
     return plan
 
 
-def fence_claim(fence: Fence, cid: str, doc: Doc | None = None, result: Fence | None = None) -> Claim:
+def fence_claim(fence: Fence, cid: str, doc: Doc | None = None, result: Fence | None = None, args: str | None = None) -> Claim:
     """The claim a fence compiles to by rule. ``result`` is the paired result
     fence of a prompt; it needs ``doc`` so the span can cover both fences."""
     kind = classify_fence(fence)
@@ -274,7 +300,7 @@ def fence_claim(fence: Fence, cid: str, doc: Doc | None = None, result: Fence | 
                 end_line=result.end_line,
                 text="\n".join(doc.lines[fence.start_line - 1 : result.end_line]),
             )
-        return Claim(id=cid, kind="prompt", span=span, command=fence.text, expects=result.text if result else None)
+        return Claim(id=cid, kind="prompt", span=span, command=fence.text, expects=result.text if result else None, args=args)
     if kind == "prose":
         return Claim(id=cid, kind="prose", span=span)
     return Claim(id=cid, kind="assert", span=span, expects=fence.text)
@@ -285,7 +311,7 @@ def fences_by_regex(doc: Doc) -> list[Claim]:
     for item in plan_fences(doc):
         if item.role == "result":
             continue
-        claims.append(fence_claim(item.fence, f"c{len(claims) + 1:02d}", doc=doc, result=item.result))
+        claims.append(fence_claim(item.fence, f"c{len(claims) + 1:02d}", doc=doc, result=item.result, args=item.args))
     return claims
 
 
@@ -315,6 +341,7 @@ def _represents(claim: Claim, item: FencePlan) -> bool:
             and (claim.span.start_line, claim.span.end_line) == (f.start_line, end)
             and claim.command == f.text
             and claim.expects == expects
+            and claim.args == item.args
         )
     return False
 
@@ -440,7 +467,7 @@ def assemble(doc: Doc, drafts: list[LLMClaim]) -> list[Claim]:
             claims.append(Claim(id=cid, kind="prose", span=span))
     for item in rule_items:
         if item.role != "result":
-            claims.append(fence_claim(item.fence, cid, doc=doc, result=item.result))
+            claims.append(fence_claim(item.fence, cid, doc=doc, result=item.result, args=item.args))
     claims.sort(key=lambda c: (c.span.start_line, c.span.end_line))
     numbered: list[Claim] = []
     for i, c in enumerate(claims):
@@ -674,7 +701,7 @@ def recompile_claim(doc: Doc, claim: Claim, llm: LLM | None = None) -> Claim:
             if item.role == "result":
                 # a result fence belongs to the prompt before it
                 item = next(p for p in plan if p.role == "prompt" and p.result is f)
-            fresh = fence_claim(item.fence, claim.id, doc=doc, result=item.result)
+            fresh = fence_claim(item.fence, claim.id, doc=doc, result=item.result, args=item.args)
             return fresh.model_copy(update={"depends_on": claim.depends_on, "expects": claim.expects if fresh.kind == "shell" else fresh.expects})
     span = Span(start_line=start, end_line=end, text="\n".join(doc.lines[start - 1 : end]))
     if claim.kind == "prose":

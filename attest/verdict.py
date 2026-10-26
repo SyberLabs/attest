@@ -109,11 +109,85 @@ def normalize_result(s: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+# the guides' placeholder for run-specific text inside a result fence: {nonce}, {identity}, {...}
+_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_.]*|\.\.\.)\}")
+
+
+def placeholders_in(text: str) -> list[str]:
+    """The distinct placeholders a result fence uses, in order of first appearance."""
+    out: list[str] = []
+    for m in _PLACEHOLDER.finditer(text):
+        if m.group(0) not in out:
+            out.append(m.group(0))
+    return out
+
+
+def placeholder_pattern(text: str) -> re.Pattern[str] | None:
+    """A regex for text that uses placeholders, or None when it uses none.
+
+    Each ``{name}`` stands for one run of text within a line; the same name must
+    stand for the same text everywhere it appears. ``{...}`` is any such run."""
+    if not _PLACEHOLDER.search(text):
+        return None
+    parts: list[str] = []
+    seen: set[str] = set()
+    pos = 0
+    for m in _PLACEHOLDER.finditer(text):
+        parts.append(re.escape(text[pos : m.start()]))
+        name = m.group(1)
+        if name == "...":
+            parts.append(r"[^\n]+?")
+        else:
+            group = "p_" + name.replace(".", "_")
+            if group in seen:
+                parts.append(f"(?P={group})")
+            else:
+                seen.add(group)
+                parts.append(f"(?P<{group}>[^\n]+?)")
+        pos = m.end()
+    parts.append(re.escape(text[pos:]))
+    return re.compile("".join(parts))
+
+
 def results_equal(expects: str, result: str | None) -> bool:
-    """Exact comparison of a prompt result with the doc's result fence."""
+    """Exact comparison of a prompt result with the doc's result fence, where a
+    placeholder in the fence stands for run-specific text."""
     if result is None:
         return False
-    return normalize_result(expects) == normalize_result(result)
+    want, got = normalize_result(expects), normalize_result(result)
+    pattern = placeholder_pattern(want)
+    if pattern is None:
+        return want == got
+    return pattern.fullmatch(got) is not None
+
+
+def failure_shown(expects: str, error_kind: str | None, message: str | None) -> bool:
+    """True when the doc's result fence shows this failure: it names the error
+    kind, or every non-blank line of it appears in the failure's message, with
+    placeholders standing for run-specific text."""
+    shown = normalize_result(expects).rstrip("\n")
+    if not shown.strip():
+        return False
+    if error_kind is not None and error_kind == shown.strip():
+        return True
+    if message is None:
+        return False
+    text = normalize_result(message)
+    for line in shown.split("\n"):
+        if not line.strip():
+            continue
+        pattern = placeholder_pattern(line)
+        if pattern is None:
+            if line not in text:
+                return False
+        elif pattern.search(text) is None:
+            return False
+    return True
+
+
+def _placeholder_note(expects: str | None) -> str:
+    used = placeholders_in(expects or "")
+    return f", with {', '.join(used)} standing for run-specific text" if used else ""
 
 
 def observed_text(claim: Claim, evidence: Evidence) -> str | None:
@@ -266,12 +340,11 @@ def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
             # A result fence shows what the run leaves behind: its result, or the
             # failure's message when the doc documents a failure. The Language
             # guide writes every documented failure that way.
-            shown = (claim.expects or "").strip()
-            if shown and (obs.error_kind == shown or (obs.message is not None and normalize_result(shown).rstrip("\n") in normalize_result(obs.message))):
+            if claim.expects and failure_shown(claim.expects, obs.error_kind, obs.message):
                 return Verdict(
                     claim_id=claim.id,
                     status="proven",
-                    reason=f"proven: the run ended {obs.status} and the doc's result fence is that failure's message (compared after {RESULT_NORMALIZATIONS}); scripted run",
+                    reason=f"proven: the run ended {obs.status} and the doc's result fence is that failure's message (each line compared after {RESULT_NORMALIZATIONS}{_placeholder_note(claim.expects)}); scripted run",
                     evidence=ev,
                 )
             return Verdict(claim_id=claim.id, status="broken", reason=f"broken: success promised but the run ended {obs.status} ({error})", evidence=ev)
@@ -280,11 +353,11 @@ def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
             return Verdict(
                 claim_id=claim.id,
                 status="stale",
-                reason=f"stale: completed but the result differs from the doc's result fence (compared after {RESULT_NORMALIZATIONS}); scripted run",
+                reason=f"stale: completed but the result differs from the doc's result fence (compared after {RESULT_NORMALIZATIONS}{_placeholder_note(claim.expects)}); scripted run",
                 evidence=ev,
             )
         if claim.expects:
-            reason = f"proven: completed and the result equals the doc's result fence (compared after {RESULT_NORMALIZATIONS}); scripted run"
+            reason = f"proven: completed and the result equals the doc's result fence (compared after {RESULT_NORMALIZATIONS}{_placeholder_note(claim.expects)}); scripted run"
         else:
             reason = "proven: completed as the doc promised; scripted run"
         return Verdict(claim_id=claim.id, status="proven", reason=reason, evidence=ev)
@@ -292,7 +365,7 @@ def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
     if not failed:
         return Verdict(claim_id=claim.id, status="broken", reason="broken: failure promised but the run completed", evidence=ev)
     quoted = (claim.expects or "").strip()
-    if quoted and not (obs.error_kind == quoted or (obs.message is not None and quoted in obs.message)):
+    if quoted and not failure_shown(claim.expects or "", obs.error_kind, obs.message):
         return Verdict(
             claim_id=claim.id,
             status="stale",

@@ -69,6 +69,8 @@ class Claim(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     # prompt claims: True when the doc promises the run fails (a fence-error example)
     expects_error: bool = False
+    # prompt claims: the argument string the doc says the example runs with
+    args: str | None = None
     # names of sidecar fixtures that must exist before the claim runs
     setup: list[str] = Field(default_factory=list)
 
@@ -84,6 +86,8 @@ class Claim(BaseModel):
             raise ValueError("prose claim must not carry command, objective or expects")
         if self.expects_error and self.kind != "prompt":
             raise ValueError("expects_error is only meaningful on a prompt claim")
+        if self.args is not None and self.kind != "prompt":
+            raise ValueError("args is only meaningful on a prompt claim")
         return self
 
 

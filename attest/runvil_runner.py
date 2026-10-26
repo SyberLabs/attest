@@ -75,9 +75,12 @@ class RunvilPromptRunner:
         return host
 
     def request(self, claim: Claim, args: list[str] | None = None, script: list[str] | None = None) -> dict:
+        if args is None:
+            # the argument string the doc names for the example, as one argument the Host joins verbatim
+            args = [claim.args] if claim.args else []
         return {
             "prompt": claim.command or "",
-            "args": list(args or []),
+            "args": list(args),
             "script": list(script or []),
             "seed": claim_seed(claim.id),
             "started_at": claim_started_at(claim.id),

@@ -70,15 +70,16 @@ def test_chapter_compiles_by_rule_without_a_model():
     doc = chapter()
     claims = compile_doc(doc, llm=None, use_cache=False)
     prompts = [c for c in claims if c.kind == "prompt"]
-    # the spec's 75 counts every markdown fence; 7 are fragments without frontmatter (prose),
-    # and 2 of the spec's 60 result fences follow such a fragment, so 58 prompts carry a result
+    # the spec's 75 counts every markdown fence; 7 are fragments without frontmatter (prose).
+    # 58 result fences follow a prompt directly and 4 more after one introducing line ending
+    # in a colon ("and this message:"); 2 of the spec's 60 follow a fragment instead
     assert len(prompts) == 68
-    assert sum(1 for c in prompts if c.expects) == 58
+    assert sum(1 for c in prompts if c.expects) == 62
     assert all(c.expects_error is False for c in prompts)
     fragments = [c for c in claims if c.kind == "prose"]
     assert len(fragments) == 7
-    # text fences with prose between them and the prompt, or after a fragment, stay assert claims
-    assert sum(1 for c in claims if c.kind == "assert") == 15
+    # text fences with other prose between them and the prompt, or after a fragment, stay assert claims
+    assert sum(1 for c in claims if c.kind == "assert") == 11
     assert not any(c.kind in ("shell", "browser") for c in claims)
     # ids are in doc order and every span is doc text
     assert [c.id for c in claims] == [f"c{i + 1:02d}" for i in range(len(claims))]
@@ -167,11 +168,17 @@ def test_pairing_requires_only_blank_lines_between():
     # two blank lines still pair
     two = ingest_text(PAIRED.replace("````\n\n````text", "````\n\n\n````text"))
     assert fences_by_regex(two)[0].expects == "hello"
-    # prose between breaks the pair: the text fence becomes an assert claim
-    broken = ingest_text(PAIRED.replace("````\n\n````text", "````\n\nThe result:\n\n````text"))
+    # one introducing line that ends in a colon still pairs: the guides write
+    # "the run result is:" and "and this message:" before the fence
+    intro = ingest_text(PAIRED.replace("````\n\n````text", "````\n\nThe run fails with kind `List` and this message:\n\n````text"))
+    assert fences_by_regex(intro)[0].expects == "hello"
+    # any other prose between breaks the pair: the text fence becomes an assert claim
+    broken = ingest_text(PAIRED.replace("````\n\n````text", "````\n\nThe result is shown below.\n\n````text"))
     kinds = [c.kind for c in fences_by_regex(broken)]
     assert kinds == ["prompt", "assert"]
     assert fences_by_regex(broken)[0].expects is None
+    two_lines = ingest_text(PAIRED.replace("````\n\n````text", "````\n\nFirst line.\nThe result is:\n\n````text"))
+    assert fences_by_regex(two_lines)[0].expects is None
     # a lua fence after a prompt is not a result
     lua = ingest_text(PAIRED.replace("````text\nhello\n````", "````lua\nreturn 1\n````"))
     assert [c.kind for c in fences_by_regex(lua)] == ["prompt", "prose"]
@@ -238,3 +245,36 @@ def test_save_cache_refuses_a_prompt_claim_that_lost_its_result(tmp_path):
     bad = [claims[0].model_copy(update={"expects": None})]
     with pytest.raises(CompileError, match="not represented exactly once"):
         save_cache(doc, bad, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "name,prompts,paired,asserts,prose",
+    [
+        ("language-08-jump-and-call", 33, 33, 7, 5),
+        ("language-09-the-store", 46, 44, 23, 18),
+    ],
+)
+def test_other_chapters_compile_by_rule(name, prompts, paired, asserts, prose):
+    doc = ingest(str(ROOT / "tests" / "fixtures" / "runvil" / f"{name}.md")).model_copy(update={"browser_claims": False})
+    claims = compile_doc(doc, llm=None, use_cache=False)
+    assert sum(1 for c in claims if c.kind == "prompt") == prompts
+    assert sum(1 for c in claims if c.kind == "prompt" and c.expects) == paired
+    assert sum(1 for c in claims if c.kind == "assert") == asserts
+    assert sum(1 for c in claims if c.kind == "prose") == prose
+    assert not any(c.kind in ("shell", "browser") for c in claims)
+
+
+def test_argument_string_in_the_introducing_line_becomes_the_claims_args():
+    intro = ingest_text(PAIRED.replace("````\n\n````text", "````\n\nRun it with the argument string `later canned value`:\n\n````text"))
+    claim = fences_by_regex(intro)[0]
+    assert claim.args == "later canned value" and claim.expects == "hello"
+    plain = fences_by_regex(ingest_text(PAIRED))[0]
+    assert plain.args is None
+    # a cached claim must carry the same args to count as the fence's claim
+    from attest.compiler import save_cache
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        with pytest.raises(CompileError, match="not represented exactly once"):
+            save_cache(intro, [claim.model_copy(update={"args": None})], Path(d))
+        save_cache(intro, [claim], Path(d))
+        assert load_cached(intro, Path(d)) == [claim]
