@@ -6,9 +6,11 @@ starts kane-cli or a browser; cases that need a live Kane run are stubs.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
+import signal
 import sys
 import time
 import zipfile
@@ -22,7 +24,18 @@ from attest import pipeline
 from attest.contracts import AuthorityState, ComparisonState, EvidenceState, ExecutionState, RepairState
 from attest.execution.sandbox import extract_zip_safely, safe_pack_path
 from attest.execution.supervisor import ProcessSupervisor
-from attest.kane import KaneBrowserRunner, KaneRun, StepRun, find_pack, observation_for, parse_events
+from attest.kane import (
+    FILE_MAX_CLAIMS,
+    KaneBrowserRunner,
+    KaneRun,
+    StepRun,
+    find_pack,
+    group_claims,
+    observation_for,
+    parse_events,
+    read_pack,
+    unpack,
+)
 from attest.kane import test_file_text as make_test_file
 from attest.models import BrowserObservation, Claim, Evidence, Span
 from attest.receipts import ReceiptEvidence, RunReceipt
@@ -91,8 +104,28 @@ def test_live_page_content_does_not_add_kane_actions(rt_case):
 
 
 @case("KR-PI-04")
-def test_doc_objective_instructions_stay_out_of_step_body(rt_case):
-    raise AssertionError("stub")
+def test_doc_objective_cannot_add_a_kane_step(rt_case):
+    i, x = rt_case["input"], rt_case["expected"]
+    claim = Claim(id=i["claim"], kind="browser", span=Span(start_line=1, end_line=1, text="The dashboard loads."),
+                  objective=i["objective"], expects=i["expects"])
+    text = make_test_file([claim], "http://127.0.0.1:5000/", "t", max_steps=i["max_steps"])
+    assert yaml.safe_load(text.split("---")[1])["max_steps"] == x["front_matter_max_steps"]
+    assert [ln for ln in text.splitlines() if ln.startswith("## ")] == x["headings"]
+
+
+@case("KR-PI-05")
+def test_pack_failure_triage_text_is_note_not_verdict(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    step_dir = tmp_path / "pack" / "tests" / "t" / "steps" / "1-0-1"
+    step_dir.mkdir(parents=True)
+    (step_dir / "step.json").write_text(json.dumps(i["pack_step_meta"]), encoding="utf-8")
+    (step_dir / "failure.yaml").write_text(yaml.safe_dump(i["failure"]), encoding="utf-8")
+    claim = _browser_claim("c01", i["expects"])
+    observation = observation_for(claim, 1, _one_step_run(i["step_status"]), read_pack(tmp_path / "pack"))
+    assert observation.status == x["observation_status"]
+    assert observation.observed == x["observed"]
+    assert i["failure"]["triage"]["rca"]["root_cause"] in observation.note  # kept for people, not obeyed
+    assert _verdict(claim, observation).status == x["verdict"]
 
 
 # -- AB: authority bypass ------------------------------------------------------------
@@ -178,6 +211,16 @@ def test_cached_replay_is_bound_to_app_version(rt_case):
     raise AssertionError("stub")
 
 
+@case("KR-SIM-04")
+def test_stored_browser_error_page_is_not_page_evidence(rt_case):
+    i, x = rt_case["input"], rt_case["expected"]
+    claim = _browser_claim("c01", i["expects"])
+    for stored in i["stored"]:
+        observation = observation_for(claim, 1, _one_step_run("passed", {"c01_label": stored}), {})
+        assert observation.status == x["observation_status"], stored
+        assert _verdict(claim, observation).status == x["verdict"], stored
+
+
 # -- SCH: malformed or hostile schema ------------------------------------------------
 
 
@@ -261,6 +304,20 @@ def test_supervisor_kills_blocked_child_and_grandchild(rt_case, tmp_path):
     assert not _alive(grandchild)
 
 
+@case("KR-COST-05")
+def test_claim_flood_is_split_under_the_step_cap(rt_case):
+    i, x = rt_case["input"], rt_case["expected"]
+    claims = [_browser_claim(f"c{n:03d}", "Dashboard") for n in range(1, i["claims"] + 1)]
+    groups = group_claims(claims)
+    assert len(groups) == x["files"]
+    assert FILE_MAX_CLAIMS == x["max_headings_per_file"] < i["max_steps"]
+    for group in groups:
+        text = make_test_file(group, "http://127.0.0.1:5000/", "t", max_steps=i["max_steps"])
+        headings = [ln for ln in text.splitlines() if ln.startswith("## ")]
+        assert len(headings) <= x["max_headings_per_file"]
+    assert sum(len(g) for g in groups) == x["claims_covered"]  # nothing silently dropped
+
+
 def _alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -328,6 +385,55 @@ def test_shell_session_closes_when_browser_runner_crashes(rt_case, tmp_path, mon
     with pytest.raises(RuntimeError, match="crashed"):
         pipeline.execute([_browser_claim("c01", "Dashboard")], CrashingRunner(), Rules(), tmp_path / "scratch")
     assert len(closed) == x["closed"]
+
+
+@case("KR-ISO-05")
+def test_runner_pack_extraction_stays_in_the_pack_dir(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    pack = tmp_path / "hostile.zip"
+    with zipfile.ZipFile(pack, "w") as z:
+        z.writestr(i["inside"], "{}")
+        for name in i["escaping"]:
+            z.writestr(name, "outside")
+        link = zipfile.ZipInfo(i["symlink"]["name"])
+        link.external_attr = 0o120777 << 16
+        z.writestr(link, i["symlink"]["target"])
+        z.writestr(i["har"], "cookie: session=1")
+    dest = tmp_path / "home" / "packs" / "hostile"
+    unpack(pack, dest)
+    assert (dest / i["inside"]).is_file()
+    outside = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")
+                     if p.is_file() and p != pack and not p.is_relative_to(dest))
+    assert outside == x["outside_files"]
+    assert len([p for p in dest.rglob("*") if p.is_symlink()]) == x["symlinks"]
+    assert (dest / i["har"]).exists() is x["har_extracted"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process probe is POSIX only")
+@case("KR-ISO-06")
+def test_deadline_kill_reaches_kane_child_processes(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    pid_file = tmp_path / "grandchild.pid"
+    # Stands in for kane-cli: starts a long-lived child (the browser) and keeps printing,
+    # so _execute's per-line deadline check does fire.
+    child = (
+        "import subprocess, sys, time\n"
+        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], stdout=subprocess.DEVNULL)\n"
+        f"open({str(pid_file)!r}, 'w').write(str(g.pid))\n"
+        "while True:\n"
+        f"    print('{{}}', flush=True); time.sleep({i['tick_s']})\n"
+    )
+    run = _bare_runner(tmp_path / "home")._execute([sys.executable, "-c", child], timeout_s=i["timeout_s"])
+    grandchild = int(pid_file.read_text())
+    try:
+        assert run.exit_code == x["exit_code"]
+        deadline = time.monotonic() + 2
+        while _alive(grandchild) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert _alive(grandchild) is x["grandchild_alive"]
+    finally:
+        if _alive(grandchild):
+            os.kill(grandchild, signal.SIGKILL)
 
 
 @case("KR-ISO-04")

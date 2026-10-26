@@ -1,0 +1,31 @@
+{
+  "id": "BR-AB-01",
+  "component": "syberwork_bridge",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R8"
+  ],
+  "status": "active",
+  "theme": "receipt_as_reconciliation_proof",
+  "title": "No Attest receipt, handoff or observation type can say reconciled or committed",
+  "input": {
+    "reconciliation_values": [
+      "reconciled",
+      "committed"
+    ],
+    "reconciliation_fields": {
+      "reconciled": true,
+      "external_id": "ext-1",
+      "destination_state": "committed"
+    }
+  },
+  "expected": {
+    "values_found": [],
+    "fields_found": [],
+    "extra_fields_rejected_by": [
+      "RunReceipt",
+      "ReconcileHandoff"
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "id": "BR-AB-02",
+  "component": "syberwork_bridge",
+  "category": "AB",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "An Attest receipt or handoff sent to the worker as if it were a ticket is refused",
+  "input": {
+    "payloads": [
+      {
+        "schema": "attest.receipt/v0",
+        "case_id": "0123456789ab-c01-1",
+        "disposition": "implemented",
+        "verified": true
+      },
+      {
+        "policy": "reconcile_spec",
+        "repair_state": "handoff",
+        "authority_state": "present"
+      },
+      "not json"
+    ]
+  },
+  "expected": {
+    "exit_code": 2,
+    "worker_calls": 0
+  }
+}
