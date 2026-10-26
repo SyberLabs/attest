@@ -6,9 +6,10 @@ source is authoritative, edit a contract, or promote a proposed requirement.
 The CLI does read the document each conflict's authority reference names (else
 ``source_doc``), confined to a root, to check that the submitted protected text
 is the requirement as that document states it, and that the document does not
-say it, or the requirement's section, no longer governs. It also reads the other
-Markdown documents under that root, so a reference to a copy that states the
-requirement differently from another document there doesn't pass as the contract.
+say it, the requirement's section or the requirement itself no longer governs.
+It also reads the other Markdown documents under that root, so a reference to a
+copy that states the requirement differently from another document there doesn't
+pass as the contract.
 """
 
 from __future__ import annotations
@@ -567,16 +568,83 @@ _NOT_GOVERNING_WORDS = re.compile(
 )
 _TAG = re.compile(r"[(\[]([^)\]]*)[)\]]")
 
+# The words a note uses to withdraw a requirement, without "superseded", which blocks
+# anywhere on its own. A state word counts only alone or followed by what such a note
+# says next (by, in favour of, a date), so ``Reject deprecated TLS versions`` and
+# ``Draft documents need two reviewers`` aren't notes.
+_STATE = r"(?:deprecated|withdrawn|obsolete|rescinded|repealed|retired|archived|draft|proposed|replaced|historical|void)"
+_STATE_END = r"(?=\s*(?:$|[)\].,;:!?|]|(?:by|with|in\s+favou?r\s+of|on|as\s+of|since|from|effective|until|per)\b|\d))"
+_NO_LONGER = r"\bno\s+longer\s+(?:appl(?:y|ies|icable)|govern(?:s|ing)?|in\s+(?:force|effect)|effective|binding|enforced)\b"
+# a segment (of a title, or of a sentence) that opens with a state: ``Withdrawn``, ``Replaced by SEC-9``
+_STATE_LEAD = re.compile(rf"[\s>*_`#+\-]*(?:{_STATE}{_STATE_END}|{_NO_LONGER})", re.IGNORECASE)
+_SEGMENT_BREAK = re.compile(r"[:;,!?|()\[\]\u2013\u2014]|\.(?=\s|$)|\s-\s")
+_SENTENCE_BREAK = re.compile(r"[;!?]|\.(?=\s|$)")
+# what a sentence says of its subject when it withdraws it: ``SEC-4 was replaced by SEC-9``
+_WITHDRAWS = rf"(?:[\s*_`(\[:\-\u2013\u2014]*{_STATE}{_STATE_END}|.{{0,80}}?(?:\b(?:is|are|was|were|has\s+been|have\s+been|had\s+been)\s+(?:now\s+)?{_STATE}\b|\breplaced\s+(?:by|with)\b|{_NO_LONGER}))"
+# the document speaking of itself: ``This contract no longer applies``
+_SELF = r"\bthis\s+(?:document|contract|policy|standard|specification|spec)\b"
+_SELF_WITHDRAWN = re.compile(rf"{_SELF}{_WITHDRAWS}", re.IGNORECASE)
+# ... and the requirement speaking of itself: ``This requirement no longer applies``
+_THIS_REQUIREMENT = rf"\bthis\s+(?:requirement|rule|control|clause|section)\b|{_SELF}"
+# a unit labelled with an id-shaped token (letters, a hyphen, a digit): another requirement's own text
+_ID_LABEL = re.compile(_LABEL_PREFIX.pattern + r"([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)(?![\w-])")
+
 
 def _heading_level(unit: str) -> int:
     return len(unit) - len(unit.lstrip("#"))
+
+
+def _other_label(unit: str, requirement: str) -> bool:
+    found = _ID_LABEL.match(unit)
+    return bool(found) and any(c.isdigit() for c in found.group(1)) and found.group(1).casefold() != requirement.casefold()
+
+
+def _section(units: list[str], index: int, requirement: str) -> list[int]:
+    """The units in the label's section, subsections included, without other requirements' own text.
+
+    A heading label's section is its own; any other label's is the section of the
+    nearest heading above it (without one, up to the first heading). Another
+    requirement's label is left out, and so is a subsection that one heads.
+    """
+    if units[index].startswith("#"):
+        start, level = index, _heading_level(units[index])
+    else:
+        start, level = next(
+            ((i, _heading_level(units[i])) for i in range(index - 1, -1, -1) if units[i].startswith("#")), (-1, 6)
+        )
+    section, skip = [index] if start == index else [], None
+    for i in range(start + 1, len(units)):
+        heading = _heading_level(units[i]) if units[i].startswith("#") else None
+        if heading is not None and heading <= level:
+            break
+        if heading is not None and skip is not None and heading <= skip:
+            skip = None
+        if skip is not None:
+            continue
+        if _other_label(units[i], requirement):
+            skip = heading
+            continue
+        section.append(i)
+    return section
+
+
+def _withdrawal(text: str, withdrawn: re.Pattern[str], *, leads: bool = False, no_longer: bool = False) -> bool:
+    """Whether a sentence of ``text`` matches ``withdrawn`` (a subject that a ``_WITHDRAWS``
+    follows), or (``leads``) opens a segment with a state, or (``no_longer``) says
+    something "no longer applies"."""
+    for sentence in _SENTENCE_BREAK.split(text):
+        if withdrawn.search(sentence) or (no_longer and re.search(_NO_LONGER, sentence, re.IGNORECASE)):
+            return True
+        if leads and any(_STATE_LEAD.match(segment) for segment in _SEGMENT_BREAK.split(sentence)):
+            return True
+    return False
 
 
 def _not_governing(text: str, units: list[str], requirement: str, matched: str) -> dict[str, list[str]]:
     """What the document says about ``requirement`` not governing, by reason detail.
 
     Only the document's own words count; Reconcile Spec has no registry of which
-    document governs. Three things block, each erring toward blocking:
+    document governs. Five things block, each erring toward blocking:
 
     - ``status``: any declared status (a ``Status:`` line, front matter or table row,
       or the line after a ``Status`` heading) whose first word isn't in
@@ -587,6 +655,17 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
     - ``section``: a heading above a label giving ``matched`` (its section, the
       document title, any enclosing heading), or a bracketed tag right after the id
       (``## SEC-4 (withdrawn)``), names a non-governing state.
+    - ``title``: the label's own text after the id opens a segment with a state
+      (``## SEC-4 Withdrawn``, ``## SEC-4 Require MFA - Deprecated``,
+      ``- **SEC-4:** Replaced by SEC-9.``). A title that only uses such a word
+      (``Reject deprecated TLS versions``) doesn't block.
+    - ``prose``: in the label's text or its section (subsections included, other
+      requirements' own text left out), a sentence that says something "no longer
+      applies" (or governs, is in force, binding, ...), that withdraws its subject
+      (``This requirement was replaced by SEC-9``), or that opens a segment with a
+      state (``Withdrawn in favour of SEC-9.``). Anywhere in the document, a sentence
+      that withdraws the requirement by its id (``SEC-4 no longer applies``) or the
+      document itself (``This contract has been withdrawn``).
 
     The values are the folded lines that tripped each one, for the handoff.
     """
@@ -607,14 +686,24 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
             found.setdefault("superseded", []).append(_fold(line))
 
     token = re.compile(rf"(?<![\w-]){re.escape(requirement)}(?![\w-])", re.IGNORECASE)
+    withdrawn = re.compile(rf"(?:{token.pattern}|{_THIS_REQUIREMENT}){_WITHDRAWS}", re.IGNORECASE)
+    own: set[int] = set()
     for index, body in _labels(units, requirement):
         if body != matched:
             continue
+        own.add(index)
         label = units[index]
         after_id = label[token.search(label).end():].lstrip(" :*_`")
         tag = _TAG.match(after_id)
         if tag and _NOT_GOVERNING_WORDS.search(tag.group(1)):
             found.setdefault("section", []).append(label)
+        elif any(_STATE_LEAD.match(segment) for segment in _SEGMENT_BREAK.split(after_id)):
+            found.setdefault("title", []).append(label)
+        # the label's own text, and the rest of its section, saying it no longer applies
+        for i in _section(units, index, requirement):
+            text = after_id if i == index else units[i]
+            if _withdrawal(text, withdrawn, leads=i != index, no_longer=True):
+                found.setdefault("prose", []).append(units[i])
         # the heading of each enclosing level above the label (a heading label's own title is its text)
         need = _heading_level(label) if label.startswith("#") else 7
         for earlier in reversed(units[:index]):
@@ -622,6 +711,12 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
                 need = _heading_level(earlier)
                 if _NOT_GOVERNING_WORDS.search(earlier):
                     found.setdefault("section", []).append(earlier)
+    # anywhere else: a sentence that withdraws the requirement by its id, or the document itself
+    for index, unit in enumerate(units):
+        if index in own:
+            continue
+        if (token.search(unit) and _withdrawal(unit, withdrawn)) or _withdrawal(unit, _SELF_WITHDRAWN):
+            found.setdefault("prose", []).append(unit)
     return {why: list(dict.fromkeys(shown)) for why, shown in found.items()}
 
 
@@ -703,7 +798,7 @@ def _source_check(
         else:
             found = _not_governing(source.text, units[path], requirement, distinct[0])
             if found:
-                kinds = [why for why in ("status", "superseded", "section") if why in found]
+                kinds = [why for why in ("status", "superseded", "section", "title", "prose") if why in found]
                 reasons += [f"{cid}:source_not_governing:{why}" for why in kinds]
                 not_governing[cid] = list(dict.fromkeys(line for why in kinds for line in found[why]))
                 states.add("not_governing")

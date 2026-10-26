@@ -1,0 +1,140 @@
+{
+  "id": "RS-AB-14",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "injected_superseded_claim",
+  "title": "Protected text quoted exactly from a document whose own title or prose withdraws the requirement (an untagged `## SEC-4 Withdrawn`, \"replaced by\", \"no longer applies\") blocks the handoff (exit 3) and shows the line; a governing contract that only uses those words for other things is still ready",
+  "input": {
+    "protected_text": "The application must require multi-factor authentication\nfor every administrator sign-in.",
+    "governing": "# Security contract\n\n**Status:** Approved\n\nThis document is reviewed every year.\n\n## Authentication\n\n- **SEC-4:** The application must require multi-factor authentication\nfor every administrator sign-in. A session token is replaced by a fresh token after sign-in, and the old token is no longer valid.\n- **SEC-3:** Withdrawn in favour of SEC-4.\n\n### SEC-5 (withdrawn)\n\nThis requirement no longer applies.\n\n## SEC-6 Reject deprecated TLS versions\n\nThe application must refuse TLS 1.0 and 1.1, which are deprecated.\n\n## SEC-7: Draft documents need two reviewers\n\nA proposed change to a protected requirement must be approved by two owners.\n\n## Change log\n\n- 2026-09-01: SEC-3 was replaced by SEC-4.\n- 2026-09-01: SEC-4 was added. Password rotation was replaced by SEC-3.\n- 2026-09-01: The old password rules no longer apply.\n",
+    "variants": {
+      "untagged_title": {
+        "document": "# Security contract\n\n## SEC-4 Withdrawn\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "protected_text": "Withdrawn The application must require multi-factor authentication for every administrator sign-in.",
+        "reasons": [
+          "title"
+        ],
+        "shows": "## SEC-4 Withdrawn"
+      },
+      "title_dash": {
+        "document": "# Security contract\n\n## SEC-4 Require MFA \u2014 Deprecated\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "protected_text": "Require MFA \u2014 Deprecated The application must require multi-factor authentication for every administrator sign-in.",
+        "reasons": [
+          "title"
+        ],
+        "shows": "## SEC-4 Require MFA \u2014 Deprecated"
+      },
+      "title_replaced_by": {
+        "document": "# Security contract\n\n## SEC-4: Replaced by SEC-9\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "protected_text": "Replaced by SEC-9 The application must require multi-factor authentication for every administrator sign-in.",
+        "reasons": [
+          "title"
+        ],
+        "shows": "## SEC-4: Replaced by SEC-9"
+      },
+      "title_dated": {
+        "document": "# Security contract\n\n## SEC-4 Retired 2026-09-01\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "protected_text": "Retired 2026-09-01 The application must require multi-factor authentication for every administrator sign-in.",
+        "reasons": [
+          "title"
+        ],
+        "shows": "## SEC-4 Retired 2026-09-01"
+      },
+      "list_lead": {
+        "document": "# Security contract\n\n## Authentication\n\n- **SEC-4:** Withdrawn. The application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "protected_text": "Withdrawn. The application must require multi-factor authentication for every administrator sign-in.",
+        "reasons": [
+          "title"
+        ],
+        "shows": "- **SEC-4:** Withdrawn. The application must require multi-factor authentication for every administrator sign-in."
+      },
+      "own_no_longer": {
+        "document": "# Security contract\n\n## Authentication\n\n- **SEC-4:** The application must require multi-factor authentication\nfor every administrator sign-in. This requirement no longer applies.\n",
+        "protected_text": "The application must require multi-factor authentication for every administrator sign-in. This requirement no longer applies.",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- **SEC-4:** The application must require multi-factor authentication for every administrator sign-in. This requirement no longer applies."
+      },
+      "subsection_replaced": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n### SEC-5\n\nSessions must expire after 15 minutes idle.\n\n### History\n\nThis requirement was replaced by SEC-9 on 2026-09-01.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "This requirement was replaced by SEC-9 on 2026-09-01."
+      },
+      "subsection_lead": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n### Note\n\nWithdrawn in favour of SEC-9.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "Withdrawn in favour of SEC-9."
+      },
+      "section_no_longer": {
+        "document": "# Security contract\n\n## Session rules\n\n- **SEC-4:** The application must require multi-factor authentication\nfor every administrator sign-in.\n\nThe rules above no longer apply.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "The rules above no longer apply."
+      },
+      "changelog_id": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: SEC-4 no longer applies; see SEC-9.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: SEC-4 no longer applies; see SEC-9."
+      },
+      "changelog_withdrawn": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: SEC-4 withdrawn in favour of SEC-9.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: SEC-4 withdrawn in favour of SEC-9."
+      },
+      "other_label_names": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## New rules\n\n- **SEC-9:** Replaces SEC-4, which is no longer in force.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- **SEC-9:** Replaces SEC-4, which is no longer in force."
+      },
+      "self_no_longer": {
+        "document": "# Security contract\n\n> This contract no longer applies; see contracts/security-v2.md.\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "> This contract no longer applies; see contracts/security-v2.md."
+      },
+      "self_withdrawn": {
+        "document": "# Security policy\n\nThis policy has been withdrawn.\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "This policy has been withdrawn."
+      }
+    },
+    "governing_requirements": {
+      "SEC-4": "The application must require multi-factor authentication for every administrator sign-in. A session token is replaced by a fresh token after sign-in, and the old token is no longer valid.",
+      "SEC-6": "Reject deprecated TLS versions The application must refuse TLS 1.0 and 1.1, which are deprecated.",
+      "SEC-7": "Draft documents need two reviewers A proposed change to a protected requirement must be approved by two owners."
+    }
+  },
+  "expected": {
+    "exit_code": 3,
+    "stderr_contains": "blocked:",
+    "governing_exit_code": 0,
+    "handoff_state": "blocked",
+    "source_state": "not_governing",
+    "authority_state": "conflicting",
+    "repair_state": "handoff",
+    "reason_prefix": "c01:source_not_governing:",
+    "markdown_contains": "Where the checked document says this requirement may not govern"
+  }
+}
