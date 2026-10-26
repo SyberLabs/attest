@@ -1,0 +1,53 @@
+# G1 Stage-0 exit gate (FACTORY red-team doc, section 3).
+# Blocks merge when any listed path yields a verified receipt or proven verdict
+# from fake, omitted, wrong-version, or incomplete evidence.
+# Run: python scripts/run-gate.py --manifest tests/quality/g1_stage0_exit.txt --gate "G1 Stage-0 exit" \
+#        --require-section simulated --require-section omitted --require-section wrong-version \
+#        --require-section incomplete --require-section control
+# Every node id must run and pass; skip, xfail, xpass or a missing id fails the gate.
+
+[simulated]
+tests/test_identity.py::test_simulated_evidence_cannot_mint_a_verified_receipt
+tests/quality/test_g1_stage0_exit.py::test_simulated_evidence_cannot_be_labeled_complete
+tests/test_verdict.py::test_fake_runner_observation_is_simulation_not_verification
+tests/quality/test_redteam_contracts.py::test_simulation_cannot_mint_a_proven_browser_verdict
+tests/test_render.py::test_pipeline_rejects_fake_runner_without_simulation
+tests/test_render.py::test_prove_flask_with_fake_runner_is_simulation_only
+tests/test_workflow.py::test_fake_or_simulated_validation_cannot_advance_or_promote
+tests/test_workflow.py::test_cli_approve_records_pause_and_resume_rejects_simulation
+
+[omitted]
+tests/quality/test_g1_stage0_exit.py::test_omitted_evidence_cannot_mint_a_verified_receipt
+tests/quality/test_redteam_contracts.py::test_proven_verdict_without_evidence_is_rejected
+tests/test_models.py::test_verdict_without_evidence_is_rejected_unless_unverifiable
+tests/test_verdict.py::test_verdict_model_rejects_badge_without_evidence
+tests/test_verdict.py::test_browser_no_evidence_unverifiable
+tests/test_compiler.py::test_compile_rejects_omitted_browser_claim
+tests/test_compiler.py::test_compile_rejects_omitted_browser_result_line
+
+# Source-version, content-digest and claim identity only. Receipts do not yet
+# bind app/build version or Kane run ids, so that path is not covered here.
+[wrong-version]
+tests/test_identity.py::test_receipt_evidence_must_match_the_receipt_content_version
+tests/quality/test_g1_stage0_exit.py::test_evidence_for_other_content_cannot_mint_a_verified_receipt
+tests/quality/test_redteam_contracts.py::test_evidence_for_another_claim_cannot_prove_this_claim
+tests/quality/test_redteam_contracts.py::test_browser_claim_with_shell_evidence_is_not_proven
+tests/test_models.py::test_verdict_evidence_must_match_claim
+tests/test_workflow.py::test_source_or_build_change_after_approval_is_unresolved
+tests/test_compiler.py::test_cached_source_hash_must_match_current_lines
+tests/test_compiler.py::test_cached_command_must_match_current_source
+
+[incomplete]
+tests/test_identity.py::test_incomplete_evidence_cannot_mint_a_verified_receipt
+tests/quality/test_g1_stage0_exit.py::test_complete_evidence_alone_does_not_verify_a_non_success_run
+tests/test_compiler.py::test_compile_rejects_incomplete_fallback_after_retry
+tests/test_compiler.py::test_compile_rejects_unresolved_browser_claim
+tests/test_compiler.py::test_compile_without_model_fails_closed_on_browser_instructions
+tests/test_workflow.py::test_pipeline_fails_closed_when_browser_action_was_not_compiled
+tests/test_workflow.py::test_failed_validation_disables_apply_and_preserves_source
+tests/test_kane.py::test_step_that_never_ran_is_failed
+
+# Positive control: complete, fresh, allowed evidence still verifies, so
+# "refuse everything" cannot pass this gate.
+[control]
+tests/test_identity.py::test_verified_receipt_requires_complete_fresh_evidence

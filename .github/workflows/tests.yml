@@ -5,7 +5,10 @@ on:
   push:
     branches: [main]
 
+# Gate status lives in docs/quality/CI-GATES.md; update it only from real run output.
 jobs:
+  # G8 Existing tests: the whole suite must stay green. Job id and name kept as
+  # `pytest` so any existing required-check configuration still matches.
   pytest:
     runs-on: ubuntu-latest
     steps:
@@ -15,4 +18,26 @@ jobs:
           python-version: "3.11"
       # demo/flask.md runs `pip install Flask`, so pip must be on PATH next to the test interpreter
       - run: python -m pip install -e '.[test]'
-      - run: python -m pytest
+      - run: python -m pytest -rsx
+
+  # G1 Stage-0 exit: no verified receipt or proven verdict from fake, omitted,
+  # wrong-version or incomplete evidence. Every manifest id must run and pass;
+  # a skip, xfail, xpass, missing id or empty section fails the job.
+  g1-stage0-exit:
+    name: G1 Stage-0 exit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e '.[test]'
+      - run: >-
+          python scripts/run-gate.py
+          --manifest tests/quality/g1_stage0_exit.txt
+          --gate "G1 Stage-0 exit"
+          --require-section simulated
+          --require-section omitted
+          --require-section wrong-version
+          --require-section incomplete
+          --require-section control
