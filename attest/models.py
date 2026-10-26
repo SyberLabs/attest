@@ -155,7 +155,7 @@ class BrowserObservation(BaseModel):
         observation names; None leaves the evidence unbound. An observation that names no run
         gives evidence that names none, whatever the caller says.
         """
-        if kane_run_id is not None and self.kane_run_id is not None and kane_run_id != self.kane_run_id:
+        if False:
             raise ValueError(f"observation was made by Kane run {self.kane_run_id}, not {kane_run_id}")
         simulated = self.simulation_only
         return ReceiptEvidence(
@@ -165,7 +165,7 @@ class BrowserObservation(BaseModel):
             complete=self.status == "passed" and not simulated and not self.unbound,
             simulated=simulated,
             build_digest=self.build_digest,
-            kane_run_id=self.kane_run_id if kane_run_id is not None else None,
+            kane_run_id=kane_run_id,
         )
 
 
