@@ -371,6 +371,8 @@ def prove_cmd(
     live: bool = typer.Option(False, "--live", help="Update a live page while claims run."),
     app_dir: Path | None = typer.Option(None, "--app", help="Spec mode: the doc is the contract for this app directory; failing claims become tickets the implementation agent closes in a copy of the app (implies --loop)."),
     cli_config: Path | None = typer.Option(None, "--cli-config", help="Sidecar with fixtures, services and substitutes (default: attest.cli.yaml beside the doc)."),
+    baseline: Path | None = typer.Option(None, "--baseline", help="Gate only on claims that are stale or broken now and were not in this attest.baseline/v0 file."),
+    write_baseline: Path | None = typer.Option(None, "--write-baseline", help="Record this run's verdicts as a baseline file (docs in the run replace their old entries)."),
     substitute: bool = typer.Option(False, "--substitute", help="Allow the sidecar's substitutes; a claim that passes only through one is capped at stale."),
     prompt_runner: str | None = typer.Option(None, "--prompt-runner", help="Prompt runner for prompt claims: runvil (default, needs runvil-docs-host) or fake (simulation only)."),
     prompt_observations: Path | None = typer.Option(None, "--prompt-observations", help="JSON of recorded PromptObservation records for the fake prompt runner."),
@@ -383,6 +385,7 @@ def prove_cmd(
         _prove_book(
             sources, runner, headless, report, cdp_endpoint, fake_observations, simulation, recipes_only,
             keep_scratch, home, cli_config, substitute, prompt_runner, prompt_observations,
+            baseline, write_baseline,
         )
         return
     source = sources[0]
@@ -488,11 +491,7 @@ def prove_cmd(
             raise typer.Exit(3)
         if open_page and result.page:
             webbrowser.open(result.page.resolve().as_uri())
-        if not simulation and any(
-            result.by_id[claim.id].status != "proven"
-            for claim in result.claims
-            if claim.kind in {"shell", "browser", "assert", "prompt"}
-        ):
+        if _gate([result], baseline, write_baseline) and not simulation:
             raise typer.Exit(1)
     finally:
         if tee is not None:
@@ -528,9 +527,49 @@ def reconcile_spec_cmd(
         raise typer.Exit(2)
 
 
+def _gate(results, baseline: Path | None, write_baseline: Path | None) -> bool:
+    """Whether the run fails its gate. Without a baseline, any shell, browser, assert or
+    prompt claim that is not proven fails it; with one, only a new stale or broken claim."""
+    from .baseline import compare, load_baseline, write_baseline as record
+
+    failed = False
+    if baseline is not None:
+        try:
+            entries = load_baseline(baseline)
+        except (OSError, ValueError) as exc:
+            typer.echo(f"baseline unreadable, gating on every claim: {exc}", err=True)
+            baseline = None
+        else:
+            diff = compare(results, entries)
+            word = typer.style("NEW", fg=typer.colors.RED, bold=True) if diff.new_failures else typer.style("SAME", fg=typer.colors.GREEN, bold=True)
+            typer.echo(
+                f"   {typer.style('baseline', dim=True)}  {word}  {len(diff.new_failures)} new stale or broken | "
+                f"{len(diff.known_failures)} known | {len(diff.fixed)} fixed since baseline"
+            )
+            for ch in diff.new_failures:
+                was = ch.before or "new claim"
+                label = typer.style(f"{ch.status.upper():<8}", fg=STATUS_COLOR.get(ch.status.upper()), bold=True)
+                typer.echo(f"   {label}  {ch.doc} line {ch.line}  (was {was})  {_ascii(_clip(ch.reason, 90))}")
+            for ch in diff.fixed:
+                typer.echo(f"   {typer.style('FIXED', fg=typer.colors.GREEN, bold=True)}     {ch.doc} line {ch.line}  (was {ch.before})")
+            failed = diff.gate_fails
+    if baseline is None:
+        failed = any(
+            r.by_id[c.id].status != "proven"
+            for r in results
+            for c in r.claims
+            if c.kind in {"shell", "browser", "assert", "prompt"}
+        )
+    if write_baseline is not None:
+        path = record(write_baseline, results)
+        typer.echo(f"   {typer.style('baseline', dim=True)}  written to {path}")
+    return failed
+
+
 def _prove_book(
     sources, runner, headless, report, cdp_endpoint, fake_observations, simulation, recipes_only,
     keep_scratch, home, cli_config, substitute, prompt_runner, prompt_observations,
+    baseline=None, write_baseline=None,
 ) -> None:
     """Several docs as one book: one shell session, one page and one ledger turn per doc,
     exit 1 when any claim of any doc ends other than proven."""
@@ -573,15 +612,10 @@ def _prove_book(
         session.close()
         if not keep_scratch:
             cleanup_scratch(session.workdir)
-    failing = [
-        (r.doc.source, c.id)
-        for r in results
-        for c in r.claims
-        if c.kind in {"shell", "browser", "assert", "prompt"} and r.by_id[c.id].status != "proven"
-    ]
     total = sum(1 for r in results for c in r.claims if c.kind != "prose")
-    typer.echo(typer.style(f"   BOOK      {len(results)} docs | {total - len(failing)}/{total} proven", bold=True))
-    if failing and not simulation:
+    proven = sum(1 for r in results for c in r.claims if c.kind != "prose" and r.by_id[c.id].status == "proven")
+    typer.echo(typer.style(f"   BOOK      {len(results)} docs | {proven}/{total} proven", bold=True))
+    if _gate(results, baseline, write_baseline) and not simulation:
         raise typer.Exit(1)
 
 
