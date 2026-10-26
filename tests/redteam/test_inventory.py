@@ -16,19 +16,22 @@ import pytest
 from . import (
     test_kane_runner,
     test_kane_runner_captures,
+    test_kane_runner_depth,
     test_maintain_docs,
     test_maintain_docs_depth,
+    test_maintain_docs_store,
     test_reconcile_spec,
     test_reconcile_spec_depth,
+    test_reconcile_spec_sources,
     test_syberwork_bridge,
 )
 from ._harness import CASES, CATEGORIES, COMPONENTS, QUOTAS, REQUIRED_THEMES, RUBRICS, STATUSES
 
 # A component's cases may be split across modules; every module is scanned for @case bindings.
 MODULES = {
-    "maintain_docs": (test_maintain_docs, test_maintain_docs_depth),
-    "reconcile_spec": (test_reconcile_spec, test_reconcile_spec_depth),
-    "kane_runner": (test_kane_runner, test_kane_runner_captures),
+    "maintain_docs": (test_maintain_docs, test_maintain_docs_depth, test_maintain_docs_store),
+    "reconcile_spec": (test_reconcile_spec, test_reconcile_spec_depth, test_reconcile_spec_sources),
+    "kane_runner": (test_kane_runner, test_kane_runner_captures, test_kane_runner_depth),
     "syberwork_bridge": (test_syberwork_bridge,),
 }
 PREFIX = {"maintain_docs": "MD", "reconcile_spec": "RS", "kane_runner": "KR", "syberwork_bridge": "BR"}

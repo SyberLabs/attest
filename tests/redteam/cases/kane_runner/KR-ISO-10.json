@@ -1,0 +1,20 @@
+{
+  "id": "KR-ISO-10",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "xfail",
+  "theme": "cleanup_in_finally",
+  "title": "A process kane-cli started and left running when kane-cli exited normally does not outlive the run",
+  "gap": "KaneBrowserRunner._execute stops kane-cli's process group only at the deadline or on an exception. When kane-cli exits 0 or 1 and leaves a child running (a browser it launched, not attached to the stream), nothing stops it and it keeps running after the run returns (observed on Linux). Needs the process group stopped after every run, not only a timed-out one.",
+  "input": {
+    "child_sleep_s": 30,
+    "timeout_s": 30
+  },
+  "expected": {
+    "exit_code": 0,
+    "child_alive": false
+  }
+}
