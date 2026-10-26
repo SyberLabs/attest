@@ -107,6 +107,11 @@ _CLICKS = re.compile(r"\b(?:click|clicks|select|choose|tap|press|open)\b", re.I)
 _CLICKED = re.compile(r"\b(?:click|clicks|select|choose|tap|press)\s+(?:on\s+)?(?:the\s+)?(?:[\w-]+\s+){0,3}?\"([^\"]+)\"", re.I)
 
 
+# every character str.splitlines() breaks on: one of them in doc text would start a new
+# line of the _test.md, and a line "## <id>" is a step Kane runs
+_LINE_BREAKS = re.compile(r"\s*[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]+\s*")
+
+
 def _compound(action: str) -> bool:
     """Two or more clicks in one step, e.g. 'click your profile photo and select "Your repositories"'."""
     return len(_CLICKS.findall(action)) >= 2
@@ -141,7 +146,7 @@ def step_body(claim: Claim, base_url: str | None = None) -> str:
     else:
         parts.append(f"Store the exact visible text of the main heading or message on the page as '{key}'.")
     parts.append("Verify the page has finished loading.")
-    return " ".join(parts)
+    return _LINE_BREAKS.sub(" ", " ".join(parts))
 
 
 def start_url(group: list[Claim], base_url: str | None) -> str | None:
