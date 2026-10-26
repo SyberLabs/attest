@@ -322,7 +322,7 @@ def resume_app_workflow(
         # The same bindings as Maintain Docs validation: a fresh Kane run per browser claim,
         # named by its observation, on the spec build approval recorded.
         kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
-        kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs)
+        kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs, record.approval)
         validation["spec_build_digest"] = record.proposal["spec_build_digest"]
         validation["kane_runs"] = kane_runs
         validation["kane_packs"] = kane_packs
@@ -402,7 +402,7 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     _refuse_unbound_browser_evidence(validation, [c.id for c in browser], proposal["spec_build_digest"])
     _refuse_unproven_claims(validation, claims)
     _refuse_unsealed_validation(store, record)
-    _refuse_unbacked_browser_evidence(validation, browser)
+    _refuse_unbacked_browser_evidence(validation, browser, record.approval)
     if tree_digest(base) != proposal.get("base_digest") or tree_digest(source) != proposal.get("source_digest"):
         raise WorkflowError("baseline tree digest mismatch; --apply refused")
     candidate_manifest = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}

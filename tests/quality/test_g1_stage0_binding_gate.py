@@ -17,6 +17,7 @@ GREEN = {
     "test_record_f": "passed",
     "test_pack_g": "passed",
     "test_wording_h": "passed",
+    "test_run_time_i": "passed",
     "test_control_c": "passed",
 }
 
@@ -24,7 +25,7 @@ GREEN = {
 def test_all_sections_passing_is_green():
     counts, problems = gate.check(GREEN)
     assert problems == [] and counts == {
-        "version": 1, "kane-run": 1, "observation-build": 1, "record": 1, "pack": 1, "wording": 1, "control": 1}
+        "version": 1, "kane-run": 1, "observation-build": 1, "record": 1, "pack": 1, "wording": 1, "run-time": 1, "control": 1}
 
 
 @pytest.mark.parametrize("outcome", ["skipped", "failed", "error"])

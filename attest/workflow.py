@@ -9,6 +9,7 @@ import shutil
 import stat
 import tempfile
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,7 @@ from .approvals import ApprovalError, verify_approval
 from .compiler import _validate_compiled_claims, compile_doc
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest_text, sha256_of
-from .kane import PACK_WORDING, pack_disagreement
+from .kane import PACK_BEFORE_APPROVAL, PACK_WORDING, pack_disagreement
 from .models import BrowserObservation, Claim
 from .policy import MaintainDocsPolicy
 from .pipeline import execute
@@ -137,10 +138,20 @@ def _observation_run_failures(claims: list[Claim], evidence: dict, kane_runs: di
     return failures
 
 
-def _pack_read_back(pack: dict | None, claim: Claim, run_id: str | None) -> tuple[str, str] | None:
+def _approved_at(approval: dict | None) -> datetime | None:
+    """When the human approved the workflow (``approved_at``, which the approval digest covers); None if unreadable."""
+    try:
+        approved_at = datetime.fromisoformat(str((approval or {})["approved_at"]))
+    except (KeyError, ValueError):
+        return None
+    return approved_at if approved_at.tzinfo else None
+
+
+def _pack_read_back(pack: dict | None, claim: Claim, run_id: str | None, approval: dict | None) -> tuple[str, str] | None:
     """Read a claim's Kane evidence pack back from disk: (failure code, detail), or None when it backs the claim.
 
-    The pack's step must also be the wording Attest writes for this (approved) claim.
+    The pack's step must also be the wording Attest writes for this (approved) claim, and its
+    run must have started no earlier than the approval: validation only runs Kane after it.
     """
     if not isinstance(pack, dict) or not pack.get("path") or not pack.get("sha256"):
         return "kane_pack_missing", "names no Kane evidence pack"
@@ -150,19 +161,25 @@ def _pack_read_back(pack: dict | None, claim: Claim, run_id: str | None) -> tupl
         return "kane_pack_missing", "its Kane evidence pack is missing"
     if hashlib.sha256(data).hexdigest() != pack["sha256"]:
         return "kane_pack_mismatch", "its Kane evidence pack is not the one the Kane run read"
-    detail = pack_disagreement(data, claim.id, run_id, claim)
+    approved_at = _approved_at(approval)
+    if approved_at is None:
+        return "kane_pack_before_approval", "the approval records no time to read the pack's run against"
+    detail = pack_disagreement(data, claim.id, run_id, claim, not_before=approved_at)
     if detail == PACK_WORDING:
         return "kane_pack_wording", detail
+    if detail == PACK_BEFORE_APPROVAL:
+        return "kane_pack_before_approval", detail
     return ("kane_pack_mismatch", detail) if detail else None
 
 
 def _kane_pack_bindings(
-    runner, claims: list[Claim], evidence: dict, kane_runs: dict[str, str | None]
+    runner, claims: list[Claim], evidence: dict, kane_runs: dict[str, str | None], approval: dict | None
 ) -> tuple[dict[str, dict | None], list[str]]:
     """Name the evidence pack behind each bound browser claim (the runner's record), and read it back.
 
     A passed observation is Kane's word only while its pack is still there, unchanged since
-    the run read it, and shows the claim's own step passing in the bound run.
+    the run read it, and shows the claim's own step passing in the bound run, a run that
+    started after ``approval``.
     """
     recorded = getattr(runner, "packs", None) or {}
     packs: dict[str, dict | None] = {}
@@ -173,7 +190,7 @@ def _kane_pack_bindings(
         if claim.kind != "browser" or ev is None or ev.observation is None or run_id is None:
             continue  # no binding is already stale_kane_run
         packs[claim.id] = recorded.get(claim.id)
-        if ev.observation.status == "passed" and (problem := _pack_read_back(packs[claim.id], claim, run_id)):
+        if ev.observation.status == "passed" and (problem := _pack_read_back(packs[claim.id], claim, run_id, approval)):
             failures.append(f"{claim.id}:{problem[0]}")
     return packs, failures
 
@@ -199,18 +216,19 @@ def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[s
         raise WorkflowError("validation browser evidence is simulated, unbound or not passed; --apply refused")
 
 
-def _refuse_unbacked_browser_evidence(validation: dict[str, Any], browser: list[Claim]) -> None:
+def _refuse_unbacked_browser_evidence(validation: dict[str, Any], browser: list[Claim], approval: dict | None) -> None:
     """Promotion: each approved browser claim's Kane evidence pack, read back from disk, is
     the one validation read and shows the claim's step, in the claim's wording, passing in
-    its bound run.
+    its bound run, which started after ``approval``.
 
     The pack lives outside the store, so a record rewritten with its artifact and event still
-    has to name a pack Kane wrote for the run it binds, from a test file worded as approved.
+    has to name a pack Kane wrote for the run it binds, from a test file worded as approved,
+    run after the human approved this workflow.
     """
     packs = validation.get("kane_packs") or {}
     kane_runs = validation.get("kane_runs") or {}
     for claim in browser:
-        problem = _pack_read_back(packs.get(claim.id), claim, kane_runs.get(claim.id))
+        problem = _pack_read_back(packs.get(claim.id), claim, kane_runs.get(claim.id), approval)
         if problem:
             raise WorkflowError(
                 f"validation browser evidence for {claim.id} is not backed by its Kane evidence pack ({problem[1]}); --apply refused"
@@ -379,7 +397,7 @@ def resume_workflow(
             }
             validation_data["evidence_digest"] = _validation_digest(evidence_payload)
             kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
-            kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs)
+            kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs, record.approval)
             validation_data["build_digest"] = proposal["build_digest"]
             validation_data["kane_runs"] = kane_runs
             validation_data["kane_packs"] = kane_packs
@@ -469,7 +487,7 @@ def promote_workflow(
         raise WorkflowError("candidate is not UTF-8; --apply refused") from exc
     if ungrounded:
         raise WorkflowError(f"validation record's claims are not the approved candidate's ({ungrounded[0]}); --apply refused")
-    _refuse_unbacked_browser_evidence(record.validation, [c for c in validated if c.kind == "browser"])
+    _refuse_unbacked_browser_evidence(record.validation, [c for c in validated if c.kind == "browser"], record.approval)
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])

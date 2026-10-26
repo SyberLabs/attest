@@ -24,17 +24,19 @@ import shutil
 import sqlite3
 import subprocess
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from attest import kane
 from attest.approvals import approve_workflow
 from attest.compiler import ClaimSet, LLMClaim, compile_doc
 from attest.ingest import ingest_text
-from attest.kane import PACK_WORDING, KaneBrowserRunner, find_pack, pack_disagreement, parse_events, step_body
+from attest.kane import PACK_BEFORE_APPROVAL, PACK_WORDING, KaneBrowserRunner, find_pack, pack_disagreement, parse_events, step_body
 from attest.models import (
     AuthorityState,
     BrowserObservation,
@@ -52,7 +54,7 @@ from attest.runner import FakeBrowserRunner, SimulationBrowserObservation
 from attest.storage import SQLiteWorkflowStore, canonical_json
 from attest.verdict import judge
 from attest.workflow import WorkflowError, promote_workflow, resume_workflow
-from tests.kane_replay import as_written, rewrite_pack, written_test_file
+from tests.kane_replay import as_written, rewrite_pack, stamped, written_test_file
 
 KANE_FIX = Path(__file__).resolve().parents[1] / "fixtures" / "kane"
 
@@ -1766,8 +1768,11 @@ def test_control_validation_names_the_pack_kane_wrote_and_promotion_reads_it_bac
         source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
     v = store.get(workflow_id).validation
     pack = tmp_path / "kane" / ".testmuai" / "evidence" / "witness_stale.evidence"
-    # the recorded pack, sealed for the test file the runner wrote
-    sealed = as_written(WITNESS_PACK, tmp_path / "sealed.zip", (tmp_path / "kane" / "tests" / "greeting-c07_test.md").read_bytes())
+    # the recorded pack, sealed for the test file the runner wrote, at the time the replay ran
+    with zipfile.ZipFile(pack) as z:
+        ran = z.read("run.yaml")
+    sealed = rewrite_pack(WITNESS_PACK, tmp_path / "sealed.zip", redigest=True, run=lambda _: ran,
+                          test_md=lambda _: (tmp_path / "kane" / "tests" / "greeting-c07_test.md").read_bytes())
     backing = {"path": str(pack), "sha256": hashlib.sha256(sealed.read_bytes()).hexdigest()}
 
     assert v["kane_packs"] == {"c07": backing, "c08": backing}
@@ -1973,6 +1978,187 @@ def test_control_wording_validated_packs_carry_the_approved_claims_steps_and_pro
 
     assert all(pack_disagreement(pack, cid, v["kane_runs"][cid], approved[cid]) is None for cid in ("c07", "c08"))
     assert APPROVED_C08 in pack_md(pack) and PRE_REPAIR_C08 not in pack_md(pack)
+    assert promote_workflow(store, workflow_id).state == "promoted"
+    if mode == "spec-mode":
+        assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")
+    else:
+        assert source.read_text(encoding="utf-8") == CANDIDATE_DOC
+
+
+# -- run time: the pack's Kane run started after this workflow was approved --------------
+#
+# Since #56 the pack's step has to be the approved claim's wording, so a run of other wording
+# doesn't back it. A real run of the *same* wording does, whenever it ran: a Kane run of the
+# candidate taken before the proposal (the implement loop proving it), or the diagnosis run of
+# the pre-repair doc for a claim the repair didn't touch. Laundered onto a resealed record,
+# each of these promoted. Validation runs Kane after the approval, so Kane's own ``run.yaml``
+# (``started``) must not be earlier than the approval's ``approved_at``. The pack is read in
+# memory as before, and nothing else is trusted for the time.
+
+def _run_started(pack: bytes) -> datetime:
+    with zipfile.ZipFile(io.BytesIO(pack)) as z:
+        started = yaml.safe_load(z.read("run.yaml"))["started"]
+    return datetime.fromisoformat(started.replace("Z", "+00:00"))
+
+
+def _approved_at(store: SQLiteWorkflowStore, workflow_id: str) -> datetime:
+    return datetime.fromisoformat(store.get(workflow_id).approval["approved_at"])
+
+
+def _set_run_yaml(edit):
+    return lambda run_yaml: yaml.safe_dump(edit(yaml.safe_load(run_yaml)), sort_keys=False).encode("utf-8")
+
+
+def test_run_time_reader_needs_the_run_to_start_no_earlier_than_the_approval(tmp_path):
+    claims, sid = _claims(CANDIDATE_DOC), session_of("witness_stale")
+    text = kane.test_file_text([claims["c07"], claims["c08"]], "http://127.0.0.1:5000/", "greeting c07-c08")
+    pack = as_written(WITNESS_PACK, tmp_path / "sealed.zip", text.encode("utf-8")).read_bytes()
+    started = _run_started(pack)
+    assert pack_disagreement(pack, "c08", sid, claims["c08"], not_before=started) is None  # the same instant counts
+    assert pack_disagreement(pack, "c08", sid, claims["c08"], not_before=started - timedelta(days=1)) is None
+    assert pack_disagreement(pack, "c08", sid, claims["c08"], not_before=started + timedelta(microseconds=1)) == PACK_BEFORE_APPROVAL
+    # The recorded capture says when it ran (event day, 17:23:10.741Z, quoted as Kane writes it).
+    witness = WITNESS_PACK.read_bytes()
+    assert pack_disagreement(witness, "c08", sid, not_before=datetime(2026, 10, 24, 17, 23, tzinfo=timezone.utc)) is None
+    assert pack_disagreement(witness, "c08", sid, not_before=datetime(2026, 10, 24, 17, 24, tzinfo=timezone.utc)) == PACK_BEFORE_APPROVAL
+    # Unquoted, YAML reads it as a timestamp; it means the same time.
+    unquoted = rewrite_pack(WITNESS_PACK, tmp_path / "unquoted.zip", run=lambda d: d.replace(
+        b"started: '2026-10-24T17:23:10.741Z'", b"started: 2026-10-24T17:23:10.741Z")).read_bytes()
+    assert pack_disagreement(unquoted, "c08", sid, not_before=datetime(2026, 10, 24, 17, 24, tzinfo=timezone.utc)) == PACK_BEFORE_APPROVAL
+    # A pack that doesn't say when its run started backs nothing that needs a time.
+    for edit in (lambda r: {k: v for k, v in r.items() if k != "started"}, lambda r: {**r, "started": "yesterday"}):
+        undated = rewrite_pack(WITNESS_PACK, tmp_path / "undated.zip", run=_set_run_yaml(edit)).read_bytes()
+        assert pack_disagreement(undated, "c08", sid, not_before=started) == "pack doesn't say when its Kane run started"
+        assert pack_disagreement(undated, "c08", sid) is None  # without a time it is #56's reader
+    # The time is checked last, after the session, the definition, the step and its wording.
+    assert pack_disagreement(witness, "c08", sid, claims["c08"], not_before=started) == PACK_WORDING
+
+
+def _ran_on_event_day(run_yaml: bytes) -> bytes:
+    # Kane's stream and pack replayed from the earlier run, its run.yaml as Kane wrote it then.
+    return stamped(run_yaml, datetime(2026, 10, 24, 17, 23, 10, 741000, tzinfo=timezone.utc))
+
+
+RAN_BEFORE_APPROVAL = {
+    "pack-started-before-the-approval": (_ran_on_event_day, ["c07:kane_pack_before_approval", "c08:kane_pack_before_approval"]),
+    "pack-names-no-start": (_set_run_yaml(lambda r: {k: v for k, v in r.items() if k != "started"}),
+                            ["c07:kane_pack_mismatch", "c08:kane_pack_mismatch"]),
+}
+
+
+@pytest.mark.parametrize("run, failures", RAN_BEFORE_APPROVAL.values(), ids=RAN_BEFORE_APPROVAL.keys())
+def test_run_time_validation_fails_when_the_runs_pack_started_before_the_approval(tmp_path, monkeypatch, run, failures):
+    # The command validation started reports a session whose pack is in the evidence store,
+    # sealed for the file the runner wrote, every step passing. The run it records predates
+    # the approval (or names no start): it is not a run this validation started.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch, edit={"run": run})
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
+
+    assert len(cli.calls) == 1  # validation did start a Kane command: stale_kane_run doesn't see this
+    assert outcome.state == "rejected"
+    assert outcome.validation["statuses"]["c08"] == "proven"  # the verdict alone would have proven it
+    assert _pack_failures(outcome.validation) == failures
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_run_time_spec_mode_validation_fails_when_the_runs_pack_started_before_the_approval(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, edit={"run": _ran_on_event_day})
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert outcome.state == "rejected"
+    assert outcome.validation["statuses"]["c08"] == "proven"
+    assert _pack_failures(outcome.validation) == ["c07:kane_pack_before_approval", "c08:kane_pack_before_approval"]
+    assert app_unchanged(app)
+
+
+def _kane_run_before_approval(tmp_path: Path, monkeypatch, doc_text: str) -> Path:
+    """The pack of a real Kane run of ``doc_text``, taken before the workflow is proposed and approved.
+
+    A runner prepared on a copy of the doc (same name, so the same test file) runs its browser
+    steps; every step passed. The pack names its own session (``LAUNDERED_RUN``) and the time
+    it ran.
+    """
+    doc = tmp_path / "before" / "greeting.md"
+    doc.parent.mkdir()
+    doc.write_text(doc_text, encoding="utf-8")
+    runner, cli = kane_runner(tmp_path / "before-kane", monkeypatch)
+    claims = list(_claims(doc_text, doc).values())
+    runner.prepare(claims, str(doc))
+    assert all(runner.observe(c, None).status == "passed" for c in claims if c.kind == "browser") and len(cli.calls) == 1
+    return _pack_with_session(runner.evidence_dir / "witness_stale.evidence", runner.evidence_dir / "before.evidence", LAUNDERED_RUN)
+
+
+def _launder_onto(pack: Path, claim_ids: tuple[str, ...]):
+    """A resealed record moves these claims onto the earlier run and its real pack."""
+
+    def change(v):
+        for cid in claim_ids:
+            v["kane_runs"][cid] = LAUNDERED_RUN
+            v["evidence"][cid]["observation"]["kane_run_id"] = LAUNDERED_RUN
+            v["kane_packs"][cid] = {"path": str(pack), "sha256": hashlib.sha256(pack.read_bytes()).hexdigest()}
+
+    return change
+
+
+# (the doc the earlier run read, the claims laundered onto it)
+LAUNDERED_BEFORE_APPROVAL = {
+    "candidate-run-before-the-proposal": (CANDIDATE_DOC, ("c07", "c08")),
+    "pre-repair-run-for-the-unchanged-claim": (BASE_DOC, ("c07",)),
+}
+
+
+@pytest.mark.parametrize("doc_text, claim_ids", LAUNDERED_BEFORE_APPROVAL.values(), ids=LAUNDERED_BEFORE_APPROVAL.keys())
+def test_run_time_promotion_refuses_a_resealed_record_laundering_a_kane_run_from_before_the_approval(
+    tmp_path, monkeypatch, doc_text, claim_ids
+):
+    # Every store-side seal rewritten. The pack is real: it names its session, it is its own
+    # definition, and each laundered claim's step passed in the approved wording, so #54's and
+    # #56's read-back accept it. Its run started before the human approved this workflow.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    pack = _kane_run_before_approval(tmp_path, monkeypatch, doc_text)
+    source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    approved = _claims(CANDIDATE_DOC, source)
+    assert all(pack_disagreement(pack.read_bytes(), cid, LAUNDERED_RUN, approved[cid]) is None for cid in claim_ids)
+    assert _run_started(pack.read_bytes()) < _approved_at(store, workflow_id)
+    _reseal(store, workflow_id, _launder_onto(pack, claim_ids))
+
+    with pytest.raises(WorkflowError, match=re.escape(
+            f"evidence for {claim_ids[0]} is not backed by its Kane evidence pack ({PACK_BEFORE_APPROVAL})")):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_run_time_spec_mode_promotion_refuses_a_resealed_record_laundering_a_kane_run_from_before_the_approval(tmp_path, monkeypatch):
+    # The implement loop ran Kane on the spec before the candidate was proposed.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    pack = _kane_run_before_approval(tmp_path, monkeypatch, CANDIDATE_DOC)
+    app, _, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    _reseal(store, workflow_id, _launder_onto(pack, ("c07", "c08")))
+
+    with pytest.raises(WorkflowError, match=re.escape(f"evidence for c07 is not backed by its Kane evidence pack ({PACK_BEFORE_APPROVAL})")):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize("mode", ["maintain-docs", "spec-mode"])
+def test_control_run_time_validation_runs_kane_after_the_approval_and_promotes(tmp_path, monkeypatch, mode):
+    # An earlier run of the same wording is in another Kane home, and validation doesn't read it.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _kane_run_before_approval(tmp_path, monkeypatch, CANDIDATE_DOC)
+    if mode == "spec-mode":
+        app, _, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    else:
+        source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    v = store.get(workflow_id).validation
+    approved_at = _approved_at(store, workflow_id)
+
+    assert all(_run_started(Path(v["kane_packs"][cid]["path"]).read_bytes()) >= approved_at for cid in ("c07", "c08"))
     assert promote_workflow(store, workflow_id).state == "promoted"
     if mode == "spec-mode":
         assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")
