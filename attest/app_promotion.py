@@ -266,8 +266,8 @@ def resume_app_workflow(
     """Validate the approved candidate with fresh Kane evidence against the whole spec, optionally promote."""
     from .pipeline import execute
     from .workflow import (
-        WorkflowError, _kane_run_bindings, _observation_build_failures, _observation_run_failures, _seal_validation,
-        _validation_digest,
+        WorkflowError, _kane_pack_bindings, _kane_run_bindings, _observation_build_failures, _observation_run_failures,
+        _seal_validation, _validation_digest,
     )
 
     record = store.get(workflow_id)
@@ -322,12 +322,15 @@ def resume_app_workflow(
         # The same bindings as Maintain Docs validation: a fresh Kane run per browser claim,
         # named by its observation, on the spec build approval recorded.
         kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
+        kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs)
         validation["spec_build_digest"] = record.proposal["spec_build_digest"]
         validation["kane_runs"] = kane_runs
+        validation["kane_packs"] = kane_packs
         unbound = [
             *stale_runs,
             *_observation_run_failures(claims, evidence, kane_runs),
             *_observation_build_failures(claims, evidence, record.proposal["spec_build_digest"]),
+            *unbacked,
         ]
         if unbound:
             validation["successful"] = False
@@ -365,7 +368,10 @@ def resume_app_workflow(
 
 def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> WorkflowRecord:
     """Write the approved, validated candidate's changed files into the original app, or nothing."""
-    from .workflow import WorkflowError, _refuse_unbound_browser_evidence, _refuse_unproven_claims, _refuse_unsealed_validation
+    from .workflow import (
+        WorkflowError, _refuse_unbacked_browser_evidence, _refuse_unbound_browser_evidence, _refuse_unproven_claims,
+        _refuse_unsealed_validation,
+    )
 
     record = store.get(workflow_id)
     proposal = record.proposal
@@ -392,9 +398,11 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     # Browser claims come from the approved spec claims, never from the validation record.
     if "spec_build_digest" not in validation or validation["spec_build_digest"] != proposal["spec_build_digest"]:
         raise WorkflowError("validation evidence is not bound to the approved app/build version; --apply refused")
-    _refuse_unbound_browser_evidence(validation, [c.id for c in claims if c.kind == "browser"], proposal["spec_build_digest"])
+    browser = [c.id for c in claims if c.kind == "browser"]
+    _refuse_unbound_browser_evidence(validation, browser, proposal["spec_build_digest"])
     _refuse_unproven_claims(validation, claims)
     _refuse_unsealed_validation(store, record)
+    _refuse_unbacked_browser_evidence(validation, browser)
     if tree_digest(base) != proposal.get("base_digest") or tree_digest(source) != proposal.get("source_digest"):
         raise WorkflowError("baseline tree digest mismatch; --apply refused")
     candidate_manifest = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}
