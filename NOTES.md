@@ -188,5 +188,5 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 
 - `BrowserObservation.build_digest`: `KaneBrowserRunner` measures `current_build_digest` of the prepared doc before and after each kane-cli run. A change during the run, a URL doc, or a failed measurement gives `None`.
 - Validation fails `<id>:observation_build_missing` / `<id>:observation_build_mismatch`. Promotion refuses stored evidence whose observation build isn't the approved one. Receipts filled from the observation build fail #41's checks when it is `None` or different.
-- G1 binding gate: new `observation-build` section (`test_observation_build_*`). Status and runs are in `docs/quality/G1-STAGE0-BINDING.md`.
+- G1 binding gate: new `observation-build` section (`test_observation_build_*`), Measured (scoped) on #44. Green run 40312676697, fails closed on the negative control `89237c4` (run 40312713440), green on the revert (run 40312768841). Details are in `docs/quality/G1-STAGE0-BINDING.md`.
 - Not covered: the build is the worktree identity, not read from the served app. No product code turns observations into `ReceiptEvidence`. Shell evidence has no build.

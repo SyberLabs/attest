@@ -5,7 +5,10 @@
 - Green: job `G1 Stage-0 version+Kane binding`, [run 40304926335](https://github.com/SyberLabs/attest/actions/runs/40304926335) on `c7349a1`. 21 passed: version 7, kane-run 12, control 2. It was also green on `6e6b2f1` ([run 40304653221](https://github.com/SyberLabs/attest/actions/runs/40304653221)).
 - Fails closed: [run 40304782316](https://github.com/SyberLabs/attest/actions/runs/40304782316) on `bffed83`. That commit put `main`'s newest-pack fallback back into `find_pack` and was reverted in `c7349a1`. Five kane-run cases failed and the job failed.
 - Scope: only the tests listed below, offline on recorded Kane captures. No live Kane.
-- **`observation-build` section** (stacked on #42): **Proposed**. It is added below, and nothing has run on hosted CI yet.
+- **`observation-build` section** (#44, stacked on #42): **Measured (scoped)** from hosted Actions output on PR #44.
+  - Green on `2ebef93`: [run 40312676697](https://github.com/SyberLabs/attest/actions/runs/40312676697), 33 passed (version 7, kane-run 12, observation-build 11, control 3). `tests / pytest` gave 308 passed, 3 skipped ([run 40312676852](https://github.com/SyberLabs/attest/actions/runs/40312676852)).
+  - Fails closed on `89237c4`: [run 40312713440](https://github.com/SyberLabs/attest/actions/runs/40312713440). That commit made validation and promotion ignore the observation build. Six observation-build cases failed and the job failed; `tests / pytest` gave 6 failed, 302 passed ([run 40312713353](https://github.com/SyberLabs/attest/actions/runs/40312713353)).
+  - Green again on the revert `db093ad`: [run 40312768841](https://github.com/SyberLabs/attest/actions/runs/40312768841), 33 passed. `tests / pytest` gave 308 passed, 3 skipped ([run 40312768879](https://github.com/SyberLabs/attest/actions/runs/40312768879)).
 
 FACTORY §3 lists G1 as Measured (scoped) through #27, but names a gap that #27 does not cover: "app/build version and Kane run-id binding, live Kane". This gate covers the first two. It does not cover live Kane.
 
