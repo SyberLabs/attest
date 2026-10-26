@@ -1,0 +1,18 @@
+# Sidecar for the Language guide in CI: prompt examples only. The prompts section gives each
+# example the Host context its own prose describes, by frontmatter name.
+browser_claims: false
+prompts:
+  report:          # ch09: "With a Host that seeds `paper.md` as `the paper body`"
+    files: { paper.md: the paper body }
+  desk:            # ch09: "a Host policy that allows a write to `notes.md` and refuses a write to `secret.md`"
+    refuse: [secret.md]
+  ask_mode:        # ch09: "Under a Host in Ask mode, with `note.md` holding `hello`"
+    mode: ask
+    files: { note.md: hello }
+  plan_mode:       # ch09: "Under a Host in Plan mode"
+    mode: plan
+  two-sections:    # ch05: sys.execution shows `execute-test`
+    execution: execute-test
+  files:           # ch02: "Launched with the input text `# Paper`"
+    input: "# Paper"
+placeholder_replies: true  # examples whose doc shows no reply are judged on what they send

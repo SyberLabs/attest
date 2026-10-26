@@ -1,0 +1,97 @@
+# Prove Runvil's documentation with Attest (docs/CLI-RUNNER-SPEC.md, milestone 6).
+#
+# runvil-docs and runvil are checked out read-only at pinned commits beside this repo; the
+# gateway and runvil-docs-host are built from the runvil checkout; both guides run as books
+# with no model call, each gated against its committed baseline under ci/runvil-docs/: the
+# job fails only on a claim that is newly stale or broken, so a change to Attest that loses
+# a proof, or a bump of the pins that brings in drift, shows up here with its root causes.
+# The report under .attest/ is uploaded whatever the verdicts. In a fork of runvil-docs the
+# same steps gate its pull requests.
+name: runvil-docs
+
+on:
+  pull_request:
+    paths: [attest/**, host/**, ci/runvil-docs/**, .github/workflows/runvil-docs.yml, rules.yaml]
+  workflow_dispatch:
+
+env:
+  RUNVIL_DOCS_REF: dd8a2456f92961928f54f09c37ade0da1b956355
+  RUNVIL_REF: c27899e7ac45b70ecbda28baea7362acef292660
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: attest }
+      - uses: actions/checkout@v4
+        with:
+          repository: cppalliance/runvil-docs
+          ref: ${{ env.RUNVIL_DOCS_REF }}
+          path: runvil-docs
+      - uses: actions/checkout@v4
+        with:
+          repository: cppalliance/runvil
+          ref: ${{ env.RUNVIL_REF }}
+          path: runvil
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            runvil
+            attest/host/runvil-docs-host -> ../../../runvil/target
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Build runvil-gateway and runvil-docs-host
+        run: |
+          cargo build --release -p gateway --no-default-features
+          cargo build --release --manifest-path ../attest/host/runvil-docs-host/Cargo.toml --target-dir target
+        working-directory: runvil
+      - name: Install Attest
+        run: python -m pip install ./attest
+      - name: Keep rustup and cargo findable once HOME moves for the gateway
+        run: |
+          echo "RUSTUP_HOME=$HOME/.rustup" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=$HOME/.cargo" >> "$GITHUB_ENV"
+      - name: Prove the Gateway guide
+        env:
+          GATEWAY_KEY: secret-key
+          HOME: ${{ github.workspace }}/gateway-home
+        run: |
+          mkdir -p "$HOME" tools/bin
+          export PATH="$PWD/tools/bin:$PATH"
+          cp attest/ci/runvil-docs/gateway.toml attest/ci/runvil-docs/gateway.cli.yaml runvil-docs/src/gateway/
+          cd runvil-docs/src/gateway
+          attest prove $(ls [01]*.md | sort) --cli-config gateway.cli.yaml --substitute --runner none --home "$GITHUB_WORKSPACE/.attest/gateway" --baseline "$GITHUB_WORKSPACE/attest/ci/runvil-docs/gateway.baseline.json"
+      - name: Prove the Language guide
+        if: always()
+        env:
+          ATTEST_RUNVIL_HOST: ${{ github.workspace }}/runvil/target/release/runvil-docs-host
+        run: |
+          cp attest/ci/runvil-docs/language.cli.yaml runvil-docs/src/language/
+          cd runvil-docs/src/language
+          attest prove $(ls [01]*.md | sort) --cli-config language.cli.yaml --runner none --prompt-runner runvil --home "$GITHUB_WORKSPACE/.attest/language" --baseline "$GITHUB_WORKSPACE/attest/ci/runvil-docs/language.baseline.json"
+      - name: Show every claim that did not prove, with its output tail
+        if: always()
+        run: |
+          python - <<'EOF'
+          import json, pathlib
+          for v in sorted(pathlib.Path(".attest").glob("*/*/verdicts.json")):
+              claims = {c["id"]: c for c in json.load(open(v.with_name("claims.json"), encoding="utf-8"))}
+              doc = open(v.with_name("doc.md"), encoding="utf-8").readline().strip()
+              for x in json.load(open(v, encoding="utf-8")):
+                  c = claims[x["claim_id"]]
+                  if c["kind"] == "prose" or x["status"] in ("proven", "skipped"):
+                      continue
+                  ev = x.get("evidence") or {}
+                  print(f"{doc} | {x['claim_id']} line {c['span']['start_line']} {x['status']}: {x['reason'][:160]}")
+                  tail = (ev.get("stdout_tail") or (ev.get("prompt") or {}).get("message") or "").strip().splitlines()[-8:]
+                  for line in tail:
+                      print("    " + line[:200])
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: attest-report
+          path: .attest/
+          include-hidden-files: true

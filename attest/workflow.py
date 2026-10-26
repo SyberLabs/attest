@@ -77,12 +77,21 @@ def resume_workflow(
     rules: Rules | None = None,
     llm=None,
     shell_env: dict[str, str] | None = None,
+    prompt_runner=None,
+    cli_config=None,
 ) -> WorkflowRecord:
-    """Validate a human-approved proposal with fresh Kane evidence, optionally promote."""
+    """Validate a human-approved proposal with fresh evidence, optionally promote.
+
+    Kane validates a doc with browser steps. A doc with none validates with the
+    ``none`` browser runner and a real prompt runner: it passes when the target claim
+    is proven and no claim proven when the proposal was made has regressed."""
     record = store.get(workflow_id)
     policy = policy or MaintainDocsPolicy()
-    if simulation or getattr(runner, "name", None) != "kane":
-        raise WorkflowError("promotion validation requires fresh Kane evidence; simulation/fake evidence is not accepted")
+    no_browser = getattr(runner, "name", None) == "none"
+    if simulation or getattr(runner, "name", None) not in ("kane", "none"):
+        raise WorkflowError("promotion validation requires fresh Kane evidence, or --runner none for a doc with no browser steps; simulation/fake evidence is not accepted")
+    if no_browser and getattr(prompt_runner, "name", None) in (None, "fake"):
+        raise WorkflowError("a no-browser validation needs a real prompt runner; fake prompt observations cannot validate")
     if record.state == "validated":
         verify_approval(record)
         if apply:
@@ -129,8 +138,15 @@ def resume_workflow(
         return _unresolved(store, record, "build identity changed after approval; promotion refused")
 
     doc = ingest_text(candidate_text, source=str(source_path))
+    if no_browser:
+        doc = doc.model_copy(update={"browser_claims": False})
     try:
         claims = compile_doc(doc, llm=llm, use_cache=False)
+        if cli_config is not None:
+            # the same sidecar annotations the proposal's baseline claims carry
+            from .pipeline import annotate_expects, annotate_prompts, annotate_setup
+
+            claims = annotate_prompts(annotate_expects(doc, annotate_setup(claims, cli_config), cli_config), cli_config)
         complete, detail = _compile_complete(original_claims, claims, proposal["target_claim_id"])
         if not complete:
             return store.transition(
@@ -153,14 +169,21 @@ def resume_workflow(
                 rules or load_rules(),
                 scratch,
                 shell_env=shell_env,
+                prompt_runner=prompt_runner,
+                cli_config=cli_config,
             )
             statuses = {verdict.claim_id: verdict.status for verdict in verdicts}
-            required = [claim for claim in claims if claim.kind in {"shell", "browser", "assert"}]
-            failed = [f"{claim.id}:{statuses.get(claim.id, 'missing')}" for claim in required if statuses.get(claim.id) != "proven"]
+            if no_browser:
+                failed = _regressions(store, artifacts, proposal, claims, verdicts, str(source_path))
+            else:
+                required = [claim for claim in claims if claim.kind in {"shell", "browser", "assert"}]
+                failed = [f"{claim.id}:{statuses.get(claim.id, 'missing')}" for claim in required if statuses.get(claim.id) != "proven"]
             evidence_payload = {key: value.model_dump(mode="json") for key, value in evidence.items()}
             validation_data: dict[str, Any] = {
                 "successful": not failed,
                 "runner": runner.name,
+                "prompt_runner": getattr(prompt_runner, "name", None),
+                "criterion": "no_regressions" if no_browser else "all_proven",
                 "candidate_digest": proposal["candidate_digest"],
                 "statuses": statuses,
                 "failed_claims": failed,
@@ -200,6 +223,28 @@ def resume_workflow(
     return record
 
 
+def _regressions(store, artifacts: dict, proposal: dict, claims: list[Claim], verdicts, source: str) -> list[str]:
+    """For a no-browser validation: the target claim must be proven, and every claim proven
+    when the proposal was made must still be proven, matched by baseline key."""
+    from .baseline import claim_keys
+
+    statuses = {v.claim_id: v.status for v in verdicts}
+    failed = []
+    target = proposal["target_claim_id"]
+    if statuses.get(target) != "proven":
+        failed.append(f"{target}:{statuses.get(target, 'missing')} (the repaired claim)")
+    digest = artifacts.get("baseline_statuses")
+    if digest is None:
+        failed.append("the proposal carries no baseline statuses to check regressions against")
+        return failed
+    before = json.loads(store.get_artifact(digest))
+    now = {key: statuses.get(cid) for cid, (key, _preview) in claim_keys(source, claims).items()}
+    for key, status in before.items():
+        if status == "proven" and now.get(key) != "proven":
+            failed.append(f"{key}:{now.get(key, 'missing')} (was proven)")
+    return failed
+
+
 def promote_workflow(
     store: SQLiteWorkflowStore,
     workflow_id: str,
@@ -211,7 +256,15 @@ def promote_workflow(
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
     verify_approval(record)
-    if not record.validation.get("successful") or record.validation.get("runner") != "kane":
+    validation = record.validation
+    kane = validation.get("runner") == "kane"
+    no_browser = (
+        validation.get("runner") == "none"
+        and validation.get("prompt_runner") not in (None, "fake")
+        and validation.get("criterion") == "no_regressions"
+        and not any(c.get("kind") == "browser" for c in validation.get("validated_claims", []))
+    )
+    if not validation.get("successful") or not (kane or no_browser):
         raise WorkflowError("--apply is disabled after failed, incomplete, or simulated validation")
     proposal = record.proposal
     if policy.digest != proposal.get("policy_digest"):

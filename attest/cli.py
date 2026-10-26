@@ -244,12 +244,33 @@ def _runner(name: str, fake_observations: Path | None, headless: bool = False, r
         if fake_observations:
             return FakeBrowserRunner.from_file(fake_observations)
         return FakeBrowserRunner()
+    if name == "none":
+        from .runner import NoBrowserRunner
+
+        return NoBrowserRunner()
     if name == "kane":
         from .kane import KaneBrowserRunner
         from .verdict import load_rules
 
         return KaneBrowserRunner(headless=headless, max_steps=load_rules().kane_max_steps, report=report, cdp_endpoint=cdp_endpoint, log=typer.echo)
-    raise typer.BadParameter(f"unknown runner {name!r}; use fake or kane")
+    raise typer.BadParameter(f"unknown runner {name!r}; use kane, none or fake")
+
+
+def _prompt_runner(name: str | None, prompt_observations: Path | None):
+    """The prompt runner for prompt claims: runvil by default, fake (simulation only) on request."""
+    from .prompt_runner import FakePromptRunner
+    from .runvil_runner import RunvilPromptRunner
+    from .verdict import load_rules
+
+    if name in (None, "runvil"):
+        if prompt_observations is not None:
+            raise typer.BadParameter("--prompt-observations only applies to --prompt-runner fake")
+        return RunvilPromptRunner(timeout_s=load_rules().prompt_timeout_s)
+    if name == "fake":
+        if prompt_observations:
+            return FakePromptRunner.from_file(prompt_observations)
+        return FakePromptRunner()
+    raise typer.BadParameter(f"unknown prompt runner {name!r}; use runvil or fake")
 
 
 RULE = "-" * 64
@@ -281,7 +302,26 @@ def _log(claim, verdict) -> None:
     if verdict.status in ("skipped", "unverifiable"):
         detail = verdict.reason.split(": ", 1)[-1]
     elif claim.kind == "shell":
-        detail = f"exit code {'timed out' if evidence and evidence.timed_out else evidence.exit_code if evidence else 'unknown'}"
+        if evidence and evidence.service_ready and evidence.ready_url:
+            detail = f"service ready, {evidence.ready_url} answered 200"
+        elif evidence and evidence.timed_out and evidence.ready_url:
+            detail = f"service never answered 200 at {evidence.ready_url}"
+        else:
+            detail = f"exit code {'timed out' if evidence and evidence.timed_out else evidence.exit_code if evidence else 'unknown'}"
+        if evidence and evidence.substitute:
+            detail += f" via substitute `{evidence.substitute}`"
+        elif verdict.status == "stale" and claim.expects and evidence and not evidence.timed_out:
+            shown = claim.expects.strip().splitlines()[0]
+            got = (evidence.stdout_tail or "").strip().splitlines()
+            detail = f'doc shows "{_clip(shown, 40)}", output "{_clip(got[-1] if got else "", 40)}"'
+    elif claim.kind == "prompt" and evidence and evidence.prompt:
+        obs = evidence.prompt
+        if obs.status == "completed":
+            detail = f'run completed, result "{_clip((obs.result or "").strip(), 60)}"'
+        else:
+            detail = f"run {obs.status}: {obs.error_kind or ''}{' ' if obs.error_kind and obs.message else ''}{_clip(obs.message or '', 80)}".rstrip(": ")
+        if verdict.status == "stale":
+            detail = f'doc expects "{_clip((claim.expects or "").strip(), 40)}", {detail}'
     elif evidence and evidence.observation:
         observed = ", ".join(str(v) for v in evidence.observation.observed.values())
         detail = f'Kane saw "{observed}"' if observed else verdict.reason
@@ -316,8 +356,8 @@ def _main(version: bool = typer.Option(False, "--version", help="Show the versio
 
 @app.command("prove")
 def prove_cmd(
-    source: str = typer.Argument(..., help="Path or URL of the document to prove."),
-    runner: str = typer.Option("kane", "--runner", help="Browser runner: kane (default) or fake (offline)."),
+    sources: list[str] = typer.Argument(..., help="Path or URL of the document to prove. Several docs run as one book: one page and one ledger turn each, sharing the servers the earlier docs start."),
+    runner: str = typer.Option("kane", "--runner", help="Browser runner: kane (default), none (docs with no browser steps) or fake (offline)."),
     headless: bool = typer.Option(False, "--headless", help="Kane runs Chrome without a window (automated runs only)."),
     report: bool = typer.Option(False, "--report", help="File each Kane run with the event's `kanehack report`."),
     cdp_endpoint: str | None = typer.Option(None, "--cdp-endpoint", help="Attach Kane to an existing Chrome debugging endpoint."),
@@ -334,13 +374,33 @@ def prove_cmd(
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
     live: bool = typer.Option(False, "--live", help="Update a live page while claims run."),
     app_dir: Path | None = typer.Option(None, "--app", help="Spec mode: the doc is the contract for this app directory; failing claims become tickets the implementation agent closes in a copy of the app (implies --loop)."),
+    cli_config: Path | None = typer.Option(None, "--cli-config", help="Sidecar with fixtures, services and substitutes (default: attest.cli.yaml beside the doc)."),
+    baseline: Path | None = typer.Option(None, "--baseline", help="Gate only on claims that are stale or broken now and were not in this attest.baseline/v0 file."),
+    write_baseline: Path | None = typer.Option(None, "--write-baseline", help="Record this run's verdicts as a baseline file (docs in the run replace their old entries)."),
+    substitute: bool = typer.Option(False, "--substitute", help="Allow the sidecar's substitutes; a claim that passes only through one is capped at stale."),
+    prompt_runner: str | None = typer.Option(None, "--prompt-runner", help="Prompt runner for prompt claims: runvil (default, needs runvil-docs-host) or fake (simulation only)."),
+    prompt_observations: Path | None = typer.Option(None, "--prompt-observations", help="JSON of recorded PromptObservation records for the fake prompt runner."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
+    if len(sources) > 1:
+        if loop or live or app_dir is not None or stop_before or skip:
+            typer.echo("a book of several docs runs without --loop, --live, --app, --stop-before or --skip; prove those docs one at a time.", err=True)
+            raise typer.Exit(2)
+        _prove_book(
+            sources, runner, headless, report, cdp_endpoint, fake_observations, simulation, recipes_only,
+            keep_scratch, home, cli_config, substitute, prompt_runner, prompt_observations,
+            baseline, write_baseline,
+        )
+        return
+    source = sources[0]
     if apply:
         typer.echo("--apply is disabled here; use `attest approve` then `attest resume <id> --apply`.", err=True)
         raise typer.Exit(2)
     if runner == "fake" and not simulation:
         typer.echo("fake observations require --simulation and cannot verify claims.", err=True)
+        raise typer.Exit(2)
+    if prompt_runner == "fake" and not simulation:
+        typer.echo("fake prompt observations require --simulation and cannot verify claims.", err=True)
         raise typer.Exit(2)
     if simulation and runner != "fake":
         typer.echo("--simulation is only valid with --runner fake.", err=True)
@@ -354,6 +414,7 @@ def prove_cmd(
         sys.stdout = tee
     try:
         br = _runner(runner, fake_observations, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
+        pr = _prompt_runner(prompt_runner, prompt_observations)
         _header(source, br.name)
         try:
             skip_ids = {claim_id.strip() for item in skip for claim_id in item.split(",") if claim_id.strip()}
@@ -365,6 +426,7 @@ def prove_cmd(
                 source, runner=br, home=home, log=narrate, keep_servers=loop,
                 stop_before=stop_before, skip=skip_ids, live=live, on_start=before, simulation=simulation,
                 recipes_only=recipes_only, app_dir=app_dir,
+                cli_config=cli_config, allow_substitutes=substitute, prompt_runner=pr,
             )
         except ValueError as e:
             br.close()
@@ -433,11 +495,7 @@ def prove_cmd(
             raise typer.Exit(3)
         if open_page and result.page:
             webbrowser.open(result.page.resolve().as_uri())
-        if not simulation and any(
-            result.by_id[claim.id].status != "proven"
-            for claim in result.claims
-            if claim.kind in {"shell", "browser", "assert"}
-        ):
+        if _gate([result], baseline, write_baseline) and not simulation:
             raise typer.Exit(1)
     finally:
         if tee is not None:
@@ -471,6 +529,137 @@ def reconcile_spec_cmd(
     if apply:
         typer.echo("refused: Reconcile Spec cannot apply or promote protected-contract text", err=True)
         raise typer.Exit(2)
+
+
+def _gate(results, baseline: Path | None, write_baseline: Path | None) -> bool:
+    """Whether the run fails its gate. Without a baseline, any shell, browser, assert or
+    prompt claim that is not proven fails it; with one, only a new stale or broken claim."""
+    from .baseline import compare, load_baseline, write_baseline as record
+
+    failed = False
+    only = None
+    if baseline is not None:
+        try:
+            entries = load_baseline(baseline)
+        except (OSError, ValueError) as exc:
+            typer.echo(f"baseline unreadable, gating on every claim: {exc}", err=True)
+            baseline = None
+        else:
+            diff = compare(results, entries)
+            by_name = {}
+            for r in results:
+                from .baseline import doc_name
+
+                by_name[doc_name(r.doc.source)] = r.doc.source
+            only = {(by_name[ch.doc], ch.claim_id) for ch in diff.new_failures}
+            word = typer.style("NEW", fg=typer.colors.RED, bold=True) if diff.new_failures else typer.style("SAME", fg=typer.colors.GREEN, bold=True)
+            typer.echo(
+                f"   {typer.style('baseline', dim=True)}  {word}  {len(diff.new_failures)} new stale or broken | "
+                f"{len(diff.known_failures)} known | {len(diff.fixed)} fixed since baseline"
+            )
+            for ch in diff.new_failures:
+                was = ch.before or "new claim"
+                label = typer.style(f"{ch.status.upper():<8}", fg=STATUS_COLOR.get(ch.status.upper()), bold=True)
+                typer.echo(f"   {label}  {ch.doc} line {ch.line}  (was {was})  {_ascii(_clip(ch.reason, 90))}")
+            for ch in diff.fixed:
+                typer.echo(f"   {typer.style('FIXED', fg=typer.colors.GREEN, bold=True)}     {ch.doc} line {ch.line}  (was {ch.before})")
+            failed = diff.gate_fails
+    if baseline is None:
+        failed = any(
+            r.by_id[c.id].status != "proven"
+            for r in results
+            for c in r.claims
+            if c.kind in {"shell", "browser", "assert", "prompt"}
+        )
+    _root_causes(results, only)
+    if write_baseline is not None:
+        path = record(write_baseline, results)
+        typer.echo(f"   {typer.style('baseline', dim=True)}  written to {path}")
+    return failed
+
+
+def _root_causes(results, only, limit: int = 12) -> None:
+    """Print the stale and broken claims grouped by root cause, with the drift radius,
+    and write them to rootcauses.json beside the first doc's page."""
+    import json
+
+    from .rootcause import group
+
+    causes = group(results, only)
+    if not causes:
+        return
+    if results and getattr(results[0], "out_dir", None) is not None:
+        home = results[0].out_dir.parent
+        (home / "rootcauses.json").write_text(json.dumps([c.as_dict() for c in causes], indent=1), encoding="utf-8")
+    scope = "new " if only is not None else ""
+    total = sum(len(c.claims) for c in causes)
+    _section(f"ROOT CAUSES   {total} {scope}stale or broken claim{'' if total == 1 else 's'} from {len(causes)} cause{'' if len(causes) == 1 else 's'}")
+    for c in causes[:limit]:
+        what = f"{c.label} `{c.name}`" if c.name else f"{c.label}: {c.signature}"
+        typer.echo(f"   {len(c.claims):>4} x  {_ascii(_clip(what, 100))}")
+        docs = sorted({d.replace(chr(92), '/').rsplit('/', 1)[-1] for d, _, _ in c.claims})
+        typer.echo(typer.style(f"           in {', '.join(docs)[:110]}", dim=True))
+        if c.prose or c.unrun:
+            typer.echo(typer.style(
+                f"           also named in {len(c.prose)} prose line{'' if len(c.prose) == 1 else 's'}"
+                f" and {len(c.unrun)} example{'' if len(c.unrun) == 1 else 's'} that did not run",
+                fg=typer.colors.YELLOW,
+            ))
+    if len(causes) > limit:
+        typer.echo(typer.style(f"   ... and {len(causes) - limit} more in rootcauses.json", dim=True))
+
+
+def _prove_book(
+    sources, runner, headless, report, cdp_endpoint, fake_observations, simulation, recipes_only,
+    keep_scratch, home, cli_config, substitute, prompt_runner, prompt_observations,
+    baseline=None, write_baseline=None,
+) -> None:
+    """Several docs as one book: one shell session, one page and one ledger turn per doc,
+    exit 1 when any claim of any doc ends other than proven."""
+    from .cli_config import find_cli_config
+    from .pipeline import book_session
+
+    if runner == "fake" and not simulation:
+        typer.echo("fake observations require --simulation and cannot verify claims.", err=True)
+        raise typer.Exit(2)
+    if prompt_runner == "fake" and not simulation:
+        typer.echo("fake prompt observations require --simulation and cannot verify claims.", err=True)
+        raise typer.Exit(2)
+    br = _runner(runner, fake_observations, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
+    pr = _prompt_runner(prompt_runner, prompt_observations)
+    side = cli_config or find_cli_config(sources[0])
+    session = book_session(side, allow_substitutes=substitute)
+    results = []
+    try:
+        for source in sources:
+            _header(source, br.name)
+            try:
+                result = prove(
+                    source, runner=br, home=home, log=_log, on_start=_step, simulation=simulation,
+                    recipes_only=recipes_only, cli_config=side, allow_substitutes=substitute, prompt_runner=pr,
+                    session=session,
+                )
+            except ValueError as e:
+                raise typer.BadParameter(str(e)) from e
+            except Exception as e:
+                typer.echo(f"proof failed closed: {e}", err=True)
+                raise typer.Exit(1) from e
+            render_result(result, home, br.name)
+            for line in _summary_lines(result, home):
+                typer.echo(line)
+            typer.echo(f"   {typer.style('page', dim=True)}      {result.page}")
+            typer.echo("")
+            results.append(result)
+    finally:
+        br.close()
+        session.close()
+        if not keep_scratch:
+            cleanup_scratch(session.workdir)
+    total = sum(1 for r in results for c in r.claims if c.kind != "prose")
+    proven = sum(1 for r in results for c in r.claims if c.kind != "prose" and r.by_id[c.id].status == "proven")
+    typer.echo(typer.style(f"   BOOK      {len(results)} docs | {proven}/{total} proven", bold=True))
+    if _gate(results, baseline, write_baseline) and not simulation:
+        raise typer.Exit(1)
 
 
 def _header(source: str, runner_name: str) -> None:
@@ -544,30 +733,38 @@ def approve(
 @app.command()
 def resume(
     workflow_id: str = typer.Argument(..., help="Approved workflow ID."),
-    runner: str = typer.Option("kane", "--runner", help="Fresh validation runner; must be Kane."),
+    runner: str = typer.Option("kane", "--runner", help="Fresh validation runner: kane, or none for a doc with no browser steps."),
     headless: bool = typer.Option(False, "--headless"),
     report: bool = typer.Option(False, "--report"),
     cdp_endpoint: str | None = typer.Option(None, "--cdp-endpoint"),
     apply: bool = typer.Option(False, "--apply", help="Promote only after successful fresh validation."),
     simulation: bool = typer.Option(False, "--simulation", help="Simulation cannot validate or promote."),
     home: Path = typer.Option(ATTEST_DIR, "--home"),
+    prompt_runner: str | None = typer.Option(None, "--prompt-runner", help="Prompt runner for prompt claims (runvil); fake cannot validate."),
+    cli_config: Path | None = typer.Option(None, "--cli-config", help="The sidecar the doc was proven with."),
 ) -> None:
     """Resume an approved workflow with fresh whole-document evidence."""
     from .storage import SQLiteWorkflowStore, WorkflowStorageError
     from .workflow import WorkflowError, resume_workflow
 
-    if simulation or runner != "kane":
-        typer.echo("resume requires fresh Kane evidence; fake/simulation evidence cannot validate or promote.", err=True)
+    if simulation or runner not in ("kane", "none") or prompt_runner == "fake":
+        typer.echo("resume requires fresh Kane evidence, or --runner none with a real prompt runner for a doc with no browser steps; fake/simulation evidence cannot validate or promote.", err=True)
         raise typer.Exit(2)
     try:
         br = _runner(runner, None, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
+        pr = _prompt_runner(prompt_runner, None) if runner == "none" else None
+        cfg = None
+        if cli_config is not None:
+            from .cli_config import load_cli_config
+
+            cfg = load_cli_config(cli_config)
     except Exception as exc:
         typer.echo(f"resume failed closed: {exc}", err=True)
         raise typer.Exit(2) from exc
     try:
         record = resume_workflow(
             SQLiteWorkflowStore(home / "workflow.sqlite3"), workflow_id, runner=br, apply=apply,
-            simulation=simulation,
+            simulation=simulation, prompt_runner=pr, cli_config=cfg,
         )
     except (WorkflowError, WorkflowStorageError, ValueError, NotImplementedError) as exc:
         typer.echo(f"resume failed closed: {exc}", err=True)

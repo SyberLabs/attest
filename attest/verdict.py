@@ -7,7 +7,10 @@ Rules run in order and the first that matches wins:
 Shell rules use the exit code and whether ``expects`` appears in stdout.
 Browser rules use ``BrowserObservation.status`` and ``label_match``, the
 normalized token-set ratio between what the doc promised and what the runner
-read from the page. Thresholds come from rules.yaml.
+read from the page. Prompt rules (docs/CLI-RUNNER-SPEC.md) compare the Host's
+``PromptObservation`` with the doc's result fence by exact equality after three
+recorded normalizations; no similarity score ever gates a prompt or shell
+claim. Thresholds come from rules.yaml.
 """
 
 from __future__ import annotations
@@ -20,7 +23,8 @@ from pathlib import Path
 import yaml
 from rapidfuzz import fuzz
 
-from .models import Claim, Evidence, Verdict
+from .models import Claim, Evidence, PromptObservation, Verdict
+from .prompt_runner import SIMULATION_MESSAGE_PREFIX, SimulationPromptObservation
 from .runner import SIMULATION_NOTE_PREFIX, SimulationBrowserObservation
 
 RULES_PATH = Path(__file__).resolve().parents[1] / "rules.yaml"
@@ -32,6 +36,8 @@ class Rules:
     shell_timeout_s: float = 180.0
     loop_attempts: int = 1
     kane_max_steps: int = 15
+    prompt_timeout_s: float = 30.0
+    ready_timeout_s: float = 60.0
 
 
 def load_rules(path: Path | str | None = None) -> Rules:
@@ -44,6 +50,8 @@ def load_rules(path: Path | str | None = None) -> Rules:
         shell_timeout_s=float(data.get("shell_timeout_s", 180)),
         loop_attempts=int(data.get("loop_attempts", 1)),
         kane_max_steps=int(data.get("kane_max_steps", 15)),
+        prompt_timeout_s=float(data.get("prompt_timeout_s", 30)),
+        ready_timeout_s=float(data.get("ready_timeout_s", 60)),
     )
 
 
@@ -87,6 +95,143 @@ def expects_in(expects: str, haystack: str | None) -> bool:
     return _norm_text(expects) in _norm_text(haystack)
 
 
+_ELIDED = re.compile(r"^\s*(?:\.\.\.|…|\[\.\.\.\]|\[…\])\s*$")
+TAIL_LINES = 50  # the shell runner keeps this many output lines
+
+
+def lines_in_order(expects: str, haystack: str | None) -> bool:
+    """Every non-blank line the doc shows appears in the output, in the same order,
+    each within one output line after whitespace collapse; a placeholder stands for
+    run-specific text and a lone `...` line marks an elision. Only the last
+    TAIL_LINES shown lines are checked, since that is all the runner keeps."""
+    if haystack is None:
+        return False
+    shown = [ln for ln in expects.splitlines() if ln.strip() and not _ELIDED.match(ln)][-TAIL_LINES:]
+    got = [_norm_text(ln) for ln in haystack.splitlines()]
+    pos = 0
+    for line in shown:
+        want = _norm_text(line)
+        pattern = placeholder_pattern(want)
+        while pos < len(got) and not (pattern.search(got[pos]) if pattern else want in got[pos]):
+            pos += 1
+        if pos == len(got):
+            return False
+        pos += 1
+    return True
+
+
+def output_shown(expects: str, haystack: str | None) -> bool:
+    """The doc's promised output appears: as one run of text, or, for several lines,
+    line by line in order."""
+    if expects_in(expects, haystack):
+        return True
+    return "\n" in expects.strip() and lines_in_order(expects, haystack)
+
+
+# the three normalizations a prompt result goes through before byte comparison;
+# every prompt verdict reason names them so a reader knows nothing else was folded
+RESULT_NORMALIZATIONS = "CRLF to LF, trailing spaces removed, one final newline"
+
+
+def normalize_result(s: str) -> str:
+    """CRLF to LF, trailing spaces and tabs removed at line ends, exactly one final newline."""
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [ln.rstrip(" \t") for ln in s.split("\n")]
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines) + "\n"
+
+
+# the guides' placeholder for run-specific text inside a result fence: {nonce}, {identity}, {...},
+# and a timestamp literal, which stands for the run's own clock (the Harness stamps every run)
+_TIMESTAMP = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"
+_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_.]*|\.\.\.)\}|(" + _TIMESTAMP + ")")
+
+
+def placeholders_in(text: str) -> list[str]:
+    """The distinct placeholders a result fence uses, in order of first appearance;
+    a timestamp literal is listed as ``<timestamp>``."""
+    out: list[str] = []
+    for m in _PLACEHOLDER.finditer(text):
+        label = "<timestamp>" if m.group(2) else m.group(0)
+        if label not in out:
+            out.append(label)
+    return out
+
+
+def placeholder_pattern(text: str) -> re.Pattern[str] | None:
+    """A regex for text that uses placeholders, or None when it uses none.
+
+    Each ``{name}`` stands for one run of text within a line; the same name must
+    stand for the same text everywhere it appears. ``{...}`` is any such run. A
+    timestamp literal stands for any timestamp of the same shape."""
+    if not _PLACEHOLDER.search(text):
+        return None
+    parts: list[str] = []
+    seen: set[str] = set()
+    pos = 0
+    for m in _PLACEHOLDER.finditer(text):
+        parts.append(re.escape(text[pos : m.start()]))
+        if m.group(2):
+            parts.append(_TIMESTAMP)
+            pos = m.end()
+            continue
+        name = m.group(1)
+        if name == "...":
+            parts.append(r"[^\n]+?")
+        else:
+            group = "p_" + name.replace(".", "_")
+            if group in seen:
+                parts.append(f"(?P={group})")
+            else:
+                seen.add(group)
+                parts.append(f"(?P<{group}>[^\n]+?)")
+        pos = m.end()
+    parts.append(re.escape(text[pos:]))
+    return re.compile("".join(parts))
+
+
+def results_equal(expects: str, result: str | None) -> bool:
+    """Exact comparison of a prompt result with the doc's result fence, where a
+    placeholder in the fence stands for run-specific text."""
+    if result is None:
+        return False
+    want, got = normalize_result(expects), normalize_result(result)
+    pattern = placeholder_pattern(want)
+    if pattern is None:
+        return want == got
+    return pattern.fullmatch(got) is not None
+
+
+def failure_shown(expects: str, error_kind: str | None, message: str | None) -> bool:
+    """True when the doc's result fence shows this failure: it names the error
+    kind, or every non-blank line of it appears in the failure's message, with
+    placeholders standing for run-specific text."""
+    shown = normalize_result(expects).rstrip("\n")
+    if not shown.strip():
+        return False
+    if error_kind is not None and error_kind == shown.strip():
+        return True
+    if message is None:
+        return False
+    text = normalize_result(message)
+    for line in shown.split("\n"):
+        if not line.strip():
+            continue
+        pattern = placeholder_pattern(line)
+        if pattern is None:
+            if line not in text:
+                return False
+        elif pattern.search(text) is None:
+            return False
+    return True
+
+
+def _placeholder_note(expects: str | None) -> str:
+    used = placeholders_in(expects or "")
+    return f", with {', '.join(used)} standing for run-specific text" if used else ""
+
+
 def observed_text(claim: Claim, evidence: Evidence) -> str | None:
     """The text the runner stored for this claim: its store_as key first, else
     everything it observed joined together."""
@@ -96,6 +241,19 @@ def observed_text(claim: Claim, evidence: Evidence) -> str | None:
     if claim.store_as and claim.store_as in obs and obs[claim.store_as].strip():
         return obs[claim.store_as]
     return " ".join(v for v in obs.values() if v and v.strip()) or None
+
+
+def satisfies_dependents(v: Verdict) -> bool:
+    """A dependency lets later claims run when it is proven, or when it is stale only
+    because it passed through a substitute (the step ran, the doc's wording is the drift)."""
+    if v.status == "proven":
+        return True
+    ev = v.evidence
+    if v.status == "stale" and ev is not None and ev.kind == "shell" and (ev.claim_id == v.claim_id):
+        # the step ran and succeeded; what is stale is the doc's wording of its command
+        # (a substitute) or of its output. Later steps can still run on what it did.
+        return ev.exit_code == 0 or ev.service_ready
+    return False
 
 
 def judge(
@@ -108,10 +266,10 @@ def judge(
     rules = rules or Rules()
     prior = prior or {}
 
-    # 1. skipped: a dependency is not proven
+    # 1. skipped: a dependency is not proven (a substitute-capped pass still counts)
     for dep in claim.depends_on:
         pv = prior.get(dep)
-        if pv is not None and pv.status != "proven" and pv.evidence is not None:
+        if pv is not None and not satisfies_dependents(pv) and pv.evidence is not None:
             return Verdict(
                 claim_id=claim.id,
                 status="skipped",
@@ -128,20 +286,45 @@ def judge(
         return Verdict(claim_id=claim.id, status="unverifiable", reason=f"unverifiable: no evidence for {claim.kind} claim")
 
     if claim.kind == "shell":
-        return _judge_shell(claim, evidence)
+        return _judge_shell(claim, evidence, rules)
     if claim.kind == "assert":
         return _judge_assert(claim, evidence)
+    if claim.kind == "prompt":
+        return _judge_prompt(claim, evidence)
     return _judge_browser(claim, evidence, rules)
 
 
-def _judge_shell(claim: Claim, ev: Evidence) -> Verdict:
+def _judge_shell(claim: Claim, ev: Evidence, rules: Rules | None = None) -> Verdict:
+    rules = rules or Rules()
     if ev.kind != "shell":
-        # invariant: a shell claim is never proven from a browser runner
+        # invariant: a shell claim is never proven from a browser runner or a prompt Host
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: shell claim has non-shell evidence", evidence=ev)
+    v = _judge_shell_run(claim, ev, rules)
+    if ev.substitute is not None and v.status == "proven":
+        # a step that only works when rewritten is drift: the badge says so
+        return v.model_copy(
+            update={
+                "status": "stale",
+                "reason": f"stale: passed only through the substitute {ev.substitute!r} in place of {(ev.command or '').strip()!r}",
+                "label_match": None,
+            }
+        )
+    return v
+
+
+def _judge_shell_run(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
     if ev.timed_out:
+        if ev.ready_url:
+            seen = f"last answered {ev.ready_status}" if ev.ready_status is not None else "never answered"
+            return Verdict(
+                claim_id=claim.id,
+                status="broken",
+                reason=f"broken: service readiness URL {ev.ready_url} did not answer 200 within {rules.ready_timeout_s:g}s ({seen})",
+                evidence=ev,
+            )
         return Verdict(claim_id=claim.id, status="broken", reason="broken: command timed out", evidence=ev)
     if ev.service_ready and ev.exit_code is None:
-        if claim.expects and not expects_in(claim.expects, ev.stdout_tail):
+        if claim.expects and not output_shown(claim.expects, ev.stdout_tail):
             return Verdict(
                 claim_id=claim.id,
                 status="stale",
@@ -149,12 +332,17 @@ def _judge_shell(claim: Claim, ev: Evidence) -> Verdict:
                 evidence=ev,
                 label_match=0.0,
             )
-        reason = "proven: service ready and promised output found" if claim.expects else "proven: service ready"
+        if ev.ready_url:
+            reason = f"proven: service ready, {ev.ready_url} answered 200"
+            if claim.expects:
+                reason += " and promised output found"
+        else:
+            reason = "proven: service ready and promised output found" if claim.expects else "proven: service ready"
         return Verdict(claim_id=claim.id, status="proven", reason=reason, evidence=ev, label_match=1.0 if claim.expects else None)
     if ev.exit_code != 0:
         return Verdict(claim_id=claim.id, status="broken", reason=f"broken: exit code {ev.exit_code}", evidence=ev)
     if claim.expects:
-        if expects_in(claim.expects, ev.stdout_tail):
+        if output_shown(claim.expects, ev.stdout_tail):
             return Verdict(claim_id=claim.id, status="proven", reason="proven: exit 0 and promised output found", evidence=ev, label_match=1.0)
         return Verdict(
             claim_id=claim.id,
@@ -166,11 +354,151 @@ def _judge_shell(claim: Claim, ev: Evidence) -> Verdict:
     return Verdict(claim_id=claim.id, status="proven", reason="proven: exit 0", evidence=ev)
 
 
+def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
+    """Prompt rules from docs/CLI-RUNNER-SPEC.md: exact yes/no checks, no similarity score."""
+    if ev.kind != "prompt" or ev.prompt is None:
+        # invariant: a prompt claim is never proven from the shell runner or a browser runner
+        return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: prompt claim has non-prompt evidence", evidence=ev)
+    obs: PromptObservation = ev.prompt
+    if isinstance(obs, SimulationPromptObservation) or (obs.message and obs.message.startswith(SIMULATION_MESSAGE_PREFIX)):
+        return Verdict(
+            claim_id=claim.id,
+            status="unverifiable",
+            reason="unverifiable: simulation-only prompt observation is not verification evidence",
+            evidence=ev,
+        )
+    sent_ok, sent_note = sends_check(claim.sends, obs.sent)
+    if obs.status == "needs_script":
+        # the spec keeps this unverifiable whatever was sent; the reason says what was seen
+        return Verdict(
+            claim_id=claim.id,
+            status="unverifiable",
+            reason=f"unverifiable: the run wanted a model reply the doc never showed (round {obs.rounds + 1}); {obs.message or 'no script'}{sent_note}",
+            evidence=ev,
+        )
+    if obs.status == "completed" and sent_ok is False:
+        return Verdict(claim_id=claim.id, status="stale", reason=f"stale: the run completed but did not send what the doc says{sent_note}", evidence=ev)
+    if obs.status == "completed" and obs.placeholder_rounds and not claim.expects_error:
+        # placeholder replies: only what was sent is a check; the result came from Attest
+        if sent_ok:
+            return Verdict(
+                claim_id=claim.id,
+                status="proven",
+                reason=f"proven: the run {sent_note.lstrip('; ')}; {obs.placeholder_rounds} model round{'s were' if obs.placeholder_rounds != 1 else ' was'} answered with a placeholder, so the result is not part of the check",
+                evidence=ev,
+            )
+        return Verdict(
+            claim_id=claim.id,
+            status="unverifiable",
+            reason="unverifiable: model rounds were answered with a placeholder and the doc says nothing checkable about what they sent",
+            evidence=ev,
+        )
+    if obs.status == "refused":
+        return Verdict(claim_id=claim.id, status="unverifiable", reason=f"unverifiable: the Host refused the run; {obs.message or 'no message'}", evidence=ev)
+    failed = obs.status in ("parse_error", "failed")
+    where = f" at line {obs.error_line}" if obs.error_line is not None else ""
+    error = f"{obs.error_kind or obs.status}{where}" + (f": {obs.message}" if obs.message else "")
+    if not claim.expects_error:
+        if failed:
+            # A result fence shows what the run leaves behind: its result, or the
+            # failure's message when the doc documents a failure. The Language
+            # guide writes every documented failure that way.
+            if claim.expects and failure_shown(claim.expects, obs.error_kind, obs.message):
+                return Verdict(
+                    claim_id=claim.id,
+                    status="proven",
+                    reason=f"proven: the run ended {obs.status} and the doc's result fence is that failure's message (each line compared after {RESULT_NORMALIZATIONS}{_placeholder_note(claim.expects)}); scripted run",
+                    evidence=ev,
+                )
+            return Verdict(claim_id=claim.id, status="broken", reason=f"broken: success promised but the run ended {obs.status} ({error})", evidence=ev)
+        # completed
+        if claim.expects and not results_equal(claim.expects, obs.result):
+            return Verdict(
+                claim_id=claim.id,
+                status="stale",
+                reason=f"stale: completed but the result differs from the doc's result fence (compared after {RESULT_NORMALIZATIONS}{_placeholder_note(claim.expects)}); scripted run",
+                evidence=ev,
+            )
+        if claim.expects:
+            reason = f"proven: completed and the result equals the doc's result fence (compared after {RESULT_NORMALIZATIONS}{_placeholder_note(claim.expects)}); scripted run"
+        else:
+            reason = "proven: completed as the doc promised; scripted run"
+        return Verdict(claim_id=claim.id, status="proven", reason=reason + (sent_note if sent_ok else ""), evidence=ev)
+    # failure promised
+    if not failed:
+        return Verdict(claim_id=claim.id, status="broken", reason="broken: failure promised but the run completed", evidence=ev)
+    quoted = (claim.expects or "").strip()
+    if quoted and not failure_shown(claim.expects or "", obs.error_kind, obs.message):
+        return Verdict(
+            claim_id=claim.id,
+            status="stale",
+            reason=f"stale: the run failed as promised but the error differs from the doc's {quoted!r} (got {error})",
+            evidence=ev,
+        )
+    if quoted:
+        reason = f"proven: the run failed as promised and the error kind equals or the message contains {quoted!r}; scripted run"
+    else:
+        reason = f"proven: the run failed as the doc promised ({error}); scripted run"
+    return Verdict(claim_id=claim.id, status="proven", reason=reason, evidence=ev)
+
+
+def sends_check(expected: list[str], sent: list[str]) -> tuple[bool | None, str]:
+    """Whether the run sent what the doc says, as (ok, note for the reason). Each
+    expected message must appear within one round's message, in order; ok is None
+    when the doc says nothing about what is sent or the run sent nothing."""
+    if not expected or not sent:
+        return None, ""
+    pos = 0
+    for want in expected:
+        norm = _norm_text(want)
+        while pos < len(sent) and norm not in _norm_text(sent[pos]):
+            pos += 1
+        if pos == len(sent):
+            got = "; ".join(repr(_norm_text(s)[:60]) for s in sent[:3])
+            return False, f"; the doc says it sends {want!r}, the rounds sent {got}"
+        pos += 1
+    shown = ", ".join(repr(w) for w in expected)
+    return True, f"; sent {shown} as the doc says"
+
+
+def json_in(expects: str, haystack: str | None) -> bool | None:
+    """When ``expects`` is one JSON value: True if the output holds a JSON value
+    equal to it (whitespace and key order aside), False if not; None when
+    ``expects`` is not JSON, so the text rule decides."""
+    import json
+
+    try:
+        wanted = json.loads(expects.strip())
+    except ValueError:
+        return None
+    if not isinstance(wanted, (dict, list)):
+        return None
+    if haystack is None:
+        return False
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(haystack):
+        if ch not in "{[":
+            continue
+        try:
+            found, _ = decoder.raw_decode(haystack, i)
+        except ValueError:
+            continue
+        if found == wanted:
+            return True
+    return False
+
+
 def _judge_assert(claim: Claim, ev: Evidence) -> Verdict:
     if ev.kind != "shell":
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: assert needs shell output", evidence=ev)
     if not claim.expects:
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: assert without expected text", evidence=ev)
+    as_json = json_in(claim.expects, ev.stdout_tail)
+    if as_json is not None:
+        # a printed JSON response: equal as JSON, whatever the spacing
+        if as_json:
+            return Verdict(claim_id=claim.id, status="proven", reason="proven: expected JSON response found in previous step's output (compared as JSON)", evidence=ev, label_match=1.0)
+        return Verdict(claim_id=claim.id, status="stale", reason="stale: expected JSON response not in previous step's output (compared as JSON)", evidence=ev, label_match=0.0)
     if expects_in(claim.expects, ev.stdout_tail):
         return Verdict(claim_id=claim.id, status="proven", reason="proven: expected output found in previous step", evidence=ev, label_match=1.0)
     return Verdict(claim_id=claim.id, status="stale", reason="stale: expected output not in previous step's output", evidence=ev, label_match=0.0)
@@ -178,7 +506,7 @@ def _judge_assert(claim: Claim, ev: Evidence) -> Verdict:
 
 def _judge_browser(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
     if ev.kind != "browser" or ev.observation is None:
-        # invariant: a browser claim is never proven from the shell runner
+        # invariant: a browser claim is never proven from the shell runner or a prompt Host
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: browser claim has non-browser evidence", evidence=ev)
     obs = ev.observation
     if isinstance(obs, SimulationBrowserObservation) or (obs.note and obs.note.startswith(SIMULATION_NOTE_PREFIX)):

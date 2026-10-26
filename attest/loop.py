@@ -1,6 +1,6 @@
 """The closed loop: brief, one agent call, doc-only diff, re-prove one claim.
 
-Trigger: any stale or broken verdict on a shell or browser claim.
+Trigger: any stale or broken verdict on a shell, browser or prompt claim.
 The agent (``codex exec`` or ``claude -p``, from ``ATTEST_AGENT_CMD``) gets the
 brief on stdin and works in a scratch checkout that holds only the doc. Its diff
 must pass ``git apply --check`` and touch nothing but the doc. Then only the
@@ -40,7 +40,7 @@ from .verdict import Rules, judge, load_rules
 # "openai" (or "openai:<model>") calls the OpenAI API directly; anything else is a shell command
 AGENT_CMD = os.environ.get("ATTEST_AGENT_CMD", "openai")
 AGENT_INSTRUCTIONS = (
-    "You repair documentation. You receive a brief about one doc claim that a browser or shell run "
+    "You repair documentation. You receive a brief about one doc claim that a browser, shell or prompt run "
     "contradicted, with real line numbers. Change the smallest span of the doc so the claim matches what "
     "was observed. Reply with only a unified diff in git format, no prose and no code fence. Do not use the "
     "'*** Begin Patch' format. Use real line numbers from the brief. Example of the exact format:\n"
@@ -87,6 +87,8 @@ def brief_text(brief: Brief, claim: Claim, doc_path: str) -> str:
         tail = (ev.stdout_tail or "").strip().splitlines()[-12:]
         if tail:
             lines += ["output tail:", "```", *tail, "```"]
+    elif ev.kind == "prompt" and ev.prompt is not None:
+        lines += prompt_brief_lines(claim, ev.prompt)
     else:
         obs = ev.observation
         lines.append(f"browser step status: {obs.status if obs else 'none'}")
@@ -110,6 +112,28 @@ def brief_text(brief: Brief, claim: Claim, doc_path: str) -> str:
         "Return a unified diff (git format, paths a/ and b/) and nothing else.",
     ]
     return "\n".join(lines) + "\n"
+
+
+def prompt_brief_lines(claim: Claim, obs) -> list[str]:
+    """What the Host reported for a prompt example, beside what the doc shows."""
+    lines = [f"prompt run status: {obs.status} ({obs.host_version})"]
+    if obs.error_kind or obs.message:
+        where = f" at prompt line {obs.error_line}" if obs.error_line else ""
+        lines.append(f"error: {obs.error_kind or obs.status}{where}")
+        if obs.message:
+            lines += ["message:", "```", *obs.message.strip().splitlines()[:8], "```"]
+    if obs.result is not None:
+        lines += ["result:", "```", *obs.result.strip().splitlines()[:12], "```"]
+    if claim.expects is not None and obs.result is not None:
+        diff = list(difflib.unified_diff(
+            claim.expects.strip().splitlines(), obs.result.strip().splitlines(),
+            fromfile="the doc's result fence", tofile="the run's result", lineterm="", n=1,
+        ))
+        if diff:
+            lines += ["line diff, doc to run:", "```diff", *diff[:16], "```"]
+    if obs.sent:
+        lines.append("sent to the model, by round: " + "; ".join(repr(s.strip()[:80]) for s in obs.sent[:4]))
+    return lines
 
 
 # -- agent -------------------------------------------------------------------------
@@ -185,6 +209,10 @@ def extract_diff(output: str) -> str | None:
         if kept and not ln.startswith(("+", "-", " ", "@@", "diff ", "index ", "\\")):
             break
         kept.append(ln)
+    # a bare diff printed with a trailing newline ends in an empty line, which
+    # `git apply --recount` would read as one more context line
+    while kept and kept[-1] == "":
+        kept.pop()
     return "\n".join(kept) + "\n"
 
 
@@ -404,6 +432,10 @@ def run_loop(
         typer.echo("")
         typer.echo(f"   {typer.style('AGENT', fg=typer.colors.MAGENTA, bold=True)}     {typer.style(f'line {claim.span.start_line}', dim=True)}  asking the coding agent for a repair proposal...")
         grounding = ground(doc, claim)
+        if claim.kind == "prompt":
+            from .grounding import ground_runvil
+
+            grounding = ground_runvil(claim, before) + grounding
         doc_path = Path(doc.source).name if not doc.source.startswith("http") else "doc.md"
         brief = build_brief(doc, claim, before, grounding, doc_path)
         co = make_checkout(doc)
@@ -424,6 +456,12 @@ def run_loop(
                 if ok:
                     candidate_text = co.doc_path.read_text(encoding="utf-8")
                     break
+            if candidate_text is not None and claim.kind == "prompt":
+                check = recheck_prompt(result, claim, candidate_text, rules)
+                if check is not None:
+                    result.candidate_checks = {**getattr(result, "candidate_checks", {}), claim.id: check}  # type: ignore[attr-defined]
+                    word = typer.style(check.status.upper(), fg=typer.colors.GREEN if check.status == "proven" else typer.colors.YELLOW, bold=True)
+                    typer.echo(f"   CANDIDATE {word}  the patched example re-run before approval: {check.reason[:110]}")
         finally:
             shutil.rmtree(co.root, ignore_errors=True)
         result.briefs[claim.id] = brief
@@ -454,6 +492,7 @@ def run_loop(
                 target_claim=claim,
                 baseline_claims=result.claims,
                 plan=plan,
+                baseline_statuses=_statuses(result),
             )
         except Exception as exc:
             after = before.model_copy(update={"reason": f"{before.reason} (proposal rejected: {exc})"})
@@ -478,6 +517,9 @@ def run_loop(
             result, claim, before, before, policy, authority, agent_cmd or AGENT_CMD, brief.patch,
             disposition, handoff, doc_before, None,
         )
+        check = getattr(result, "candidate_checks", {}).get(claim.id)
+        if check is not None:
+            receipt["evidence"]["candidate"] = _observed(check.evidence, check.status) | {"reason": check.reason}
         path = _write_receipt(home, receipt)
         result.receipts[claim.id] = {"case_id": receipt["case_id"], "path": str(path)}
         typer.echo(f"RECEIPT   {path}")
@@ -490,9 +532,45 @@ def run_loop(
     return result
 
 
+def _statuses(result: ProveResult) -> dict[str, str]:
+    """Each claim's verdict by baseline key, for a validation that checks regressions."""
+    from .baseline import entries_for
+
+    return {key: entry["status"] for key, entry in entries_for(result.doc.source, result.claims, result.verdicts).items()}
+
+
+def recheck_prompt(result: ProveResult, claim: Claim, candidate_text: str, rules: Rules) -> Verdict | None:
+    """Re-run only the patched prompt example in the candidate doc, through the same prompt
+    runner and sidecar, and judge it. Evidence for the human who approves, not a promotion:
+    the candidate is never written to the source here."""
+    runner = getattr(result, "prompt_runner", None)
+    if runner is None:
+        return None
+    from .compiler import recompile_claim
+    from .ingest import ingest_text
+    from .pipeline import annotate_prompts
+
+    doc = ingest_text(candidate_text, source=result.doc.source).model_copy(update={"browser_claims": result.doc.browser_claims})
+    old_lines = result.doc.lines
+    shifted = shift_spans([claim], old_lines, doc.lines, "")[0] if claim.span.start_line <= len(doc.lines) else claim
+    fresh = recompile_claim(doc, shifted)
+    if fresh.kind != "prompt":
+        return None
+    cfg = getattr(result, "cli_config", None)
+    if cfg is not None:
+        fresh = annotate_prompts([fresh], cfg)[0]
+    ev = Evidence(claim_id=fresh.id, kind="prompt", prompt=runner.run(fresh))
+    return judge(fresh, ev, {}, rules)
+
+
 def _observed(ev, verdict_status=None):
     if ev is None:
         return {"status": verdict_status, "observed": {}, "note": None, "screenshot": None}
+    if ev.kind == "prompt" and ev.prompt is not None:
+        p = ev.prompt
+        return {"status": verdict_status or p.status,
+                "observed": {"result": p.result, "error_kind": p.error_kind, "message": p.message, "sent": p.sent},
+                "note": p.host_version, "screenshot": None}
     obs = ev.observation
     return {"status": verdict_status or (obs.status if obs else ("timed_out" if ev.timed_out else str(ev.exit_code))),
             "observed": obs.observed if obs else {"stdout_tail": ev.stdout_tail or ""},

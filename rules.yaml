@@ -3,3 +3,5 @@ label_match: 0.8        # token_set_ratio / 100 below this means stale (tuned on
 shell_timeout_s: 180    # per shell claim
 loop_attempts: 1        # agent attempts per failed claim before a human takes over
 kane_max_steps: 15      # Kane's reasoning budget per test step (frontmatter max_steps)
+prompt_timeout_s: 30    # per prompt claim: one Host process, no model calls (docs/CLI-RUNNER-SPEC.md)
+ready_timeout_s: 60     # a sidecar service must answer 200 on its readiness URL within this

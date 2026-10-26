@@ -34,6 +34,21 @@ class BrowserRunner(Protocol):
     def close(self) -> None: ...
 
 
+class NoBrowserRunner:
+    """For documents with no browser steps (command and prompt docs): no browser tool is
+    needed or started. ``prove`` refuses a document that compiles to a browser claim when
+    this runner is chosen, so it can never stand in for a real observation."""
+
+    name = "none"
+    mode: RunnerMode = "verified"
+
+    def observe(self, claim: Claim, base_url: str | None) -> BrowserObservation:
+        raise RuntimeError(f"{claim.id} is a browser claim but --runner none was chosen")
+
+    def close(self) -> None:
+        return None
+
+
 class FakeBrowserRunner:
     """Simulation-only runner for tests and offline demos.
 

@@ -1,0 +1,1 @@
+{"c01": {"status": "parse_error", "error_kind": "MissingFrontmatter", "error_line": 1, "message": "the file does not open with frontmatter", "host_version": "runvil@dd8a2456 (fixture, hand-written until runvil-docs-host exists)"}}

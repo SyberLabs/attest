@@ -13,15 +13,17 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .cli_config import CliConfig, find_cli_config, load_cli_config
 from .compiler import CompileError, compile_doc
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
+from .prompt_runner import PromptRunner
 from .render import badge_svg, proof_md, render_page, write_page
 from .runner import BrowserRunner, FakeBrowserRunner
 from .shell import ShellSession, new_scratch
-from .verdict import Rules, judge, load_rules
+from .verdict import Rules, judge, load_rules, satisfies_dependents
 
 ATTEST_DIR = Path(os.environ.get("ATTEST_HOME", ".attest"))
 _UNCOMPILED_ACTION = re.compile(
@@ -33,6 +35,8 @@ _UNCOMPILED_ACTION = re.compile(
 
 
 def _uncompiled_required_lines(doc: Doc, claims: list[Claim]) -> list[int]:
+    if not doc.browser_claims:
+        return []
     covered = {
         line
         for claim in claims
@@ -65,15 +69,17 @@ class ProveResult:
     simulation: bool = False
     proposals: dict[str, str] = field(default_factory=dict)
     proposal_states: dict[str, str] = field(default_factory=dict)
+    # sidecar fixtures written before the first claim: name, scratch path, sha256
+    fixtures: list[dict] = field(default_factory=list)
 
     @property
     def by_id(self) -> dict[str, Verdict]:
         return {v.claim_id: v for v in self.verdicts}
 
     def failing(self) -> list[Claim]:
-        """Claims the loop may act on: stale or broken shell and browser claims."""
+        """Claims the loop may act on: stale or broken shell, browser and prompt claims."""
         v = self.by_id
-        return [c for c in self.claims if c.kind in ("shell", "browser") and v[c.id].status in ("stale", "broken")]
+        return [c for c in self.claims if c.kind in ("shell", "browser", "prompt") and v[c.id].status in ("stale", "broken")]
 
 
 def execute(
@@ -91,21 +97,39 @@ def execute(
     recipes_only: bool = False,
     recipe_executor: ApprovedRecipeExecutor | None = None,
     simulation: bool = False,
+    cli_config: CliConfig | None = None,
+    allow_substitutes: bool = False,
+    prompt_runner: PromptRunner | None = None,
+    session: ShellSession | None = None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
-    """Run claims in doc order; simulation evidence can never produce a proven verdict."""
+    """Run claims in doc order; simulation evidence can never produce a proven verdict.
+
+    Prompt claims go to ``prompt_runner``; without one they get no evidence and end
+    unverifiable. A ``session`` passed in is shared across the docs of a book: its
+    servers stay up and its fixtures are written once."""
     evidence: dict[str, Evidence] = {}
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
     skip = skip or set()
-    session = ShellSession(
-        workdir=scratch,
-        timeout_s=rules.shell_timeout_s,
-        env=shell_env or {},
-        recipes_only=recipes_only,
-        recipe_executor=recipe_executor,
-    )
+    cli_config = cli_config or CliConfig()
+    check_setup(claims, cli_config)
+    if session is None:
+        session = ShellSession(
+            workdir=scratch,
+            timeout_s=rules.shell_timeout_s,
+            env=shell_env or {},
+            recipes_only=recipes_only,
+            recipe_executor=recipe_executor,
+            services=cli_config.services,
+            substitutes=cli_config.substitutes,
+            allow_substitutes=allow_substitutes,
+            ready_timeout_s=rules.ready_timeout_s,
+        )
     stop_index = next((i for i, claim in enumerate(claims) if claim.id == stop_before), None)
     try:
+        # fixtures land before the first claim, whatever kind it is, once per session
+        if cli_config.fixtures and not getattr(session, "fixtures_written", None):
+            session.write_fixtures(cli_config.fixtures)
         for i, c in enumerate(claims):
             if c.id in skip:
                 v = Verdict(
@@ -143,7 +167,7 @@ def execute(
             # A dependency that was never judged is not authorization. Skipped
             # claims have no evidence and still let dependents run.
             deps_ok = all(
-                d in reached and (reached[d].status == "proven" or reached[d].evidence is None)
+                d in reached and (satisfies_dependents(reached[d]) or reached[d].evidence is None)
                 for d in c.depends_on
             )
             if deps_ok:
@@ -156,6 +180,9 @@ def execute(
                     src = next((reached[d].evidence for d in c.depends_on if d in reached and reached[d].evidence), None)
                     if src is not None and src.kind == "shell":
                         ev = src.model_copy(update={"claim_id": c.id})
+                elif c.kind == "prompt" and prompt_runner is not None:
+                    obs = prompt_runner.run(c)
+                    ev = Evidence(claim_id=c.id, kind="prompt", prompt=obs)
             v = judge(c, ev, reached, rules)
             if simulation:
                 v = v.model_copy(update={"status": "unverifiable", "reason": f"simulation only; not verification evidence: {v.reason}"})
@@ -169,6 +196,82 @@ def execute(
         session.close()
         raise
     return evidence, verdicts, session
+
+
+def check_setup(claims: list[Claim], cli_config: CliConfig) -> None:
+    """Every fixture a claim names in ``setup`` must exist in the sidecar, before anything runs."""
+    for c in claims:
+        missing = [name for name in c.setup if name not in cli_config.fixtures]
+        if missing:
+            where = f" ({cli_config.path})" if cli_config.path else ""
+            raise ValueError(f"{c.id} needs fixtures {missing} that the sidecar{where} does not define")
+
+
+def annotate_setup(claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
+    """By rule: a shell claim whose command names a fixture's path gets that fixture in ``setup``."""
+    out = []
+    for c in claims:
+        if c.kind == "shell" and c.command:
+            names = [n for n in cli_config.fixtures_named_in(c.command) if n not in c.setup]
+            if names:
+                c = c.model_copy(update={"setup": [*c.setup, *names]})
+        out.append(c)
+    return out
+
+
+_PROMPT_NAME = re.compile(r"^name:\s*(.+?)\s*$", re.M)
+
+
+def prompt_name(claim: Claim) -> str | None:
+    """The frontmatter name of a prompt claim, which the sidecar keys its contexts by."""
+    if claim.kind != "prompt" or not claim.command:
+        return None
+    head = claim.command.split("\n---", 1)[0]
+    m = _PROMPT_NAME.search(head)
+    return m.group(1) if m else None
+
+
+def annotate_prompts(claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
+    """The sidecar's ``prompts`` gives a prompt claim the Host context the doc
+    describes in prose: seeded files, input text, mode, policy, run name, script."""
+    if not cli_config.prompts and not cli_config.placeholder_replies:
+        return claims
+    out = []
+    for c in claims:
+        spec = cli_config.prompts.get(prompt_name(c) or "")
+        if spec is not None:
+            update: dict = {"context": spec.context}
+            if spec.args is not None:
+                update["args"] = spec.args
+            c = c.model_copy(update=update)
+        if cli_config.placeholder_replies and c.kind == "prompt" and c.sends and not c.expects:
+            # the doc says what the example sends and shows no reply: let it complete
+            from .models import PromptContext
+
+            context = c.context or PromptContext()
+            if not context.script:
+                c = c.model_copy(update={"context": context.model_copy(update={"placeholder_replies": True})})
+        out.append(c)
+    return out
+
+
+def annotate_expects(doc: Doc, claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
+    """The sidecar's ``expects`` gives a shell claim the output the doc promises in
+    prose. The promised text must appear in the doc, so the sidecar can only
+    point at a promise the doc makes, never invent one."""
+    if not cli_config.expects:
+        return claims
+    source = "\n".join(doc.lines)
+    out = []
+    for c in claims:
+        output = cli_config.expects_for(c.command) if c.kind == "shell" and c.command else None
+        if output is not None and not c.expects:
+            if output not in source:
+                where = f" ({cli_config.path})" if cli_config.path else ""
+                raise ValueError(f"sidecar{where} expects {output!r} for {c.id}, but the document never says that")
+            c = c.model_copy(update={"expects": output})
+        out.append(c)
+    return out
 
 
 def prove(
@@ -188,7 +291,14 @@ def prove(
     recipe_executor: ApprovedRecipeExecutor | None = None,
     simulation: bool = False,
     app_dir: Path | None = None,
+    cli_config: CliConfig | Path | str | None = None,
+    allow_substitutes: bool = False,
+    prompt_runner: PromptRunner | None = None,
+    session: ShellSession | None = None,
 ) -> ProveResult:
+    """Prove one doc. A ``session`` passed in is a book's shared shell session: the
+    doc runs in its scratch directory, against the servers earlier docs started,
+    and the caller closes it when the book is done."""
     rules = rules or load_rules()
     if runner is None:
         raise ValueError("an explicit browser runner is required; use FakeBrowserRunner with simulation=True for a demo")
@@ -196,7 +306,20 @@ def prove(
         raise ValueError("fake browser evidence requires simulation=True and cannot verify claims")
     if simulation and getattr(runner, "name", None) != "fake":
         raise ValueError("simulation=True is only valid with the fake browser runner")
+    if getattr(prompt_runner, "name", None) == "fake" and not simulation:
+        raise ValueError("fake prompt observations require simulation=True and cannot verify claims")
     doc = ingest(source)
+    if cli_config is None:
+        found = find_cli_config(source)
+        cli_config = load_cli_config(found) if found else CliConfig()
+    elif not isinstance(cli_config, CliConfig):
+        cli_config = load_cli_config(cli_config)
+    if allow_substitutes and not cli_config.substitutes:
+        raise ValueError("--substitute given but the sidecar defines no substitutes")
+    # with no browser runner there is nothing to drive a browser step, so prose that
+    # merely mentions pages, labels or `--type` is not a browser instruction
+    browser_claims = cli_config.browser_claims and getattr(runner, "name", None) != "none"
+    doc = doc.model_copy(update={"browser_claims": browser_claims})
     candidate = None
     if app_dir is not None:
         # spec mode: the spec's shell steps serve a fresh copy of the app, never the original
@@ -204,12 +327,25 @@ def prove(
 
         candidate = make_candidate(Path(app_dir), doc.sha256, home)
         shell_env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
-    claims = compile_doc(doc, llm=llm)
+    claims = annotate_prompts(annotate_expects(doc, annotate_setup(compile_doc(doc, llm=llm), cli_config), cli_config), cli_config)
+    check_setup(claims, cli_config)
+    if getattr(runner, "name", None) == "none":
+        browser = [c.id for c in claims if c.kind == "browser"]
+        if browser:
+            raise ValueError(f"--runner none chosen but the document has browser claims: {', '.join(browser)}")
+    if any(c.kind == "prompt" for c in claims):
+        if prompt_runner is None:
+            raise ValueError("the document has prompt claims; pass a prompt runner (--prompt-runner runvil or fake)")
+        check = getattr(prompt_runner, "check", None)
+        if check is not None:
+            check()  # a missing Host fails before any claim runs
     uncovered = _uncompiled_required_lines(doc, claims)
     if uncovered:
         raise CompileError(
             "incomplete compilation; required browser/actionable lines were not claimed: "
             + ", ".join(map(str, uncovered))
+            + ". If the document has no browser steps, prove it with --runner none"
+            " (or set browser_claims: false in its attest.cli.yaml)."
         )
     doc = doc.model_copy(update={"claims": claims})
     if stop_before is not None and stop_before not in {claim.id for claim in claims}:
@@ -226,10 +362,10 @@ def prove(
         stop_index = next((i for i, c in enumerate(claims) if c.id == stop_before), len(claims))
         run_claims = [c for i, c in enumerate(claims) if i < stop_index and c.id not in skip]
         prepare(run_claims, doc.source)
-    scratch = new_scratch()
+    shared = session is not None
+    scratch = session.workdir if shared else new_scratch()
     out_dir = out_dir_for(doc, home)
     live_state = {"now": "Preparing claims"}
-    session = None
     try:
         if live:
             result = ProveResult(doc, claims, {}, [], 0, out_dir, scratch=scratch, simulation=simulation)
@@ -254,8 +390,10 @@ def prove(
             claims, runner, rules, scratch, shell_env=shell_env, log=record if live else log,
             stop_before=stop_before, skip=skip, on_start=announce, simulation=simulation,
             recipes_only=recipes_only, recipe_executor=recipe_executor,
+            cli_config=cli_config, allow_substitutes=allow_substitutes, prompt_runner=prompt_runner,
+            session=session,
         )
-        if not keep_servers:
+        if not keep_servers and not shared:
             session.close()
         ledger = Ledger(home / "ledger.jsonl")
         turn = ledger.next_turn()
@@ -266,20 +404,48 @@ def prove(
         else:
             run_count = 0
         result = ProveResult(
-            doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch, simulation=simulation
+            doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch, simulation=simulation,
+            fixtures=list(getattr(session, "fixtures_written", [])),
         )
         result._kane_runs_count = run_count  # type: ignore[attr-defined]
         result._session = session  # type: ignore[attr-defined]
         result.candidate = candidate  # type: ignore[attr-defined]
+        # the loop re-checks a patched prompt example with the same runner and sidecar
+        result.prompt_runner = prompt_runner  # type: ignore[attr-defined]
+        result.cli_config = cli_config  # type: ignore[attr-defined]
         render_result(result, home, runner.name)
         if live:
             _write_live_page(result, home, runner.name, "Proof complete", False)
         return result
     except BaseException:
-        if session is not None:
+        if session is not None and not shared:
             session.close()
-        cleanup_scratch(scratch)
+            cleanup_scratch(scratch)
         raise
+
+
+def book_session(
+    cli_config: CliConfig | Path | str | None,
+    rules: Rules | None = None,
+    shell_env: dict[str, str] | None = None,
+    allow_substitutes: bool = False,
+) -> ShellSession:
+    """The one shell session a book's docs share: one scratch directory, the
+    sidecar's services kept up from doc to doc, fixtures written once."""
+    rules = rules or load_rules()
+    if cli_config is None:
+        cli_config = CliConfig()
+    elif not isinstance(cli_config, CliConfig):
+        cli_config = load_cli_config(cli_config)
+    return ShellSession(
+        workdir=new_scratch("attest-book-"),
+        timeout_s=rules.shell_timeout_s,
+        env=shell_env or {},
+        services=cli_config.services,
+        substitutes=cli_config.substitutes,
+        allow_substitutes=allow_substitutes,
+        ready_timeout_s=rules.ready_timeout_s,
+    )
 
 
 def claim_banner(claim: Claim) -> str:
@@ -293,6 +459,10 @@ def claim_banner(claim: Claim) -> str:
         if claim.expects:
             return f'Kane is checking line {line}: does the page show "{claim.expects}"?'
         return f"Kane is checking line {line}"
+    if claim.kind == "prompt":
+        name = re.search(r"^name:\s*(.+)$", claim.command or "", re.M)
+        label = name.group(1).strip() if name else "prompt"
+        return f"Running prompt `{label}` (line {line})"
     return f"Reading line {line}"
 
 
@@ -395,6 +565,10 @@ def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
     (result.out_dir / "verdicts.json").write_text(
         "[" + ",".join(v.model_dump_json() for v in result.verdicts) + "]", encoding="utf-8"
     )
+    if result.fixtures:
+        import json
+
+        (result.out_dir / "fixtures.json").write_text(json.dumps(result.fixtures, indent=2), encoding="utf-8")
     return page
 
 

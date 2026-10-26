@@ -210,6 +210,75 @@ def repo_for(doc: Doc, targets_path: Path = Path("targets.yaml")) -> str | None:
     return None
 
 
+RUNVIL_SRC_ENV = "ATTEST_RUNVIL_SRC"
+
+
+def _git(root: Path, *args: str, timeout_s: int = 20) -> str:
+    try:
+        p = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout_s)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return p.stdout if p.returncode == 0 else ""
+
+
+def ground_runvil(claim: Claim, verdict, root: Path | None = None, limit: int = MAX_LINES_PER_SOURCE) -> list[str]:
+    """Grounding for a failing prompt example from a local Runvil checkout pinned to one
+    commit (``ATTEST_RUNVIL_SRC``), as the spec asks: the commits that touched the name the
+    failure names, and how the code uses its owner today. Offline; nothing is cached."""
+    from .rootcause import failure_text, named, qualified
+
+    root = root or (Path(os.environ[RUNVIL_SRC_ENV]) if os.environ.get(RUNVIL_SRC_ENV) else None)
+    if root is None or not (root / ".git").exists():
+        return []
+    head = _git(root, "rev-parse", "--short=12", "HEAD").strip() or "unknown"
+    lines = [f"[runvil@{head}] grounding from the local Runvil checkout"]
+    _label, message = failure_text(claim, verdict)
+    hit = named(message)
+    if hit is None:
+        # a result that differs: search the history for the wording the doc has and the run lost
+        phrase = _lost_phrase(claim, verdict)
+        if phrase:
+            log = _git(root, "log", "--format=%h %ad %s", "--date=short", "-S", phrase, "-n", str(limit), "--", "crates")
+            lines += [f"[runvil commit] {ln}  (touches {phrase!r})" for ln in log.splitlines()[:limit]] or [f"[runvil commit] no commit in this checkout touches {phrase!r}"]
+        return lines
+    name = qualified(hit[0], [claim.command or ""])
+    bare = name.rsplit(".", 1)[-1]
+    log = _git(root, "log", "--format=%h %ad %s", "--date=short", "-S", bare, "-n", str(limit), "--", "crates")
+    lines += [f"[runvil commit] {ln}" for ln in log.splitlines()[:limit]] or [f"[runvil commit] no commit in this checkout touches `{bare}`"]
+    if "." in name:
+        owner = name.split(".", 1)[0]
+        uses = _git(root, "grep", "-h", "-o", "-E", rf"\b{re.escape(owner)}\.[a-z_]+\(", "--", "crates", "*.rs", "*.lua", "*.md")
+        counts: dict[str, int] = {}
+        for u in uses.splitlines():
+            counts[u] = counts.get(u, 0) + 1
+        top = sorted(counts.items(), key=lambda kv: -kv[1])[: limit + 3]
+        if top:
+            lines.append(f"[runvil source] `{owner}.*` calls in the code today: " + ", ".join(f"{k[:-1]} ({v})" for k, v in top))
+        if not any(k[:-1] == name for k, _ in counts.items()):
+            lines.append(f"[runvil source] `{name}` does not appear in the code at this commit")
+    return lines
+
+
+def _lost_phrase(claim: Claim, verdict) -> str | None:
+    """The first run of words the doc's result fence has and the run's result does not,
+    with one word of context, such as 'author tasks' when the run says 'tasks'."""
+    import difflib
+
+    ev = getattr(verdict, "evidence", None)
+    result = ev.prompt.result if ev is not None and ev.kind == "prompt" and ev.prompt is not None else None
+    if not claim.expects or result is None:
+        return None
+    doc_words, run_words = claim.expects.split(), result.split()
+    for tag, i1, i2, _j1, _j2 in difflib.SequenceMatcher(a=doc_words, b=run_words, autojunk=False).get_opcodes():
+        if tag in ("delete", "replace"):
+            words = doc_words[i1 : min(i2, i1 + 3)]
+            if i2 < len(doc_words) and len(words) < 3:
+                words = words + [doc_words[i2]]
+            phrase = " ".join(words).strip(".,;:|")
+            return phrase if len(phrase) >= 4 else None
+    return None
+
+
 def ground(doc: Doc, claim: Claim, runner: Runner = _run, cache_dir: Path = GITHITS_CACHE, help_dir: Path = HELP_CACHE) -> list[str]:
     """Everything the brief needs, in order: doc section, help page (AI answers), GitHits."""
     lines = ground_doc(doc, claim)

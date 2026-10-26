@@ -1,0 +1,81 @@
+{
+ "schema": "attest.baseline/v0",
+ "created_at": "2026-10-26T10:38:46+00:00",
+ "entries": {
+  "01-install-and-run.md::shell::6d71ec5aeea6#1": {
+   "status": "stale",
+   "line": 10,
+   "preview": "cargo install gateway"
+  },
+  "01-install-and-run.md::shell::6f8d51f5a3aa#1": {
+   "status": "proven",
+   "line": 16,
+   "preview": "runvil-gateway --version"
+  },
+  "01-install-and-run.md::shell::8ffac3a01801#1": {
+   "status": "proven",
+   "line": 48,
+   "preview": "curl http://127.0.0.1:8081/health"
+  },
+  "01-install-and-run.md::shell::aaeac8634382#1": {
+   "status": "proven",
+   "line": 56,
+   "preview": "curl -H \"Authorization: Bearer wrong-token\" http://127.0.0.1"
+  },
+  "01-install-and-run.md::shell::b1c375d5aec8#1": {
+   "status": "proven",
+   "line": 62,
+   "preview": "curl http://127.0.0.1:8081/v1/models"
+  },
+  "01-install-and-run.md::shell::ed3fb450f7ae#1": {
+   "status": "proven",
+   "line": 24,
+   "preview": "runvil-gateway --config gateway.toml --profile main"
+  },
+  "03-remote-models.md::shell::705a2665026e#1": {
+   "status": "proven",
+   "line": 78,
+   "preview": "curl -H \"Authorization: Bearer $GATEWAY_KEY\" http://127.0.0."
+  },
+  "06-speech-synthesis.md::assert::cab705d151f8#1": {
+   "status": "stale",
+   "line": 50,
+   "preview": "{\"voices\": [{\"id\": \"dan\", \"name\": \"dan\"}, {\"id\": \"jess\", \"na"
+  },
+  "06-speech-synthesis.md::shell::4a940b5de6c6#1": {
+   "status": "proven",
+   "line": 33,
+   "preview": "curl -H \"Authorization: Bearer $GATEWAY_KEY\" http://127.0.0."
+  },
+  "07-profiles.md::assert::b58e3ed92ec4#1": {
+   "status": "proven",
+   "line": 59,
+   "preview": "{\"profile\": \"travel\", \"restart_required\": true}"
+  },
+  "07-profiles.md::shell::941197c6b10b#1": {
+   "status": "proven",
+   "line": 50,
+   "preview": "curl -X POST -H \"Authorization: Bearer $GATEWAY_KEY\" \\ -H \"C"
+  },
+  "09-editing-configuration.md::shell::1a08e6adcdf6#1": {
+   "status": "proven",
+   "line": 34,
+   "preview": "curl -X POST -H \"Authorization: Bearer $GATEWAY_KEY\" http://"
+  },
+  "09-editing-configuration.md::shell::6942f3f6c933#1": {
+   "status": "proven",
+   "line": 26,
+   "preview": "curl -H \"Authorization: Bearer $GATEWAY_KEY\" http://127.0.0."
+  },
+  "09-editing-configuration.md::shell::72ac3f8d1a9e#1": {
+   "status": "proven",
+   "line": 50,
+   "preview": "curl -X POST -H \"Authorization: Bearer $GATEWAY_KEY\" http://"
+  },
+  "09-editing-configuration.md::shell::9ecf8c3543b2#1": {
+   "status": "proven",
+   "line": 18,
+   "preview": "curl -H \"Authorization: Bearer $GATEWAY_KEY\" http://127.0.0."
+  }
+ }
+}
