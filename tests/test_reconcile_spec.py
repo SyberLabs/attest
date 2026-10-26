@@ -181,7 +181,11 @@ def test_maintain_docs_descriptive_repair_path_still_allows_apply(tmp_path, monk
     store = SQLiteWorkflowStore(tmp_path / "home" / "workflow.sqlite3")
     workflow_id = proposed.proposals["c01"]
     approve_workflow(store, workflow_id, "maintainer")
-    promoted = resume_workflow(store, workflow_id, runner=KaneTestRunner(), apply=True)
+    from attest.execution.recipes import ApprovedRecipeExecutor
+
+    # resume validation is recipes-only; the repaired command must be an approved recipe
+    ready = ApprovedRecipeExecutor({"echo ready && exit 0": [sys.executable, "-c", "print('ready')"]})
+    promoted = resume_workflow(store, workflow_id, runner=KaneTestRunner(), apply=True, recipe_executor=ready)
 
     assert promoted.state == "promoted"
     assert "echo ready && exit 0" in source.read_text(encoding="utf-8")

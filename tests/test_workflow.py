@@ -1,15 +1,21 @@
 import difflib
+import sys
 
 import pytest
 
 from attest.approvals import ApprovalError, approve_workflow
 from attest.compiler import CompileError, fences_by_regex
+from attest.execution.recipes import ApprovedRecipeExecutor
 from attest.ingest import ingest_text, sha256_of
 from attest.models import Claim, Span
 from attest.policy import MaintainDocsPolicy, validate_diff_scope
 from attest.proposals import create_repair_proposal, current_build_digest
 from attest.storage import SQLiteWorkflowStore
 from attest.workflow import WorkflowError, promote_workflow, resume_workflow
+
+
+# Resume validation is recipes-only; the fixture's repaired command is an approved recipe.
+READY = ApprovedRecipeExecutor({"echo ready && exit 0": [sys.executable, "-c", "print('ready')"]})
 
 
 class KaneTestRunner:
@@ -101,15 +107,16 @@ def test_maintain_docs_approval_binds_digests_then_promotes_after_fresh_validati
     assert source.read_text(encoding="utf-8") == base
 
     runner = KaneTestRunner()
-    validated = resume_workflow(store, proposal.workflow_id, runner=runner)
+    validated = resume_workflow(store, proposal.workflow_id, runner=runner, recipe_executor=READY)
     assert validated.state == "validated"
+    assert validated.validation["shell_mode"] == "recipes_only"
     assert runner.prepared == ([claim["id"] for claim in validated.validation["validated_claims"]], str(source))
     assert validated.validation["successful"] is True
     assert validated.validation["runner"] == "kane"
     assert validated.validation["statuses"] == {"c01": "proven"}
     assert source.read_text(encoding="utf-8") == base
 
-    promoted = resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), apply=True)
+    promoted = resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), apply=True, recipe_executor=READY)
     assert promoted.state == "promoted"
     after = source.read_text(encoding="utf-8")
     assert "echo ready && exit 0" in after and "exit 1" not in after
@@ -134,6 +141,47 @@ def test_failed_validation_disables_apply_and_preserves_source(tmp_path, monkeyp
         promote_workflow(store, proposal.workflow_id)
     with pytest.raises(WorkflowError, match="only an approved workflow"):
         resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), apply=True)
+
+
+def test_resume_validation_never_reaches_an_unrestricted_shell(tmp_path, monkeypatch):
+    """workflow validation ignored --recipes-only: an approved candidate's shell step ran in bash."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    marker = tmp_path / "pwned"
+    candidate = f"# Quickstart\n\nRun this:\n\n```bash\necho pwned > '{marker.as_posix()}' && exit 0\n```\n"
+    source, store, proposal = allowed_fixture(tmp_path, candidate)
+    base = source.read_text(encoding="utf-8")
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+
+    rejected = resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), apply=True)
+
+    assert not marker.exists(), "validation ran the candidate through an unrestricted shell"
+    assert rejected.state == "rejected"
+    assert rejected.validation["shell_mode"] == "recipes_only"
+    assert rejected.validation["failed_claims"] == ["c01:broken"]
+    evidence = rejected.validation["evidence"]["c01"]
+    assert evidence["exit_code"] == 126
+    assert "no approved recipe" in evidence["stdout_tail"]
+    assert source.read_text(encoding="utf-8") == base
+
+
+def test_resume_validation_passes_recipes_only_to_execute(tmp_path, monkeypatch):
+    import attest.workflow as workflow
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    seen = {}
+    real_execute = workflow.execute
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real_execute(*args, **kwargs)
+
+    monkeypatch.setattr(workflow, "execute", spy)
+    _, store, proposal = allowed_fixture(tmp_path)
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    validated = resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY)
+    assert validated.state == "validated"
+    assert seen["recipes_only"] is True
+    assert seen["recipe_executor"] is READY
 
 
 def test_fake_or_simulated_validation_cannot_advance_or_promote(tmp_path):

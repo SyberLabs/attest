@@ -14,6 +14,7 @@ from typing import Any
 
 from .approvals import ApprovalError, verify_approval
 from .compiler import compile_doc
+from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest_text, sha256_of
 from .models import Claim
 from .policy import MaintainDocsPolicy
@@ -77,8 +78,13 @@ def resume_workflow(
     rules: Rules | None = None,
     llm=None,
     shell_env: dict[str, str] | None = None,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> WorkflowRecord:
-    """Validate a human-approved proposal with fresh Kane evidence, optionally promote."""
+    """Validate a human-approved proposal with fresh Kane evidence, optionally promote.
+
+    Validation shell claims always run recipes-only: the candidate document is
+    model-authored, so it may select an approved recipe but never reach a shell.
+    """
     record = store.get(workflow_id)
     policy = policy or MaintainDocsPolicy()
     if simulation or getattr(runner, "name", None) != "kane":
@@ -153,6 +159,8 @@ def resume_workflow(
                 rules or load_rules(),
                 scratch,
                 shell_env=shell_env,
+                recipes_only=True,
+                recipe_executor=recipe_executor,
             )
             statuses = {verdict.claim_id: verdict.status for verdict in verdicts}
             required = [claim for claim in claims if claim.kind in {"shell", "browser", "assert"}]
@@ -161,6 +169,7 @@ def resume_workflow(
             validation_data: dict[str, Any] = {
                 "successful": not failed,
                 "runner": runner.name,
+                "shell_mode": "recipes_only",
                 "candidate_digest": proposal["candidate_digest"],
                 "statuses": statuses,
                 "failed_claims": failed,
