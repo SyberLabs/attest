@@ -510,7 +510,8 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
   - G3 [run 40366915326](https://github.com/SyberLabs/attest/actions/runs/40366915326): kane_runner 33, maintain_docs 33 + 1 control, reconcile_spec 36 + 1 control, 0 active not passing, 5 xfail + 2 stub open gaps.
   - G1, G4, G5 and G7 are green ([40366915152](https://github.com/SyberLabs/attest/actions/runs/40366915152), [40366915086](https://github.com/SyberLabs/attest/actions/runs/40366915086), [40366915025](https://github.com/SyberLabs/attest/actions/runs/40366915025), [40366915052](https://github.com/SyberLabs/attest/actions/runs/40366915052)).
   - No negative-control push: no product hook changed, and the 11 local mutations above stand in for it.
+## Oct 26: combined-tree integration
+
 - Integration branch from `942d8b5eb4d49f8ca3d0b3c91602626ea9d1b0e2`: #57; #58/#66/#68; #59/#63/#69; #60/#67; #62/#64. Source tips are preserved as merge parents. Draft #61/#65/#70, draft #24 and verify-only #38 are excluded.
 - Combined-tree fixes: #63 and #68 both named different helpers `_refuse_unrecorded_approval`; the docs-specific wrapper is now `_refuse_docs_approval`. Both checks run on validated resume and promotion. The G1 extra-offer regression proves the native docs prefix check alone is insufficient. Backdating tests expect the stable docs/spec approval codes without relaxing their refusal, no-execution or unchanged-source checks.
 - #63 and #64 both allocated `MD-AB-11`. Keep #63's case; #64's rewritten-approval fixture and test binding are `MD-AB-14`. Its missing-approval expectation uses #63's stable code. Neither case is dropped.
-
