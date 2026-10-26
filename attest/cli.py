@@ -733,30 +733,38 @@ def approve(
 @app.command()
 def resume(
     workflow_id: str = typer.Argument(..., help="Approved workflow ID."),
-    runner: str = typer.Option("kane", "--runner", help="Fresh validation runner; must be Kane."),
+    runner: str = typer.Option("kane", "--runner", help="Fresh validation runner: kane, or none for a doc with no browser steps."),
     headless: bool = typer.Option(False, "--headless"),
     report: bool = typer.Option(False, "--report"),
     cdp_endpoint: str | None = typer.Option(None, "--cdp-endpoint"),
     apply: bool = typer.Option(False, "--apply", help="Promote only after successful fresh validation."),
     simulation: bool = typer.Option(False, "--simulation", help="Simulation cannot validate or promote."),
     home: Path = typer.Option(ATTEST_DIR, "--home"),
+    prompt_runner: str | None = typer.Option(None, "--prompt-runner", help="Prompt runner for prompt claims (runvil); fake cannot validate."),
+    cli_config: Path | None = typer.Option(None, "--cli-config", help="The sidecar the doc was proven with."),
 ) -> None:
     """Resume an approved workflow with fresh whole-document evidence."""
     from .storage import SQLiteWorkflowStore, WorkflowStorageError
     from .workflow import WorkflowError, resume_workflow
 
-    if simulation or runner != "kane":
-        typer.echo("resume requires fresh Kane evidence; fake/simulation evidence cannot validate or promote.", err=True)
+    if simulation or runner not in ("kane", "none") or prompt_runner == "fake":
+        typer.echo("resume requires fresh Kane evidence, or --runner none with a real prompt runner for a doc with no browser steps; fake/simulation evidence cannot validate or promote.", err=True)
         raise typer.Exit(2)
     try:
         br = _runner(runner, None, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
+        pr = _prompt_runner(prompt_runner, None) if runner == "none" else None
+        cfg = None
+        if cli_config is not None:
+            from .cli_config import load_cli_config
+
+            cfg = load_cli_config(cli_config)
     except Exception as exc:
         typer.echo(f"resume failed closed: {exc}", err=True)
         raise typer.Exit(2) from exc
     try:
         record = resume_workflow(
             SQLiteWorkflowStore(home / "workflow.sqlite3"), workflow_id, runner=br, apply=apply,
-            simulation=simulation,
+            simulation=simulation, prompt_runner=pr, cli_config=cfg,
         )
     except (WorkflowError, WorkflowStorageError, ValueError, NotImplementedError) as exc:
         typer.echo(f"resume failed closed: {exc}", err=True)

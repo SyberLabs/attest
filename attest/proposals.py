@@ -21,6 +21,10 @@ def _digest_text(text: str) -> str:
     return sha256_of(text)
 
 
+# paths Attest writes inside a docs repo: its home (default .attest) and the compiler cache
+ATTEST_OWNED_PATHS = (".attest", "cache/compiler")
+
+
 def current_build_digest(source_path: Path | str, source_digest: str | None = None) -> str:
     """Bind the commit and tracked/untracked worktree inputs; unversioned inputs bind to their source."""
     path = Path(source_path).resolve()
@@ -32,13 +36,16 @@ def current_build_digest(source_path: Path | str, source_digest: str | None = No
             raise OSError("not in a Git worktree")
         root = Path(root_proc.stdout.strip())
         head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=5)
+        # Attest's own output (its home and its compiler cache) is not part of the build:
+        # approving a proposal writes to the home, and that must not read as a change
+        owned = ["--", ".", *(f":(exclude){p}" for p in ATTEST_OWNED_PATHS)]
         status = subprocess.run(
-            ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+            ["git", "status", "--porcelain=v1", "--untracked-files=all", *owned],
             cwd=root, capture_output=True, text=True, timeout=5,
         )
-        diff = subprocess.run(["git", "diff", "--binary", "HEAD"], cwd=root, capture_output=True, timeout=10)
+        diff = subprocess.run(["git", "diff", "--binary", "HEAD", *owned], cwd=root, capture_output=True, timeout=10)
         untracked_proc = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            ["git", "ls-files", "--others", "--exclude-standard", "-z", *owned],
             cwd=root, capture_output=True, timeout=5,
         )
         if any(proc.returncode != 0 for proc in (head, status, diff, untracked_proc)):
@@ -76,9 +83,12 @@ def _patch_matches_candidate(base_text: str, candidate_text: str, diff: str, doc
         (root / doc_name).write_text(base, encoding="utf-8", newline="\n")
         patch = root / ".attest.patch"
         patch.write_text(diff, encoding="utf-8", newline="\n")
+        # the temp dir may sit inside an unrelated repository (a home directory under git)
+        # whose core.autocrlf would rewrite the patched text to CRLF; pin LF here
+        git = ["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
         for args in (
-            ["git", "apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch)],
-            ["git", "apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch)],
+            [*git, "apply", "--check", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch)],
+            [*git, "apply", "--recount", "--unidiff-zero", "--whitespace=nowarn", str(patch)],
         ):
             try:
                 proc = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=10)
@@ -106,6 +116,7 @@ def create_repair_proposal(
     plan: str,
     build_digest: str | None = None,
     policy: MaintainDocsPolicy | None = None,
+    baseline_statuses: dict[str, str] | None = None,
 ) -> WorkflowRecord:
     policy = policy or MaintainDocsPolicy()
     source = str(source_path)
@@ -136,6 +147,10 @@ def create_repair_proposal(
             canonical_json([claim.model_dump(mode="json") for claim in baseline_claims])
         ),
     }
+    if baseline_statuses is not None:
+        # each claim's verdict when the proposal was made, by baseline key: a validation
+        # with no browser steps passes when none of the proven ones regresses
+        artifact_digests["baseline_statuses"] = store.put_artifact(canonical_json(baseline_statuses))
     proposal: dict[str, Any] = {
         "source_path": str(path),
         "target_claim_id": target_claim.id,

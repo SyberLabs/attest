@@ -772,10 +772,13 @@ def compile_doc(doc: Doc, llm: LLM | None = None, cache_dir: Path = CACHE_DIR, u
         if cached is not None:
             return cached
     if llm is None:
-        if not os.environ.get("OPENAI_API_KEY"):
+        # A doc with no browser steps compiles entirely by rule (fences are placed by
+        # rule, everything else is prose), so the model has nothing to add even when a
+        # key is set; asking it anyway only risks a draft that fails the checks.
+        if not os.environ.get("OPENAI_API_KEY") or not doc.browser_claims:
             # Without a model, compile only source-verbatim fences. Warn on browser
             # steps as main does, then fail closed rather than treating them as prose.
-            if any(re.search(r"\b(?:open|click|type|browser|page)\b", line, re.I) for line in doc.lines):
+            if doc.browser_claims and any(re.search(r"\b(?:open|click|type|browser|page)\b", line, re.I) for line in doc.lines):
                 print(f"warning: {doc.source}: browser steps were not compiled (no OPENAI_API_KEY and no cache)", file=sys.stderr)
             if required_browser_lines(doc):
                 raise CompileError(

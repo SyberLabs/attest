@@ -77,9 +77,9 @@ class ProveResult:
         return {v.claim_id: v for v in self.verdicts}
 
     def failing(self) -> list[Claim]:
-        """Claims the loop may act on: stale or broken shell and browser claims."""
+        """Claims the loop may act on: stale or broken shell, browser and prompt claims."""
         v = self.by_id
-        return [c for c in self.claims if c.kind in ("shell", "browser") and v[c.id].status in ("stale", "broken")]
+        return [c for c in self.claims if c.kind in ("shell", "browser", "prompt") and v[c.id].status in ("stale", "broken")]
 
 
 def execute(
@@ -410,6 +410,9 @@ def prove(
         result._kane_runs_count = run_count  # type: ignore[attr-defined]
         result._session = session  # type: ignore[attr-defined]
         result.candidate = candidate  # type: ignore[attr-defined]
+        # the loop re-checks a patched prompt example with the same runner and sidecar
+        result.prompt_runner = prompt_runner  # type: ignore[attr-defined]
+        result.cli_config = cli_config  # type: ignore[attr-defined]
         render_result(result, home, runner.name)
         if live:
             _write_live_page(result, home, runner.name, "Proof complete", False)
