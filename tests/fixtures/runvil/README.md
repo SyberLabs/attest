@@ -7,7 +7,7 @@ in Attest's output are the upstream line numbers plus one.
 
 | File | Upstream | Commit | Used by |
 | --- | --- | --- | --- |
-| `language-03-blocks-and-prose.md` | `src/language/03-blocks-and-prose.md` | `dd8a2456f92961928f54f09c37ade0da1b956355` | `tests/test_compiler_rules.py`: prompt and result fence pairing by rule, four-backtick nesting |
+| `language-03-blocks-and-prose.md` | `src/language/03-blocks-and-prose.md` | `dd8a2456f92961928f54f09c37ade0da1b956355` | `tests/test_compiler_rules.py`: prompt and result fence pairing by rule, four-backtick nesting. Proven against `runvil-docs-host` (NOTES.md, M5) |
 | `gateway-01-install-and-run.md` | `src/gateway/01-install-and-run.md` | `dd8a2456f92961928f54f09c37ade0da1b956355` | `tests/test_cli_config.py`: the shell path with a sidecar file |
 
 Counts the tests pin for the Language chapter. The spec quotes 75 prompt examples and 60 result

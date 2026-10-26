@@ -263,6 +263,17 @@ def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
     error = f"{obs.error_kind or obs.status}{where}" + (f": {obs.message}" if obs.message else "")
     if not claim.expects_error:
         if failed:
+            # A result fence shows what the run leaves behind: its result, or the
+            # failure's message when the doc documents a failure. The Language
+            # guide writes every documented failure that way.
+            shown = (claim.expects or "").strip()
+            if shown and (obs.error_kind == shown or (obs.message is not None and normalize_result(shown).rstrip("\n") in normalize_result(obs.message))):
+                return Verdict(
+                    claim_id=claim.id,
+                    status="proven",
+                    reason=f"proven: the run ended {obs.status} and the doc's result fence is that failure's message (compared after {RESULT_NORMALIZATIONS}); scripted run",
+                    evidence=ev,
+                )
             return Verdict(claim_id=claim.id, status="broken", reason=f"broken: success promised but the run ended {obs.status} ({error})", evidence=ev)
         # completed
         if claim.expects and not results_equal(claim.expects, obs.result):

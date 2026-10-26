@@ -1,0 +1,22 @@
+[package]
+name = "runvil-docs-host"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Attest's Host for runvil-docs: runs one prompt file through Runvil's Harness with scripted model rounds and reports a PromptObservation"
+
+[[bin]]
+name = "runvil-docs-host"
+path = "src/main.rs"
+
+# The Runvil checkout sits beside the attest repo: D:\syberlabs\runvil next to
+# D:\syberlabs\attest (docs/CLI-RUNNER-SPEC.md, milestone 5). Cargo path
+# dependencies are literal, so a different layout needs these two lines edited.
+[dependencies]
+harness = { path = "../../../runvil/crates/harness" }
+runvil = { path = "../../../runvil/crates/runvil" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt", "time"] }
+
+[workspace]
