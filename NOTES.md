@@ -231,3 +231,11 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - `python scripts/g4-positive-controls.py` runs `tests/quality/g4_positive_controls.txt`: control, twin and refuse-everything mutant sections for PC-MD-01, PC-KR-01 and PC-RS-01, plus the gate's own tests. A missing file or a missing, skipped, xfailed or xpassed id fails it. Mutants are listed per parameter.
 - The runner mirrors the G7 runner in #34 (manifest sections, junit outcomes) but is self-contained, since #34 isn't on `main`. Fold the two together once both land.
 - Not covered: the SyberWork "matching destination lookup reconciles" control, Reconcile Spec promotion (diagnosis only on `main`), live Kane.
+
+## Oct 26: G2 quota floor in CI
+
+- New workflow `g2-quota-floor` (job `G2 Quota floor`), additive and not a required check. It counts `tests/redteam/cases` against the FACTORY §1 floors and fails closed. Details and counts: `docs/quality/G2-QUOTA-FLOOR.md`.
+- Stacked on #30 (which is stacked on #26): `main` has no red-team inventory, so on `main` alone every cell is 0 and the gate would fail. Enforcement on `main` activates when #26 and #30 merge. The merge-base is clean (#26 and #30 are linear on `b0989ac`).
+- Counting rule, locked by firstmate (2026-10-26, about 2:51 AM PT): G2 counts `active` + `xfail`; `stub` never counts. A case also counts only if its bound test ran and ended as its status says. This matches the #26 harness and FACTORY's G2/G3 split: an xfail is an executable observed gap, so it counts for G2 and must fail G3 once G3 is enforced.
+- Known doc conflict, left unresolved here: `docs/quality/CI-GATES.md` (Gate B/C) and `docs/quality/FACTORY-REDTEAM-QUOTA-2026-10-24.md` on `main` say xfail must not count toward a quota. This session doesn't rewrite them. `--count active` stays the stricter opt-in; on this tip it leaves Reconcile Spec PI and Kane PI/DS/ISO one short each.
+- SyberWork bridge DS/SIM/SCH/COST/REC are reported but not enforced (SyberWork side, N3/N4). The exemption fails the gate once it is met, so it has to be removed then.
