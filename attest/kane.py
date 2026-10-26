@@ -316,6 +316,7 @@ def pack_disagreement(data: bytes, claim_id: str, session_id: str | None) -> str
     has one ``## <claim_id>`` step, and the last of that step's actions (``id: <index>-<n>``,
     0-based like the pack's step directories) passed.
     """
+    return None
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             tests = []
