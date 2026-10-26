@@ -223,3 +223,11 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Local on `42fe329` + this commit: the script exits 0. pytest gives 78 passed, 3 skipped. kane_runner 23, maintain_docs 27 + MD-CTRL-01, reconcile_spec 20, syberwork_bridge 7, 0 active not passing, 0 xfail. Open gaps: KR-ISO-04, KR-PI-03, KR-SIM-03 (stubs). These are counts of cases at this commit, not coverage. Fails closed locally: KR-PI-03 set to `active` gives exit 1 (`KR-PI-03 (active, R6) did not pass`), and the inventory moved away gives exit 1 (`No case inventory`). Both were reverted. Full suite: 374 passed, 6 skipped, 2 xfailed (#43 plus the 21 gate tests).
 - Hosted on PR #45 at `ce42494`: G3 [run 40313033256](https://github.com/SyberLabs/attest/actions/runs/40313033256) passed with the same counts and gaps. G8 [run 40313033231](https://github.com/SyberLabs/attest/actions/runs/40313033231) gave 374 passed, 6 skipped, 2 xfailed.
 - Merging with #37: the script and gate tests are identical, so git takes them without a conflict. The workflow and the G3 doc are add/add conflicts. Keep this branch's versions: no flag, plus the stacked status line. NOTES.md is the usual append/append conflict.
+
+## Oct 26: G4 positive controls gate
+
+- FACTORY §3 G4 is a separate workflow, `.github/workflows/g4-positive-controls.yml` (check `G4 Positive controls`), so `tests.yml` (G8/G1) and the other gate workflows stay untouched. Details and scope limits: `docs/quality/G4-POSITIVE-CONTROLS.md`.
+- Stacked on #31 (`feat/g2-positive-controls`), which adds `tests/test_positive_controls.py`; that file is not changed here. Without it the gate fails closed, so this must not reach `main` before #31.
+- `python scripts/g4-positive-controls.py` runs `tests/quality/g4_positive_controls.txt`: control, twin and refuse-everything mutant sections for PC-MD-01, PC-KR-01 and PC-RS-01, plus the gate's own tests. A missing file or a missing, skipped, xfailed or xpassed id fails it. Mutants are listed per parameter.
+- The runner mirrors the G7 runner in #34 (manifest sections, junit outcomes) but is self-contained, since #34 isn't on `main`. Fold the two together once both land.
+- Not covered: the SyberWork "matching destination lookup reconciles" control, Reconcile Spec promotion (diagnosis only on `main`), live Kane.

@@ -1,0 +1,60 @@
+# FACTORY G4 positive controls (FACTORY-REDTEAM-AND-RUBRICS §2 and §3 G4).
+# Run by scripts/g4-positive-controls.py. Every id must run and pass. A missing
+# file, or a missing, skipped, xfailed or xpassed id, fails the gate, as does an
+# empty section. Parametrized mutants are listed one by one. A pass covers these
+# ids only. It is not a coverage figure.
+#
+# control: the allowed path succeeds through real product code.
+# twin:    the same fixture with one input changed must be refused.
+# mutant:  the product patched (monkeypatch) to refuse at one stage must make the
+#          control fail. This is what catches a "refuse everything" false green.
+
+[md-control]
+# PC-MD-01: prove -> run_loop -> proposal -> approve -> validate -> promote -> re-prove.
+tests/test_positive_controls.py::test_pc_md_01_allowed_maintain_docs_repair_promotes_end_to_end
+
+[md-twin]
+tests/test_positive_controls.py::test_pc_md_01_twin_agent_that_also_edits_protected_promise_is_rejected
+tests/test_positive_controls.py::test_pc_md_01_twin_protected_target_hands_off_without_proposal
+
+[md-mutant]
+tests/test_positive_controls.py::test_pc_md_01_control_fails_when_product_refuses_everything[loop-policy-denies-all]
+tests/test_positive_controls.py::test_pc_md_01_control_fails_when_product_refuses_everything[patch-authority-denies-all]
+tests/test_positive_controls.py::test_pc_md_01_control_fails_when_product_refuses_everything[validation-never-proves]
+tests/test_positive_controls.py::test_pc_md_01_control_fails_when_product_refuses_everything[promotion-refused]
+
+[kane-control]
+# PC-KR-01: same workflow with KaneBrowserRunner on a recorded kane-cli capture (not live Kane).
+tests/test_positive_controls.py::test_pc_kr_01_stale_browser_claim_repaired_and_promoted_on_kane_evidence
+
+[kane-twin]
+tests/test_positive_controls.py::test_pc_kr_01_twin_label_the_page_does_not_show_is_rejected
+
+[kane-mutant]
+tests/test_positive_controls.py::test_pc_kr_01_control_fails_when_product_refuses_everything[kane-steps-always-fail]
+tests/test_positive_controls.py::test_pc_kr_01_control_fails_when_product_refuses_everything[patch-authority-denies-all]
+tests/test_positive_controls.py::test_pc_kr_01_control_fails_when_product_refuses_everything[promotion-refused]
+
+[rs-control]
+# PC-RS-01: reconcile-spec diagnosis ends in a complete handoff, not a refusal (main has no promote hook).
+tests/test_positive_controls.py::test_pc_rs_01_complete_conflict_reaches_handoff_without_refusal
+
+[rs-twin]
+tests/test_positive_controls.py::test_pc_rs_01_twin_apply_flag_is_refused
+tests/test_positive_controls.py::test_pc_rs_01_twin_weakening_proposal_is_refused
+
+[rs-mutant]
+tests/test_positive_controls.py::test_pc_rs_01_control_fails_when_reconcile_spec_refuses_everything
+
+[gate]
+# The runner itself fails closed.
+tests/quality/test_g4_positive_controls.py::test_all_listed_ids_passing_is_green
+tests/quality/test_g4_positive_controls.py::test_listed_id_that_did_not_pass_fails_the_gate
+tests/quality/test_g4_positive_controls.py::test_listed_id_that_never_ran_fails_the_gate
+tests/quality/test_g4_positive_controls.py::test_empty_required_section_fails_the_gate
+tests/quality/test_g4_positive_controls.py::test_parametrized_id_matches_its_own_case_only
+tests/quality/test_g4_positive_controls.py::test_bare_name_needs_every_parametrized_case_to_pass
+tests/quality/test_g4_positive_controls.py::test_absent_control_file_fails_closed
+tests/quality/test_g4_positive_controls.py::test_manifest_without_ids_fails_closed
+tests/quality/test_g4_positive_controls.py::test_manifest_has_every_required_section_and_the_md_promote_control
+tests/quality/test_g4_positive_controls.py::test_manifest_lists_every_collected_positive_control

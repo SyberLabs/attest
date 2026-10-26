@@ -1,0 +1,30 @@
+name: g4-positive-controls
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Gate status lives in docs/quality/G4-POSITIVE-CONTROLS.md; update it only from real run output.
+jobs:
+  # G4 Positive controls (FACTORY §2 and §3): fails when the allowed Maintain Docs
+  # repair, the Kane-validated repair or the Reconcile Spec handoff stops
+  # succeeding, when a twin stops being refused, or when a refuse-everything
+  # mutant no longer breaks its control. Guards against "refuse everything"
+  # passing the adversarial gates. Kept in its own workflow so it does not touch
+  # tests.yml (G8/G1) or the other gate workflows.
+  g4-positive-controls:
+    name: G4 Positive controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e '.[test]'
+      - name: Positive controls, twins and mutants
+        run: python scripts/g4-positive-controls.py
