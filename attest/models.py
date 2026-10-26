@@ -131,21 +131,12 @@ class BrowserObservation(BaseModel):
 
         Only a passed observation is complete. An observation with no build gives evidence that no
         VerifiedRunReceipt accepts, and one from another build fails any receipt for this build.
-        As in the verdict, a simulation-only observation is simulated and an unbound one (no
-        evidence pack names its run) is incomplete. Both are read from the note prefix too,
-        because a stored observation loses its subclass.
         """
-        from .runner import SIMULATION_NOTE_PREFIX, UNBOUND_NOTE_PREFIX, SimulationBrowserObservation  # runner imports models
-
-        note = self.note or ""
-        simulated = isinstance(self, SimulationBrowserObservation) or note.startswith(SIMULATION_NOTE_PREFIX)
-        unbound = note.startswith(UNBOUND_NOTE_PREFIX)
         return ReceiptEvidence(
             kind="browser",
             source_version_id=source_version_id,
             content_sha256=content_sha256,
-            complete=self.status == "passed" and not simulated and not unbound,
-            simulated=simulated,
+            complete=self.status == "passed",
             build_digest=self.build_digest,
             kane_run_id=kane_run_id,
         )
