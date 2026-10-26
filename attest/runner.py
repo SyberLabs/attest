@@ -69,8 +69,9 @@ class FakeBrowserRunner:
             note = f"{SIMULATION_NOTE_PREFIX} fake runner cannot verify page state"
             if scripted.note:
                 note += f"; scripted note: {scripted.note}"
+            # a simulation observed no app/build, whatever the script says
             return SimulationBrowserObservation.model_validate(
-                scripted.model_dump() | {"note": note}
+                scripted.model_dump() | {"note": note, "build_digest": None}
             )
         if self.default == "unreachable" or base_url is None and self._needs_local_url(claim):
             return SimulationBrowserObservation(

@@ -12,6 +12,7 @@ from attest.models import (
     Span,
     Verdict,
 )
+from attest.runner import SimulationBrowserObservation
 
 
 def span(text="echo hi", start=1, end=1):
@@ -138,3 +139,16 @@ def test_observation_receipt_evidence_takes_the_observed_build():
         assert not BrowserObservation(status=status, build_digest=build).receipt_evidence(
             source_version_id=vid, content_sha256="0" * 64, kane_run_id="run-1"
         ).complete
+
+
+def test_observation_receipt_evidence_is_never_complete_for_simulated_or_unbound_observations():
+    vid, build = uuid4(), "b" * 64
+    args = {"source_version_id": vid, "content_sha256": "0" * 64, "kane_run_id": "run-1"}
+    simulated = SimulationBrowserObservation(status="passed", build_digest=build, note="simulation-only: fake")
+    stored = BrowserObservation.model_validate(simulated.model_dump())  # a stored record loses the subclass
+    for obs in (simulated, stored):
+        ev = obs.receipt_evidence(**args)
+        assert (ev.simulated, ev.complete, ev.build_digest) == (True, False, build)
+    unbound = BrowserObservation(status="passed", build_digest=build, note="unbound: no evidence pack names Kane session x")
+    ev = unbound.receipt_evidence(**args)
+    assert (ev.simulated, ev.complete) == (False, False)

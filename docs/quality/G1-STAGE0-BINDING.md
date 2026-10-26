@@ -9,6 +9,10 @@
   - Green on `2ebef93`: [run 40312676697](https://github.com/SyberLabs/attest/actions/runs/40312676697), 33 passed (version 7, kane-run 12, observation-build 11, control 3). `tests / pytest` gave 308 passed, 3 skipped ([run 40312676852](https://github.com/SyberLabs/attest/actions/runs/40312676852)).
   - Fails closed on `89237c4`: [run 40312713440](https://github.com/SyberLabs/attest/actions/runs/40312713440). That commit made validation and promotion ignore the observation build. Six observation-build cases failed and the job failed; `tests / pytest` gave 6 failed, 302 passed ([run 40312713353](https://github.com/SyberLabs/attest/actions/runs/40312713353)).
   - Green again on the revert `db093ad`: [run 40312768841](https://github.com/SyberLabs/attest/actions/runs/40312768841), 33 passed. `tests / pytest` gave 308 passed, 3 skipped ([run 40312768879](https://github.com/SyberLabs/attest/actions/runs/40312768879)).
+- **Receipt evidence from observations** (#47, stacked on #46): **Measured (scoped)** from hosted Actions output on PR #47. The `observation-build` section goes from 11 to 17 cases and `control` from 3 to 4.
+  - Green on `4aa9429`: [run 40316904818](https://github.com/SyberLabs/attest/actions/runs/40316904818), 40 passed (version 7, kane-run 12, observation-build 17, control 4). `tests / pytest` gave 317 passed, 3 skipped ([run 40316904857](https://github.com/SyberLabs/attest/actions/runs/40316904857)).
+  - Fails closed on `39d5cc2`: [run 40317583048](https://github.com/SyberLabs/attest/actions/runs/40317583048). That commit put `attest/models.py` and `attest/runner.py` back to #46's tip. Four observation-build cases failed (both simulated-receipt cases, unbound-but-passed, and simulated-names-no-build) and the job failed. `tests / pytest` gave 5 failed, 312 passed ([run 40317583015](https://github.com/SyberLabs/attest/actions/runs/40317583015)).
+  - Green again on the revert `563972f`: [run 40317922106](https://github.com/SyberLabs/attest/actions/runs/40317922106), 40 passed. `tests / pytest` gave 317 passed, 3 skipped ([run 40317922303](https://github.com/SyberLabs/attest/actions/runs/40317922303)).
 
 FACTORY §3 lists G1 as Measured (scoped) through #27, but names a gap that #27 does not cover: "app/build version and Kane run-id binding, live Kane". This gate covers the first two. It does not cover live Kane.
 
@@ -20,8 +24,8 @@ Job `G1 Stage-0 version+Kane binding` in `.github/workflows/g1-stage0-binding.ym
 |---|---|---|
 | `version` | `test_version_` | evidence names another build, the receipt or an evidence record names no build, the build changes while Kane is running, or a stored validation's build is swapped or removed before promotion |
 | `kane-run` | `test_kane_run_` | evidence names a Kane run the receipt didn't start, or names no run; a pack from another session sits in the evidence store; the run reports no session id; validation reuses an observation cached from an earlier run; a stored validation's run bindings are dropped, nulled or removed before promotion |
-| `observation-build` | `test_observation_build_` | a browser observation names no build (Kane redeployed mid-run, a URL doc, or a runner that drops it), or names a build other than the approved one (cached from an earlier build, or swapped), at validation, at promotion (stored evidence's observation build swapped, removed, or the evidence dropped), or in a receipt built from those observations |
-| `control` | `test_control_` | a receipt with matching build and run doesn't verify, or a fresh Kane run on the approved build doesn't validate and promote (with each observation naming the approved build), or a receipt carrying those observations' builds doesn't verify. This stops a refuse-everything product from passing |
+| `observation-build` | `test_observation_build_` | a browser observation names no build (Kane redeployed mid-run, a URL doc, or a runner that drops it), or names a build other than the approved one (cached from an earlier build, or swapped), at validation, at promotion (stored evidence's observation build swapped, removed, or the evidence dropped), or in a receipt built from those observations. Also (#47): a build deployed just before the Kane run and rolled back just after it, which validation's own build checks don't see; a fake runner's scripted build; and receipt evidence that `receipt_evidence` builds from a simulation-only or unbound observation, live or as stored |
+| `control` | `test_control_` | a receipt with matching build and run doesn't verify, or a fresh Kane run on the approved build doesn't validate and promote (with each observation naming the approved build), or a receipt carrying those observations' builds doesn't verify, or (#47) a receipt whose evidence `receipt_evidence` builds from a validated Kane run's stored observations doesn't verify. This stops a refuse-everything product from passing |
 
 `tests/quality/test_g1_stage0_binding_gate.py` checks that the runner fails on each of those conditions.
 
@@ -49,6 +53,32 @@ The fixes:
 - **`attest/workflow.py`**: validation fails a browser claim whose observation names no build (`<id>:observation_build_missing`) or another build (`<id>:observation_build_mismatch`), next to `<id>:stale_kane_run`. Promotion reads each browser claim's stored `evidence[id].observation.build_digest` and refuses unless it is the approved build: "validation browser evidence was not observed on the approved app/build version; --apply refused". Validations stored before this change have no observation build, so they have to be validated again.
 - **Receipts**: no product code turns an observation into `ReceiptEvidence` yet. The tests fill `ReceiptEvidence.build_digest` from the observation, and #41's receipt checks reject a `None` (verified receipts) or a different build (any receipt).
 
+### Receipt evidence keeps the observation's origin (#47, stacked on #46)
+
+#46 added `BrowserObservation.receipt_evidence`, which takes the build from the observation. It marked every passed observation complete and not simulated. A `FakeBrowserRunner` script (`--fake-browser` JSON) can carry `build_digest`, and the fake runner passed it through. So a simulation-only observation, with a build and a caller-supplied run id, became browser evidence that `VerifiedRunReceipt` accepted. The same happened after the store round trip, which turns the subclass into a plain `BrowserObservation` with a `simulation-only:` note. I reproduced this on #46's tip before the fix. Now:
+
+- **`attest/models.py`**: `receipt_evidence` applies the verdict's rules. A simulation-only observation (the `SimulationBrowserObservation` subclass, or a `simulation-only:` note) gives `simulated=True, complete=False`. An unbound one (an `unbound:` note) gives `complete=False`, even if its status was put back to `passed`. `RunReceipt` and `VerifiedRunReceipt` already refuse both under `EvidenceState.COMPLETE`. The prefixes are imported inside the method because `attest/runner.py` imports `attest/models.py`.
+- **`attest/runner.py`**: `FakeBrowserRunner` drops a scripted `build_digest`, because a simulation observed no build.
+
+New cases in the gate: four `observation-build` tests (seven cases with parameters, counting the build-rollback test below) and one `control` test.
+
+- `test_observation_build_simulated_observation_names_no_build`
+- `test_observation_build_receipt_from_a_simulated_observation_does_not_verify` (live and stored). It is still recordable as `EvidenceState.SIMULATED`.
+- `test_observation_build_receipt_from_an_unbound_observation_does_not_verify`. One case uses a real pack-less Kane run. The other uses a test-made `passed` copy, which the product never produces.
+- `test_observation_build_kane_run_on_a_build_rolled_back_before_validation_ends_is_rejected`. It needs no product change. Build B is deployed just before the Kane run and rolled back right after it, so validation's own `current_build_digest` checks see the approved build at both ends. The run is fresh and pack-bound. Only the runner's per-observation stamp names B. The result is `rejected` with only `c07`/`c08:observation_build_mismatch`, there is no promotion, and the receipt is refused. Of the mutations I ran, the only one that makes it fail is "validation ignores the observation build", and #44's tests catch that one too. So this test shows the scenario holds. It doesn't add mutation coverage.
+- `test_control_receipt_evidence_from_a_validated_kane_run_verifies`. A `receipt_evidence` that marked everything simulated fails here.
+
+Local mutations: I turned off one product line at a time and ran the G1 file, `tests/test_models.py` and `tests/redteam`. Each of these made at least one new test fail:
+
+| Mutation | Tests that fail |
+|---|---|
+| `attest/` reset to #46 | 5 |
+| simulation ignored | 3 |
+| subclass checked, note not checked | 2 |
+| unbound ignored | 2 |
+| fake runner keeps the scripted build | 1 |
+| `receipt_evidence` always simulated | 6, including KR-SIM-03 and both controls that build receipt evidence |
+
 On the workflow path, #41 already catches the realistic cases: a cached replay through `stale_kane_run`, and a mid-run redeploy through the post-run build check. The new check rejects an observation that names the wrong build, or none, even when its Kane run is fresh and pack-bound (`test_observation_build_omitted_or_wrong_fails_validation`). It also gives a receipt a build measured where the page was observed, not one copied from the proposal.
 
 Here the build identity is the existing `proposals.current_build_digest`: git HEAD, status, diff and untracked files, or path plus source digest when the source isn't versioned. The Kane run id is the `session_id` that `test_md_done` reports, which the pack's `result.yaml` repeats.
@@ -64,6 +94,10 @@ A build that changes mid-run was already refused at promotion on `main`, but the
 - **An app/build that changes and changes back during one run.** The build is checked only before and after the run. This holds for the observation stamp too.
 - **What Kane's browser actually loaded.** The observation build is the doc's worktree identity measured around the run, the same identity as the proposal. It is not read from the served app (no build header or page probe). A server process left running from an older build would still be stamped with the worktree's current build.
 - **Shell evidence.** `Evidence` for shell claims carries no build. Only browser observations do.
+- **A plain `RunReceipt` that names a build but holds evidence naming none** is accepted, under any evidence state. #41 kept bindings optional on `RunReceipt`. If complete evidence for a named build had to name it, the check would run before `VerifiedRunReceipt`'s own and change KR-SIM-03's expected messages, so #47 leaves it.
+- **Caller-supplied Kane run id in `receipt_evidence`.** The build comes from the observation, but `kane_run_id` is still the caller's. A caller can pair a cached observation with a fresh run id in the receipt's `kane_run_ids`. Only the workflow's `kane_runs` binds runs from the runner's own record (`run_ids`). The observation doesn't carry its run id.
+- **Stale observations in the runner cache.** `KaneBrowserRunner.observe` still serves a cached observation taken on another build. Validation, promotion and receipts refuse it, but the runner doesn't run Kane again. Changing that would change KR-SIM-03's step 2.
+- **`implement` re-checks.** After an app change, `forget` drops only the target claim's group. Other groups' cached observations, taken before the app changed, stay. `attest.receipt/v0` records no build, and the observation build there is the doc worktree's, not the candidate app's.
 - **SyberWork.**
 
 ## Interaction with open PRs

@@ -35,6 +35,7 @@ from attest.ingest import ingest_text
 from attest.kane import KaneBrowserRunner, find_pack, parse_events
 from attest.models import (
     AuthorityState,
+    BrowserObservation,
     ComparisonState,
     Evidence,
     EvidenceState,
@@ -45,6 +46,7 @@ from attest.models import (
 )
 from attest.proposals import create_repair_proposal, current_build_digest
 from attest.receipts import ReceiptEvidence
+from attest.runner import FakeBrowserRunner, SimulationBrowserObservation
 from attest.storage import SQLiteWorkflowStore, canonical_json
 from attest.verdict import judge
 from attest.workflow import WorkflowError, promote_workflow, resume_workflow
@@ -613,6 +615,133 @@ def test_observation_build_receipt_from_an_unbound_or_earlier_observation_does_n
     if case == "cached-from-earlier-build":
         with pytest.raises(ValidationError, match=re.escape(rejection)):
             _receipt_from_observations(approved, observations, run, cls=RunReceipt)
+
+
+# -- receipt evidence the product builds from an observation ----------------------------
+#
+# ``BrowserObservation.receipt_evidence`` takes the build from the observation. These
+# check what else it must carry over: a simulation-only or unbound observation is not
+# complete evidence for any build, even when every build and run binding matches.
+
+
+def _receipt_evidence_receipt(observations: dict, build: str, run: str, cls=VerifiedRunReceipt, **overrides):
+    """A receipt that would verify, whose evidence is ``receipt_evidence`` of each observation."""
+    fields = receipt_fields(build_digest=build, kane_run_ids=(run,), **overrides)
+    fields["evidence"] = tuple(
+        obs.receipt_evidence(source_version_id=fields["source_version_id"],
+                             content_sha256=fields["content_sha256"], kane_run_id=run)
+        for obs in observations.values()
+    )
+    return cls(**fields)
+
+
+def observations(validation: dict) -> dict:
+    """The browser observations a validation record stored, read back as the product reads them."""
+    return {cid: Evidence.model_validate(validation["evidence"][cid]).observation for cid in ("c07", "c08")}
+
+
+def _stored(observation):
+    """The observation as a validation record stores it and reads it back (subclass lost)."""
+    stored = Evidence(claim_id="c07", kind="browser", observation=observation).model_dump(mode="json")
+    return Evidence.model_validate(stored).observation
+
+
+def _fake_claim():
+    claims = compile_doc(ingest_text(CANDIDATE_DOC, source="greeting.md"), llm=DeterministicCompiler(), use_cache=False)
+    return next(c for c in claims if c.id == "c07")
+
+
+def test_observation_build_simulated_observation_names_no_build():
+    # A scripted fake observation that claims a build: a simulation observed no build.
+    fake = FakeBrowserRunner({"c07": BrowserObservation(status="passed", observed={"c07_label": "Hello, World!"},
+                                                        build_digest=BUILD)})
+    obs = fake.observe(_fake_claim(), "http://127.0.0.1:5000/")
+    assert isinstance(obs, SimulationBrowserObservation) and obs.status == "passed"
+    assert obs.build_digest is None
+
+
+@pytest.mark.parametrize("stored", [False, True], ids=["simulation-observation", "stored-simulation-observation"])
+def test_observation_build_receipt_from_a_simulated_observation_does_not_verify(stored):
+    # Every binding matches: the build is the receipt's, the run is one it started. Only the
+    # observation's origin (simulation-only) is wrong.
+    simulated = SimulationBrowserObservation(status="passed", observed={"c07_label": "Hello, World!"},
+                                             note="simulation-only: fake runner cannot verify page state",
+                                             build_digest=BUILD)
+    obs = _stored(simulated) if stored else simulated
+    assert type(obs) is (BrowserObservation if stored else SimulationBrowserObservation)
+
+    for cls in (VerifiedRunReceipt, RunReceipt):
+        with pytest.raises(ValidationError, match="simulated evidence cannot be marked complete"):
+            _receipt_evidence_receipt({"c07": obs}, BUILD, RUN, cls=cls)
+    # It is still recordable, as what it is: simulated evidence.
+    receipt = _receipt_evidence_receipt({"c07": obs}, BUILD, RUN, cls=RunReceipt, evidence_state=EvidenceState.SIMULATED)
+    assert [(item.simulated, item.complete) for item in receipt.evidence] == [(True, False)]
+
+
+@pytest.mark.parametrize("restored", [False, True], ids=["kane-run-without-its-pack", "unbound-but-passed"])
+def test_observation_build_receipt_from_an_unbound_observation_does_not_verify(tmp_path, monkeypatch, restored):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = approved_repair(tmp_path, git=True)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, pack="author_pass")
+    c07 = observe_browser_claims(runner, source)["c07"]
+    approved = store.get(workflow_id).proposal["build_digest"]
+    assert c07.note.startswith("unbound:") and c07.build_digest == approved  # the build is right; the run is not
+    obs = c07.model_copy(update={"status": "passed"}) if restored else c07
+
+    for cls in (VerifiedRunReceipt, RunReceipt):
+        with pytest.raises(ValidationError, match="complete evidence state requires every evidence record to be complete"):
+            _receipt_evidence_receipt({"c07": _stored(obs)}, approved, session_of("witness_stale"), cls=cls)
+
+
+def test_observation_build_kane_run_on_a_build_rolled_back_before_validation_ends_is_rejected(tmp_path, monkeypatch):
+    # Build B is deployed just before the Kane run and rolled back just after it. Validation
+    # checks the approved build before and after, and sees it both times; the run is fresh
+    # and pack-bound. Only the observations, stamped by the runner around its own run, name B.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+    run_group, builds = runner.run_group, {}
+
+    def on_build_b(group, base_url):
+        deploy(source, "// deployed for the length of one Kane run\n")
+        builds["b"] = build_of(source)
+        try:
+            return run_group(group, base_url)
+        finally:
+            (source.parent / "app.js").unlink()  # rolled back
+
+    runner.run_group = on_build_b
+    approved = store.get(workflow_id).proposal["build_digest"]
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
+
+    assert len(cli.calls) == 1 and build_of(source) == approved != builds["b"]
+    validation = outcome.validation
+    assert outcome.state == "rejected", validation  # not unresolved: validation's own build checks saw the approved build
+    sid = session_of("witness_stale")
+    assert validation["kane_runs"] == {"c07": sid, "c08": sid}
+    assert validation["statuses"]["c07"] == validation["statuses"]["c08"] == "proven"
+    assert {obs.build_digest for obs in observations(validation).values()} == {builds["b"]}
+    assert validation["failed_claims"] == ["c07:observation_build_mismatch", "c08:observation_build_mismatch"]
+    with pytest.raises(WorkflowError):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+    with pytest.raises(ValidationError, match="receipt evidence belongs to a different app/build version"):
+        _receipt_evidence_receipt(observations(validation), approved, sid)
+
+
+def test_control_receipt_evidence_from_a_validated_kane_run_verifies(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+    validated = resume_workflow(store, workflow_id, runner=runner, llm=llm)
+    assert validated.state == "validated", validated.validation
+    validation = validated.validation
+
+    receipt = _receipt_evidence_receipt(observations(validation), validation["build_digest"], session_of("witness_stale"))
+
+    assert [(item.complete, item.simulated, item.build_digest) for item in receipt.evidence] == [
+        (True, False, validation["build_digest"])] * 2
 
 
 def test_control_receipt_from_observations_on_the_approved_build_verifies(tmp_path, monkeypatch):
