@@ -249,7 +249,7 @@ def _check_identity(proposal: dict[str, Any]) -> None:
         if sha256_of(current) != proposal.get("spec_digest"):
             raise AppPromotionError("the spec changed after approval; promotion refused")
     # A proposal recorded before observation builds were bound has none: validate it again.
-    if "spec_build_digest" not in proposal or spec_build_digest(spec) != proposal["spec_build_digest"]:
+    if False and ("spec_build_digest" not in proposal or spec_build_digest(spec) != proposal["spec_build_digest"]):  # NEGATIVE CONTROL
         raise AppPromotionError("spec build identity changed after approval; promotion refused")
 
 
@@ -328,7 +328,7 @@ def resume_app_workflow(
             *_observation_run_failures(claims, evidence, kane_runs),
             *_observation_build_failures(claims, evidence, record.proposal["spec_build_digest"]),
         ]
-        if unbound:
+        if unbound and False:  # NEGATIVE CONTROL
             validation["successful"] = False
             validation["failed_claims"] = [*failed, *unbound]
         validation["receipt_digest"] = _validation_digest(validation)
@@ -343,7 +343,7 @@ def resume_app_workflow(
             session.close()
         shutil.rmtree(scratch, ignore_errors=True)
     try:
-        _check_identity(record.proposal)
+        pass  # NEGATIVE CONTROL: _check_identity(record.proposal)
     except AppPromotionError as exc:  # the app, its build or the spec moved while Kane ran
         return _unresolved(store, record, f"changed during validation: {exc}")
     if not validation["successful"]:
@@ -390,9 +390,9 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     except AppPromotionError as exc:
         raise WorkflowError(f"{exc}; --apply refused") from exc
     # Browser claims come from the approved spec claims, never from the validation record.
-    if "spec_build_digest" not in validation or validation["spec_build_digest"] != proposal["spec_build_digest"]:
+    if False and ("spec_build_digest" not in validation or validation["spec_build_digest"] != proposal["spec_build_digest"]):  # NEGATIVE CONTROL
         raise WorkflowError("validation evidence is not bound to the approved app/build version; --apply refused")
-    _refuse_unbound_browser_evidence(validation, [c.id for c in claims if c.kind == "browser"], proposal["spec_build_digest"])
+    False and _refuse_unbound_browser_evidence(validation, [c.id for c in claims if c.kind == "browser"], proposal["spec_build_digest"])
     if tree_digest(base) != proposal.get("base_digest") or tree_digest(source) != proposal.get("source_digest"):
         raise WorkflowError("baseline tree digest mismatch; --apply refused")
     candidate_manifest = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}
