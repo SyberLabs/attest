@@ -1,0 +1,58 @@
+# FACTORY G7 Kane resource (FACTORY-REDTEAM-AND-RUBRICS §3, rubric R7).
+# Run by scripts/g7-kane-resource.py tests. Every id must run and pass; a
+# missing, skipped, xfailed or xpassed id fails the gate, as does an empty
+# section. A pass covers these ids only. It is not a coverage figure.
+#
+# Kane-runner gaps that are NOT listed here, because they fail today (strict
+# xfail in open PRs #26/#30), are recorded in docs/quality/G7-KANE-RESOURCE.md.
+
+[deadline]
+# Shared deadline primitive and the shell runner's watchdog.
+tests/test_execution.py::test_wall_clock_deadline_kills_blocked_child_process_group
+tests/test_execution.py::test_wall_clock_deadline_kills_grandchild_that_inherits_output_pipe
+tests/test_shell.py::test_timeout_kills_process
+tests/test_shell.py::test_printing_url_without_a_listener_is_not_service_ready
+# Kane runner: step caps per file, per-step timeout, run deadline.
+tests/test_kane.py::test_long_runs_are_capped_per_file
+tests/test_kane.py::test_test_file_has_frontmatter_and_one_step_per_claim
+tests/quality/test_g7_kane_resource.py::test_kane_process_that_keeps_writing_is_killed_at_its_deadline
+tests/quality/test_g7_kane_resource.py::test_every_kane_run_gets_a_finite_deadline_and_step_timeout
+
+[cleanup]
+tests/test_execution.py::test_process_supervisor_reports_normal_exit_and_cleans_up
+tests/test_shell.py::test_server_detected_kept_alive_and_cleaned
+tests/test_shell.py::test_execute_closes_started_server_when_later_runner_raises
+tests/quality/test_g7_kane_resource.py::test_supervisor_reaps_detached_grandchild_after_normal_exit
+tests/quality/test_g7_kane_resource.py::test_kane_process_killed_at_its_deadline_is_not_left_running
+
+[isolation]
+tests/test_kane.py::test_unpack_skips_zip_slip_and_sibling_prefix
+tests/test_shell.py::test_untrusted_shell_does_not_inherit_host_environment
+tests/quality/test_g7_kane_resource.py::test_kane_process_runs_in_its_own_home_without_stdin
+tests/quality/test_g7_kane_resource.py::test_kane_unpack_keeps_absolute_member_inside_pack
+tests/quality/test_g7_kane_resource.py::test_evidence_zip_with_symlink_member_extracts_nothing
+tests/quality/test_g7_kane_resource.py::test_evidence_zip_over_size_cap_extracts_nothing
+tests/quality/test_g7_kane_resource.py::test_pack_path_rejects_escape
+
+[port-kill]
+# The workflow also runs the scan directly; these prove the scan can fail.
+tests/quality/test_g7_kane_resource.py::test_every_port_kill_pattern_has_a_hostile_sample
+tests/quality/test_g7_kane_resource.py::test_port_kill_scan_flags_each_pattern
+tests/quality/test_g7_kane_resource.py::test_port_kill_scan_flags_shell_scripts
+tests/quality/test_g7_kane_resource.py::test_port_kill_scan_ignores_comments_and_owned_tree_kill
+tests/quality/test_g7_kane_resource.py::test_port_kill_scan_reads_strings_that_contain_a_hash
+tests/quality/test_g7_kane_resource.py::test_port_kill_scan_fails_when_it_reads_nothing
+tests/quality/test_g7_kane_resource.py::test_product_paths_have_no_port_kill_code
+
+[control]
+# Positive controls: a well-behaved Kane run and shell claim still pass, so a
+# gate that refuses everything cannot go green.
+tests/quality/test_g7_kane_resource.py::test_well_behaved_kane_process_finishes_under_its_deadline
+tests/test_kane.py::test_runner_runs_a_group_once_and_maps_each_claim
+tests/test_shell.py::test_echo_exit_zero
+
+[gate]
+tests/quality/test_g7_kane_resource.py::test_gate_passes_only_when_every_listed_id_passed
+tests/quality/test_g7_kane_resource.py::test_gate_fails_on_skipped_failed_or_errored_id
+tests/quality/test_g7_kane_resource.py::test_gate_fails_on_missing_id_failed_parameter_and_empty_section
+tests/quality/test_g7_kane_resource.py::test_manifest_has_every_required_section_and_its_ids_exist

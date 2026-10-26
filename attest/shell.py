@@ -326,31 +326,13 @@ class ShellSession:
         terminate_process_tree(proc)
 
     def close(self) -> None:
+        # Only the trees started here are killed. The port a server printed is
+        # never used to find a PID: whatever owns it may not be ours (FACTORY G7).
         for rp in self.servers:
             self._kill(rp.proc)
             if rp.reader is not None:
                 rp.reader.join(timeout=1)
-            if rp.url:
-                self._kill_listener(rp.url)
         self.servers.clear()
-
-    @staticmethod
-    def _kill_listener(url: str) -> None:
-        """Windows: a dev server started through bash, npm.cmd and cmd.exe can outlive the
-        tree kill. Kill whatever still listens on the port the server announced."""
-        if sys.platform != "win32":
-            return
-        m = re.search(r":(\d+)", url.split("//", 1)[-1])
-        if not m:
-            return
-        try:
-            # no -p filter: Vite on Node 22 binds localhost as [::1], which -p TCP (IPv4) hides
-            out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=15).stdout
-        except (OSError, subprocess.SubprocessError):
-            return
-        pids = {ln.split()[-1] for ln in out.splitlines() if "LISTENING" in ln and re.search(rf"\]?:{m.group(1)}\s", ln)}
-        for pid in pids - {"0"}:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", pid], capture_output=True, timeout=15)
 
     def __enter__(self) -> "ShellSession":
         return self
