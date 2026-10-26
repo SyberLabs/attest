@@ -475,7 +475,6 @@ def _source_check(
     as written. Returns the state (the worst over all conflicts), the blocking
     reasons, and per claim the document's text where it differs.
     """
-    return "matched", [], {}  # NEGATIVE CONTROL: source check disabled; reverted next commit
     if sources is None:
         return "not_checked", ["request:source_not_checked"], {}
     labelled: dict[tuple[str, str], list[str]] = {}
