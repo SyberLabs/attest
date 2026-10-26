@@ -9,6 +9,7 @@ import shutil
 import stat
 import tempfile
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,72 @@ from .verdict import Rules, load_rules
 
 class WorkflowError(RuntimeError):
     pass
+
+
+class DocsApprovalError(ApprovalError):
+    """A Maintain Docs approval was refused; ``code`` is one of DOCS_APPROVAL_CODES."""
+
+    def __init__(self, code: str, detail: str):
+        super().__init__(f"docs approval refused ({code}): {detail}")
+        self.code = code
+
+
+DOCS_APPROVAL_CODES = (
+    "approval_missing", "approval_unbound", "approval_not_human", "authority_not_allowed",
+    "approval_unrecorded", "approval_stale",
+)
+
+# The events a Maintain Docs workflow has once `attest approve` has run, in order.
+_APPROVED_STEPS = [(None, "proposed"), ("proposed", "awaiting_approval"), ("awaiting_approval", "validating")]
+
+
+def verify_docs_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """The approval is a human's, and is the one ``attest approve`` recorded for this workflow.
+
+    ``verify_approval`` checks the approval against the proposal and its own digest, so a
+    digest-correct approval written into the record (or copied from a twin workflow) passes
+    it. This also reads the event chain back: the workflow was offered for approval by an
+    allowing authority under the proposal's policy, then approved once, by this approver,
+    with this approval digest, at a time between the two events.
+    """
+    approval = record.approval
+    if not approval:
+        raise DocsApprovalError("approval_missing", "no human approval is recorded for this workflow")
+    try:
+        verify_approval(record)
+    except ApprovalError as exc:
+        raise DocsApprovalError("approval_unbound", str(exc)) from exc
+    actor = approval.get("actor")
+    # `policy:<name>` is how receipts name an automatic decision, never a person
+    if not isinstance(actor, str) or not actor.strip() or actor != actor.strip() or actor.lower().startswith("policy:"):
+        raise DocsApprovalError("approval_not_human", f"approver {actor!r} is not a human identity")
+    if not (record.proposal.get("authority") or {}).get("allowed"):
+        raise DocsApprovalError("authority_not_allowed", "authority policy did not authorize this proposal")
+    events = store.events(record.workflow_id)
+    steps = [(e["from_state"], e["to_state"]) for e in events]
+    if steps[:3] != _APPROVED_STEPS or any(step in _APPROVED_STEPS for step in steps[3:]):
+        raise DocsApprovalError("approval_unrecorded", "the workflow has no single recorded proposal and approval")
+    offered, approved = events[1], events[2]
+    if offered["payload"] != {"authority": "allowed", "policy_digest": record.proposal.get("policy_digest")}:
+        raise DocsApprovalError("approval_unrecorded", "the workflow was not offered for approval by an allowing authority")
+    if approved["payload"] != {"actor": actor, "approval_digest": approval.get("approval_digest")}:
+        raise DocsApprovalError("approval_unrecorded", "the approval is not the one `attest approve` recorded")
+    try:
+        at = datetime.fromisoformat(approval["approved_at"])
+        start, end = datetime.fromisoformat(offered["created_at"]), datetime.fromisoformat(approved["created_at"])
+        inside = at.tzinfo is not None and start <= at <= end
+    except (KeyError, TypeError, ValueError):
+        inside = False
+    if not inside:
+        raise DocsApprovalError("approval_stale", "the approval was not given between this proposal and its approval event")
+
+
+def _refuse_unrecorded_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """--apply: the approval is the one `attest approve` recorded (verify_docs_approval)."""
+    try:
+        verify_docs_approval(store, record)
+    except ApprovalError as exc:
+        raise WorkflowError(f"{exc}; --apply refused") from exc
 
 
 def _unresolved(store: SQLiteWorkflowStore, record: WorkflowRecord, reason: str) -> WorkflowRecord:
@@ -318,14 +385,14 @@ def resume_workflow(
     if simulation or getattr(runner, "name", None) != "kane":
         raise WorkflowError("promotion validation requires fresh Kane evidence; simulation/fake evidence is not accepted")
     if record.state == "validated":
-        verify_approval(record)
+        _refuse_unrecorded_approval(store, record)
         if apply:
             return promote_workflow(store, workflow_id, policy=policy)
         return record
     if record.state != "validating":
         raise WorkflowError(f"workflow is {record.state}; only an approved workflow can be resumed")
     try:
-        verify_approval(record)
+        verify_docs_approval(store, record)
     except ApprovalError as exc:
         return _unresolved(store, record, str(exc))
 
@@ -471,7 +538,7 @@ def promote_workflow(
     policy = policy or MaintainDocsPolicy()
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
-    verify_approval(record)
+    _refuse_unrecorded_approval(store, record)
     if not record.validation.get("successful") or record.validation.get("runner") != "kane":
         raise WorkflowError("--apply is disabled after failed, incomplete, or simulated validation")
     proposal = record.proposal

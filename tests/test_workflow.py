@@ -1,4 +1,6 @@
 import difflib
+import hashlib
+import sqlite3
 import sys
 
 import pytest
@@ -10,8 +12,8 @@ from attest.ingest import ingest_text, sha256_of
 from attest.models import Claim, Span
 from attest.policy import MaintainDocsPolicy, validate_diff_scope
 from attest.proposals import create_repair_proposal, current_build_digest
-from attest.storage import SQLiteWorkflowStore
-from attest.workflow import WorkflowError, promote_workflow, resume_workflow
+from attest.storage import SQLiteWorkflowStore, canonical_json
+from attest.workflow import DocsApprovalError, WorkflowError, promote_workflow, resume_workflow, verify_docs_approval
 
 
 # Resume validation is recipes-only; the fixture's repaired command is an approved recipe.
@@ -499,3 +501,73 @@ def test_whole_document_compile_rejects_added_or_reinterpreted_unrelated_claims(
     changed_target = target.model_copy(update={"kind": "prose"})
     ok, reason = _compile_complete([target, other], [changed_target, other], "c01")
     assert not ok and "target claim kind" in reason
+
+
+def _approval_refusal(store, workflow_id):
+    with pytest.raises(DocsApprovalError) as refused:
+        verify_docs_approval(store, store.get(workflow_id))
+    return refused.value.code
+
+
+def _rewrite(store, workflow_id, sql, *args):
+    with sqlite3.connect(store.path) as db:
+        db.execute(sql, (*args, workflow_id))
+
+
+def test_docs_approval_recorded_by_attest_approve_is_accepted(tmp_path):
+    _, store, proposal = allowed_fixture(tmp_path)
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    verify_docs_approval(store, store.get(proposal.workflow_id))
+
+
+def test_docs_approval_refusals_have_stable_codes(tmp_path):
+    def approved(name):
+        (tmp_path / name).mkdir()
+        _, store, proposal = allowed_fixture(tmp_path / name)
+        return store, approve_workflow(store, proposal.workflow_id, "reviewer")
+
+    store, record = approved("missing")
+    _rewrite(store, record.workflow_id, "UPDATE workflows SET approval_json = NULL WHERE workflow_id = ?")
+    assert _approval_refusal(store, record.workflow_id) == "approval_missing"
+
+    store, record = approved("unbound")
+    _rewrite(store, record.workflow_id, "UPDATE workflows SET approval_json = ? WHERE workflow_id = ?",
+             canonical_json({**record.approval, "actor": "someone else"}))
+    assert _approval_refusal(store, record.workflow_id) == "approval_unbound"
+
+    # a padded approver passes verify_approval when its digest is recomputed; approve strips it
+    store, record = approved("padded")
+    padded = {key: value for key, value in record.approval.items() if key != "approval_digest"}
+    padded["actor"] = " reviewer"
+    padded["approval_digest"] = hashlib.sha256(canonical_json(padded).encode("utf-8")).hexdigest()
+    _rewrite(store, record.workflow_id, "UPDATE workflows SET approval_json = ? WHERE workflow_id = ?", canonical_json(padded))
+    assert _approval_refusal(store, record.workflow_id) == "approval_not_human"
+
+    # the offer must be the allowing authority's, under the proposal's own policy
+    store, record = approved("offer")
+    _rewrite(store, record.workflow_id,
+             "UPDATE workflow_events SET payload_json = ? WHERE to_state = 'awaiting_approval' AND workflow_id = ?",
+             canonical_json({"authority": "allowed", "policy_digest": "0" * 64}))
+    assert _approval_refusal(store, record.workflow_id) == "approval_unrecorded"
+
+    # a second approve event, however it got there, is not one recorded approval
+    store, record = approved("replayed")
+    _rewrite(store, record.workflow_id,
+             "INSERT INTO workflow_events(workflow_id, from_state, to_state, payload_json, created_at) "
+             "SELECT workflow_id, from_state, to_state, payload_json, created_at FROM workflow_events "
+             "WHERE to_state = 'validating' AND workflow_id = ?")
+    assert _approval_refusal(store, record.workflow_id) == "approval_unrecorded"
+
+
+def test_resume_of_a_validated_record_without_its_approve_event_is_refused(tmp_path):
+    source, store, proposal = allowed_fixture(tmp_path)
+    base = source.read_text(encoding="utf-8")
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY)
+    _rewrite(store, proposal.workflow_id, "DELETE FROM workflow_events WHERE to_state = 'validating' AND workflow_id = ?")
+
+    # resume without --apply refuses as well: it must not report the record as fine
+    with pytest.raises(WorkflowError, match=r"docs approval refused \(approval_unrecorded\).*--apply refused"):
+        resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner())
+    assert store.get(proposal.workflow_id).state == "validated"
+    assert source.read_text(encoding="utf-8") == base

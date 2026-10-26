@@ -1,0 +1,58 @@
+{
+  "id": "MD-AB-11",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Digest-correct approval that `attest approve` did not record for this workflow is refused before validation runs; source unchanged",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approver": "reviewer",
+    "forgeries": [
+      {
+        "shape": "row_written",
+        "note": "approval and state written into the row; no approve event",
+        "code": "approval_unrecorded"
+      },
+      {
+        "shape": "unnamed_event",
+        "note": "store transition with the approval but an empty event",
+        "code": "approval_unrecorded"
+      },
+      {
+        "shape": "twin_swapped",
+        "note": "approved by reviewer, then the row's approval replaced by a twin workflow's (same proposal digest)",
+        "code": "approval_unrecorded"
+      },
+      {
+        "shape": "policy_actor",
+        "note": "`attest approve --by policy:auto-approve`",
+        "code": "approval_not_human"
+      },
+      {
+        "shape": "backdated",
+        "note": "approval and matching event, but approved before the proposal was offered",
+        "code": "approval_stale"
+      },
+      {
+        "shape": "denied_offer",
+        "note": "authority-denied proposal written to validating with a digest-correct approval",
+        "code": "authority_not_allowed"
+      }
+    ],
+    "denied_candidate": "# Quick start\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n"
+  },
+  "expected": {
+    "resume_state": "unresolved",
+    "reason_prefix": "docs approval refused",
+    "nothing_ran": true,
+    "control_state": "promoted",
+    "source_unchanged": true
+  }
+}

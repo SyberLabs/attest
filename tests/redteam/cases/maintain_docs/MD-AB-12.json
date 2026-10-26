@@ -1,0 +1,36 @@
+{
+  "id": "MD-AB-12",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "apply_after_failed_validation",
+  "title": "Record validated by an Attest that did not read the approve event back is refused at --apply (API and CLI); source unchanged",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approver": "reviewer",
+    "forgeries": [
+      {
+        "shape": "row_written",
+        "code": "approval_unrecorded"
+      },
+      {
+        "shape": "policy_actor",
+        "code": "approval_not_human"
+      }
+    ]
+  },
+  "expected": {
+    "validated_state": "validated",
+    "promote_error": "docs approval refused \\({code}\\)",
+    "cli_exit": 2,
+    "cli_output": "resume failed closed: docs approval refused ({code})",
+    "control_state": "promoted",
+    "source_unchanged": true
+  }
+}
