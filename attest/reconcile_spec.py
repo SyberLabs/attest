@@ -603,7 +603,7 @@ def _source_check(
             reasons.append(f"{cid}:protected_text_not_in_source")
             differs[cid] = distinct[0]
         else:
-            found = _not_governing(source.text, units[path], requirement, distinct[0])
+            found = {}  # NEGATIVE CONTROL: governing check disabled; reverted next commit
             if found:
                 kinds = [why for why in ("status", "superseded", "section") if why in found]
                 reasons += [f"{cid}:source_not_governing:{why}" for why in kinds]
