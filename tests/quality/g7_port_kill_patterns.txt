@@ -1,0 +1,24 @@
+# FACTORY G7: port-kill patterns for scripts/g7-kane-resource.py port-kill.
+#
+# Each line is `name = regex`, matched case-insensitively against every line of
+# .py/.sh/.bash/.ps1/.cmd/.bat/.js/.mjs/.cjs/.ts files under attest/ and
+# scripts/, after comments are removed. String literals and docstrings are
+# scanned, because argv lists are strings. Any hit fails the gate.
+#
+# Each pattern is a way to turn "the port a server printed" into "a PID to
+# kill", or to kill processes by name. Cleanup must target the process
+# group/tree attest started (attest/execution/supervisor.py), never whatever
+# owns a port (FACTORY §1 Kane theme, rubric R7).
+#
+# This file sits outside the scanned paths so the scan never matches itself.
+netstat = \bnetstat\b
+taskkill = \btaskkill\b
+fuser = \bfuser\b
+lsof = \blsof\b
+killall = \bkillall\b
+pkill = \bpkill\b
+kill-port = \bkill-port\b
+ss -p = ["'\s]ss["']?\s*,?\s*["']?-[a-z]*p
+psutil connections = \b(?:net_)?connections\s*\(
+Get-NetTCPConnection = \bGet-NetTCPConnection\b
+Stop-Process = \bStop-Process\b

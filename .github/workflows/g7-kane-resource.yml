@@ -1,0 +1,33 @@
+name: g7-kane-resource
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Gate status lives in docs/quality/G7-KANE-RESOURCE.md; update it only from real run output.
+jobs:
+  # G7 Kane resource (FACTORY §3, rubric R7): fails when a Kane/runner deadline,
+  # cleanup or isolation test fails, or when port-kill code appears in attest/
+  # or scripts/. Kept in its own workflow so it does not touch tests.yml (G8/G1)
+  # or the G5 workflow.
+  g7-kane-resource:
+    name: G7 Kane resource
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e '.[test]'
+      # Static check first: it needs no tests to run and names the file and line.
+      - name: Port-kill scan
+        run: python scripts/g7-kane-resource.py port-kill
+      # Runs even if the scan failed, so one run reports both halves.
+      - name: Deadline, cleanup and isolation tests
+        if: ${{ !cancelled() }}
+        run: python scripts/g7-kane-resource.py tests

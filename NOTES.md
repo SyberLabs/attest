@@ -169,3 +169,10 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Only `active` cases are enforced. `xfail` and `stub` cases are printed as open gaps and are never counted as passes, so a green job is not "G3 over every §1 case".
 - `main` at b0989ac has no `tests/redteam/`, so the job runs with `--allow-missing-inventory` and reports INACTIVE (exit 0, nothing ran, not a pass) until #26 merges. The flag has no effect once the directory exists; drop it after #26 merges.
 - G3 doesn't count floors (that's G2) and doesn't run #31's `tests/test_positive_controls.py` (G8 runs it).
+
+## Oct 26: G7 Kane resource gate
+
+- FACTORY §3 G7 is a separate workflow, `.github/workflows/g7-kane-resource.yml` (check `G7 Kane resource`), so `tests.yml` (G8/G1, #27) and the G5 workflow (#33) stay untouched. Details and scope limits: `docs/quality/G7-KANE-RESOURCE.md`.
+- Port-kill scan: `python scripts/g7-kane-resource.py port-kill` reads every `.py/.sh/.bash/.ps1/.cmd/.bat/.js/.mjs/.cjs/.ts` file under `attest/` and `scripts/` with comments removed, and fails on any case-insensitive match from `tests/quality/g7_port_kill_patterns.txt`: `\bnetstat\b`, `\btaskkill\b`, `\bfuser\b`, `\blsof\b`, `\bkillall\b`, `\bpkill\b`, `\bkill-port\b`, `["'\s]ss["']?\s*,?\s*["']?-[a-z]*p`, `\b(?:net_)?connections\s*\(`, `\bGet-NetTCPConnection\b`, `\bStop-Process\b`. It also fails when it reads no files. The list sits outside the scanned paths so the scanner doesn't match itself.
+- Tests: `python scripts/g7-kane-resource.py tests` runs `tests/quality/g7_kane_resource.txt` (sections deadline, cleanup, isolation, port-kill, control, gate). A missing, skipped, xfailed or xpassed id fails the gate.
+- On `main` at b0989ac the scan failed on `ShellSession._kill_listener` (`attest/shell.py`, Windows only), which ran the Windows port-listing tool and then force-killed every PID listening on the server's port, owned or not.
