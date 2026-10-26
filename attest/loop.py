@@ -25,6 +25,7 @@ from pathlib import Path
 import typer
 
 from .compiler import recompile_claim
+from .execution.recipes import ApprovedRecipeExecutor
 from .grounding import ground
 from .ingest import ingest_text
 from .ledger import Ledger
@@ -273,12 +274,20 @@ def rerun_claim(
     runner: BrowserRunner,
     rules: Rules,
     shell_env: dict[str, str] | None = None,
+    recipes_only: bool = False,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> Evidence | None:
     """Run exactly one claim again through the runner kind that produced its evidence."""
     original = result.evidence.get(claim.id)
     if claim.kind == "shell":
         scratch = result.scratch or Path(tempfile.mkdtemp(prefix="attest-rerun-"))
-        session = ShellSession(workdir=scratch, timeout_s=rules.shell_timeout_s, env=shell_env or {})
+        session = ShellSession(
+            workdir=scratch,
+            timeout_s=rules.shell_timeout_s,
+            env=shell_env or {},
+            recipes_only=recipes_only,
+            recipe_executor=recipe_executor,
+        )
         ev = session.run(claim)
         if session.servers:
             # a re-run server stays up for later browser claims in this loop
@@ -332,6 +341,8 @@ def run_loop(
     apply_to_source: bool = False,
     on_update=None,
     policy_path: Path | None = None,
+    recipes_only: bool = False,
+    recipe_executor: ApprovedRecipeExecutor | None = None,
 ) -> ProveResult:
     """Fix the doc for every failing claim, one attempt each, and re-prove those claims."""
     rules = rules or load_rules()
@@ -424,7 +435,10 @@ def run_loop(
         if on_update:
             on_update(f"Kane is re-checking line {claim.span.start_line}")
         typer.echo(typer.style(f"   ...       {'Kane' if fresh.kind == 'browser' else 'Attest'} is re-checking line {claim.span.start_line}", fg=typer.colors.BRIGHT_BLACK))
-        ev = rerun_claim(fresh, result, runner, rules, shell_env=shell_env)
+        ev = rerun_claim(
+            fresh, result, runner, rules, shell_env=shell_env,
+            recipes_only=recipes_only, recipe_executor=recipe_executor,
+        )
         runs = getattr(runner, "runs", None)
         if runs is not None and len(runs) > recorded_runs:
             recorded_runs = ledger.record_new_kane_runs(result.doc.sha256, result.turn, runs, recorded_runs)

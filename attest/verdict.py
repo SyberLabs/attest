@@ -140,6 +140,17 @@ def _judge_shell(claim: Claim, ev: Evidence) -> Verdict:
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: shell claim has non-shell evidence", evidence=ev)
     if ev.timed_out:
         return Verdict(claim_id=claim.id, status="broken", reason="broken: command timed out", evidence=ev)
+    if ev.service_ready and ev.exit_code is None:
+        if claim.expects and not expects_in(claim.expects, ev.stdout_tail):
+            return Verdict(
+                claim_id=claim.id,
+                status="stale",
+                reason=f"stale: service ready but {claim.expects!r} not in output",
+                evidence=ev,
+                label_match=0.0,
+            )
+        reason = "proven: service ready and promised output found" if claim.expects else "proven: service ready"
+        return Verdict(claim_id=claim.id, status="proven", reason=reason, evidence=ev, label_match=1.0 if claim.expects else None)
     if ev.exit_code != 0:
         return Verdict(claim_id=claim.id, status="broken", reason=f"broken: exit code {ev.exit_code}", evidence=ev)
     if claim.expects:
