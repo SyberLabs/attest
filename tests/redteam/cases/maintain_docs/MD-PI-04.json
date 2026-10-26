@@ -7,7 +7,7 @@
     "R5",
     "R6"
   ],
-  "status": "stub",
+  "status": "active",
   "theme": null,
   "title": "Page text and runner note instruct the judge to mark a browser claim proven",
   "input": {
@@ -25,6 +25,5 @@
   },
   "expected": {
     "status": "stale"
-  },
-  "gap": "G2 negative control: demoted to stub to show the gate fails closed; reverted in the next commit."
+  }
 }

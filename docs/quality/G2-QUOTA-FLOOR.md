@@ -4,7 +4,12 @@ FACTORY-REDTEAM-AND-RUBRICS §3 G2: block merge when "red-team cases per compone
 
 **Check:** `g2-quota-floor / G2 Quota floor` (`.github/workflows/g2-quota-floor.yml`). It is a separate workflow, so it doesn't touch `tests.yml` (G8/G1) or the G5/G7 workflows. It is not a required check.
 
-**Status:** Proposed. Update only from hosted run output.
+**Status:** Measured (attest, scoped), from hosted run output only, on PR #36 (stacked on #30 → #26):
+
+- Green: [run 40300539117](https://github.com/SyberLabs/attest/actions/runs/40300539117) on `7f76dc7` (gate only, case inventory unchanged from #30 `214c12e`). Gate controls 35 passed. Quota floor PASS with the counts below.
+- Fails closed: [run 40300679526](https://github.com/SyberLabs/attest/actions/runs/40300679526) on `b7ce6c0`, which demoted MD-PI-04 to `stub`. Quota floor FAIL: `maintain_docs/PI: 3 counted < floor 4`. Reverted in the next commit.
+
+Scope: the enforced cells and themes below. Not required on `main`; on `main` alone (no `tests/redteam/`) the gate fails, so enforcement there starts when #26 and #30 merge. No coverage percentage is claimed.
 
 ## What fails the job
 
@@ -39,9 +44,9 @@ The repo's `FACTORY-REDTEAM-QUOTA-2026-10-24.md` also proposes a different table
 
 Pending exemptions live in `PENDING_CELLS` / `PENDING_THEMES` in the script, each with its reason. An exemption that becomes met fails the gate until it is removed, so it cannot outlive the gap.
 
-## Counts on this tip (local run, before CI)
+## Counts on this tip
 
-Branch tip stacked on #30 (`214c12e`) with no change to any case. Counted = active + xfail whose test ended as its status says.
+From run 40300539117 (the local run gave the same table). Branch tip stacked on #30 (`214c12e`) with no change to any case. Counted = active + xfail whose test ended as its status says.
 
 | Component | Cat | Floor | active | xfail | stub | Counted | Active-only | Result |
 |---|---|---:|---:|---:|---:|---:|---:|---|
