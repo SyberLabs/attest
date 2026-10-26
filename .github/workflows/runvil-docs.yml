@@ -47,6 +47,10 @@ jobs:
         working-directory: runvil
       - name: Install Attest
         run: python -m pip install ./attest
+      - name: Keep rustup and cargo findable once HOME moves for the gateway
+        run: |
+          echo "RUSTUP_HOME=$HOME/.rustup" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=$HOME/.cargo" >> "$GITHUB_ENV"
       - name: Prove the Gateway guide
         continue-on-error: true
         env:
