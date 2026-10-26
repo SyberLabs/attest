@@ -1,0 +1,8 @@
+# Loopback-only gateway config for the Gateway guide's first chapter (tests/test_cli_config.py).
+# Profile "main", bind 127.0.0.1:8081, as the chapter's examples assume.
+[server]
+bind = "127.0.0.1:8081"
+trust_loopback = true
+key = "secret-key"
+
+[profiles.main]

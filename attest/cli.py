@@ -281,7 +281,14 @@ def _log(claim, verdict) -> None:
     if verdict.status in ("skipped", "unverifiable"):
         detail = verdict.reason.split(": ", 1)[-1]
     elif claim.kind == "shell":
-        detail = f"exit code {'timed out' if evidence and evidence.timed_out else evidence.exit_code if evidence else 'unknown'}"
+        if evidence and evidence.service_ready and evidence.ready_url:
+            detail = f"service ready, {evidence.ready_url} answered 200"
+        elif evidence and evidence.timed_out and evidence.ready_url:
+            detail = f"service never answered 200 at {evidence.ready_url}"
+        else:
+            detail = f"exit code {'timed out' if evidence and evidence.timed_out else evidence.exit_code if evidence else 'unknown'}"
+        if evidence and evidence.substitute:
+            detail += f" via substitute `{evidence.substitute}`"
     elif evidence and evidence.observation:
         observed = ", ".join(str(v) for v in evidence.observation.observed.values())
         detail = f'Kane saw "{observed}"' if observed else verdict.reason
@@ -334,6 +341,8 @@ def prove_cmd(
     home: Path = typer.Option(ATTEST_DIR, "--home", help="Where ledger and pages live."),
     live: bool = typer.Option(False, "--live", help="Update a live page while claims run."),
     app_dir: Path | None = typer.Option(None, "--app", help="Spec mode: the doc is the contract for this app directory; failing claims become tickets the implementation agent closes in a copy of the app (implies --loop)."),
+    cli_config: Path | None = typer.Option(None, "--cli-config", help="Sidecar with fixtures, services and substitutes (default: attest.cli.yaml beside the doc)."),
+    substitute: bool = typer.Option(False, "--substitute", help="Allow the sidecar's substitutes; a claim that passes only through one is capped at stale."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
     if apply:
@@ -365,6 +374,7 @@ def prove_cmd(
                 source, runner=br, home=home, log=narrate, keep_servers=loop,
                 stop_before=stop_before, skip=skip_ids, live=live, on_start=before, simulation=simulation,
                 recipes_only=recipes_only, app_dir=app_dir,
+                cli_config=cli_config, allow_substitutes=substitute,
             )
         except ValueError as e:
             br.close()

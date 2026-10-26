@@ -4,11 +4,17 @@ The factory path inherits the host environment and runs the compatibility shell.
 Approved-recipe mode maps an exact command to argv, drops host secrets, and
 never starts a shell. The runner captures bounded output, probes a printed
 local URL before retaining a server, and kills only process trees it started.
-Nothing here knows about browsers.
+
+The sidecar file (attest/cli_config.py) adds three things: fixtures written
+into the scratch directory before the first claim, services whose readiness
+URL is polled for a 200 before the claim counts as running, and substitutes
+that run in a command's place only when allowed, and are recorded in the
+evidence so the verdict can cap them. Nothing here knows about browsers.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -18,11 +24,14 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
+from .cli_config import FixtureSpec, ServiceSpec
 from .execution.recipes import ApprovedRecipeExecutor
 from .execution.supervisor import terminate_process_tree
 from .models import Claim, Evidence
@@ -77,6 +86,22 @@ def _service_ready(url: str, timeout_s: float = 0.2) -> bool:
         return False
 
 
+def _http_status(url: str, timeout_s: float = 1.0) -> int | None:
+    """One GET against a readiness URL; the status code, or None when nothing answered."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, method="GET"), timeout=timeout_s) as resp:
+            return int(resp.status)
+    except urllib.error.HTTPError as exc:
+        return int(exc.code)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def _origin(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, "/", "", ""))
+
+
 def find_shell() -> list[str]:
     """Pick a POSIX shell. Git Bash on Windows (by its install path first, since
     PATH may hold Cygwin or the WSL shim), sh elsewhere, cmd as a last resort."""
@@ -118,6 +143,14 @@ class ShellSession:
     # Compatibility shell stays the default so the factory demo can run document
     # commands. Approved recipes are opt-in and use a curated environment.
     recipes_only: bool = False
+    # sidecar (attest.cli.yaml): services polled for readiness, substitutes allowed only
+    # with --substitute, and the default readiness timeout from rules.yaml
+    services: tuple[ServiceSpec, ...] = ()
+    substitutes: dict[str, str] = field(default_factory=dict)
+    allow_substitutes: bool = False
+    ready_timeout_s: float = 60.0
+    ready_poll_s: float = 0.25
+    fixtures_written: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.workdir = Path(self.workdir)
@@ -160,7 +193,29 @@ class ShellSession:
     def is_posix_shell(self) -> bool:
         return not self.shell[0].lower().endswith("cmd.exe")
 
+    # -- fixtures ------------------------------------------------------------------
+
+    def write_fixtures(self, fixtures: dict[str, FixtureSpec] | list[FixtureSpec]) -> list[dict]:
+        """Write every sidecar fixture into the scratch directory before any claim runs.
+
+        Returns what was written, by name, scratch path and sha256, for the page and the
+        receipt. A fixture is never a claim and never gets a badge."""
+        specs = list(fixtures.values()) if isinstance(fixtures, dict) else list(fixtures)
+        root = self.workdir.resolve()
+        for fx in specs:
+            dest = (root / fx.path).resolve()
+            if root not in dest.parents:
+                raise ValueError(f"fixture {fx.name!r} would land outside the scratch directory: {fx.path}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            data = fx.source.read_bytes()
+            dest.write_bytes(data)
+            self.fixtures_written.append({"name": fx.name, "path": fx.path, "sha256": hashlib.sha256(data).hexdigest()})
+        return self.fixtures_written
+
     # -- running -----------------------------------------------------------------
+
+    def service_for(self, command: str) -> ServiceSpec | None:
+        return next((s for s in self.services if s.matches(command)), None)
 
     def _wrap(self, cmd: str) -> str:
         """Record the final working directory in a side file so `cd` in one block
@@ -176,6 +231,14 @@ class ShellSession:
         if timeout_s <= 0:
             raise ValueError("timeout_s must be positive")
         cmd = executable_command(claim.command)
+        substitute: str | None = None
+        if self.allow_substitutes and cmd.strip() in self.substitutes:
+            substitute = self.substitutes[cmd.strip()]
+            cmd = substitute
+        service = self.service_for(cmd)
+        if service is not None:
+            # a service's clock is its readiness timeout, not the per-command one
+            timeout_s = service.ready_timeout_s or self.ready_timeout_s
         if self.recipes_only:
             assert self.recipe_executor is not None
             try:
@@ -247,6 +310,7 @@ class ShellSession:
             reader.join(timeout=1)
             raise
         kept_alive = False
+        ready_status: int | None = None
         try:
             deadline = time.monotonic() + timeout_s
             while True:
@@ -257,6 +321,20 @@ class ShellSession:
                     timed_out_event.set()
                     self._kill(proc)
                     break
+                if service is not None:
+                    # a sidecar service is ready when its readiness URL answers 200,
+                    # whatever it prints; a printed URL is not consulted
+                    status = _http_status(service.ready, timeout_s=min(1.0, max(0.1, deadline - time.monotonic())))
+                    if status is not None:
+                        ready_status = status
+                    if status == 200 and proc.poll() is None and not timed_out_event.is_set():
+                        finished.set()
+                        self.servers.append(RunningProcess(claim.id, proc, service.ready, reader))
+                        kept_alive = True
+                        self.base_url = self.base_url or _origin(service.ready)
+                        break
+                    time.sleep(min(self.ready_poll_s, max(0.0, deadline - time.monotonic())))
+                    continue
                 with lock:
                     url = state["url"]
                 if url is not None:
@@ -287,6 +365,9 @@ class ShellSession:
                 # Also reap descendants when the shell leader exited first.
                 self._kill(proc)
                 reader.join(timeout=1)
+                if service is not None and timed_out_event.is_set():
+                    # a service that never became ready may still hold its port (Windows)
+                    self._kill_listener(service.ready)
                 if not self.recipes_only:
                     self._update_cwd()
 
@@ -302,6 +383,9 @@ class ShellSession:
             service_ready=kept_alive,
             stdout_tail="\n".join(lines),
             detected_url=state["url"],
+            ready_url=service.ready if service is not None else None,
+            ready_status=ready_status,
+            substitute=substitute,
         )
 
     def _update_cwd(self) -> None:

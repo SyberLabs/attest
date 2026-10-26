@@ -13,6 +13,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .cli_config import CliConfig, find_cli_config, load_cli_config
 from .compiler import CompileError, compile_doc
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest
@@ -21,7 +22,7 @@ from .models import Brief, Claim, Doc, Evidence, Verdict
 from .render import badge_svg, proof_md, render_page, write_page
 from .runner import BrowserRunner, FakeBrowserRunner
 from .shell import ShellSession, new_scratch
-from .verdict import Rules, judge, load_rules
+from .verdict import Rules, judge, load_rules, satisfies_dependents
 
 ATTEST_DIR = Path(os.environ.get("ATTEST_HOME", ".attest"))
 _UNCOMPILED_ACTION = re.compile(
@@ -67,6 +68,8 @@ class ProveResult:
     simulation: bool = False
     proposals: dict[str, str] = field(default_factory=dict)
     proposal_states: dict[str, str] = field(default_factory=dict)
+    # sidecar fixtures written before the first claim: name, scratch path, sha256
+    fixtures: list[dict] = field(default_factory=list)
 
     @property
     def by_id(self) -> dict[str, Verdict]:
@@ -93,21 +96,32 @@ def execute(
     recipes_only: bool = False,
     recipe_executor: ApprovedRecipeExecutor | None = None,
     simulation: bool = False,
+    cli_config: CliConfig | None = None,
+    allow_substitutes: bool = False,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
     """Run claims in doc order; simulation evidence can never produce a proven verdict."""
     evidence: dict[str, Evidence] = {}
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
     skip = skip or set()
+    cli_config = cli_config or CliConfig()
+    check_setup(claims, cli_config)
     session = ShellSession(
         workdir=scratch,
         timeout_s=rules.shell_timeout_s,
         env=shell_env or {},
         recipes_only=recipes_only,
         recipe_executor=recipe_executor,
+        services=cli_config.services,
+        substitutes=cli_config.substitutes,
+        allow_substitutes=allow_substitutes,
+        ready_timeout_s=rules.ready_timeout_s,
     )
     stop_index = next((i for i, claim in enumerate(claims) if claim.id == stop_before), None)
     try:
+        # fixtures land before the first claim, whatever kind it is
+        if cli_config.fixtures:
+            session.write_fixtures(cli_config.fixtures)
         for i, c in enumerate(claims):
             if c.id in skip:
                 v = Verdict(
@@ -145,7 +159,7 @@ def execute(
             # A dependency that was never judged is not authorization. Skipped
             # claims have no evidence and still let dependents run.
             deps_ok = all(
-                d in reached and (reached[d].status == "proven" or reached[d].evidence is None)
+                d in reached and (satisfies_dependents(reached[d]) or reached[d].evidence is None)
                 for d in c.depends_on
             )
             if deps_ok:
@@ -173,6 +187,27 @@ def execute(
     return evidence, verdicts, session
 
 
+def check_setup(claims: list[Claim], cli_config: CliConfig) -> None:
+    """Every fixture a claim names in ``setup`` must exist in the sidecar, before anything runs."""
+    for c in claims:
+        missing = [name for name in c.setup if name not in cli_config.fixtures]
+        if missing:
+            where = f" ({cli_config.path})" if cli_config.path else ""
+            raise ValueError(f"{c.id} needs fixtures {missing} that the sidecar{where} does not define")
+
+
+def annotate_setup(claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
+    """By rule: a shell claim whose command names a fixture's path gets that fixture in ``setup``."""
+    out = []
+    for c in claims:
+        if c.kind == "shell" and c.command:
+            names = [n for n in cli_config.fixtures_named_in(c.command) if n not in c.setup]
+            if names:
+                c = c.model_copy(update={"setup": [*c.setup, *names]})
+        out.append(c)
+    return out
+
+
 def prove(
     source: str,
     runner: BrowserRunner | None = None,
@@ -190,6 +225,8 @@ def prove(
     recipe_executor: ApprovedRecipeExecutor | None = None,
     simulation: bool = False,
     app_dir: Path | None = None,
+    cli_config: CliConfig | Path | str | None = None,
+    allow_substitutes: bool = False,
 ) -> ProveResult:
     rules = rules or load_rules()
     if runner is None:
@@ -199,6 +236,14 @@ def prove(
     if simulation and getattr(runner, "name", None) != "fake":
         raise ValueError("simulation=True is only valid with the fake browser runner")
     doc = ingest(source)
+    if cli_config is None:
+        found = find_cli_config(source)
+        cli_config = load_cli_config(found) if found else CliConfig()
+    elif not isinstance(cli_config, CliConfig):
+        cli_config = load_cli_config(cli_config)
+    if allow_substitutes and not cli_config.substitutes:
+        raise ValueError("--substitute given but the sidecar defines no substitutes")
+    doc = doc.model_copy(update={"browser_claims": cli_config.browser_claims})
     candidate = None
     if app_dir is not None:
         # spec mode: the spec's shell steps serve a fresh copy of the app, never the original
@@ -206,7 +251,8 @@ def prove(
 
         candidate = make_candidate(Path(app_dir), doc.sha256, home)
         shell_env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
-    claims = compile_doc(doc, llm=llm)
+    claims = annotate_setup(compile_doc(doc, llm=llm), cli_config)
+    check_setup(claims, cli_config)
     uncovered = _uncompiled_required_lines(doc, claims)
     if uncovered:
         raise CompileError(
@@ -256,6 +302,7 @@ def prove(
             claims, runner, rules, scratch, shell_env=shell_env, log=record if live else log,
             stop_before=stop_before, skip=skip, on_start=announce, simulation=simulation,
             recipes_only=recipes_only, recipe_executor=recipe_executor,
+            cli_config=cli_config, allow_substitutes=allow_substitutes,
         )
         if not keep_servers:
             session.close()
@@ -268,7 +315,8 @@ def prove(
         else:
             run_count = 0
         result = ProveResult(
-            doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch, simulation=simulation
+            doc, claims, evidence, verdicts, turn, out_dir, scratch=scratch, simulation=simulation,
+            fixtures=list(getattr(session, "fixtures_written", [])),
         )
         result._kane_runs_count = run_count  # type: ignore[attr-defined]
         result._session = session  # type: ignore[attr-defined]
@@ -401,6 +449,10 @@ def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
     (result.out_dir / "verdicts.json").write_text(
         "[" + ",".join(v.model_dump_json() for v in result.verdicts) + "]", encoding="utf-8"
     )
+    if result.fixtures:
+        import json
+
+        (result.out_dir / "fixtures.json").write_text(json.dumps(result.fixtures, indent=2), encoding="utf-8")
     return page
 
 

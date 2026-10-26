@@ -127,6 +127,17 @@ def observed_text(claim: Claim, evidence: Evidence) -> str | None:
     return " ".join(v for v in obs.values() if v and v.strip()) or None
 
 
+def satisfies_dependents(v: Verdict) -> bool:
+    """A dependency lets later claims run when it is proven, or when it is stale only
+    because it passed through a substitute (the step ran, the doc's wording is the drift)."""
+    if v.status == "proven":
+        return True
+    ev = v.evidence
+    if v.status == "stale" and ev is not None and ev.kind == "shell" and ev.substitute is not None:
+        return ev.exit_code == 0 or ev.service_ready
+    return False
+
+
 def judge(
     claim: Claim,
     evidence: Evidence | None,
@@ -137,10 +148,10 @@ def judge(
     rules = rules or Rules()
     prior = prior or {}
 
-    # 1. skipped: a dependency is not proven
+    # 1. skipped: a dependency is not proven (a substitute-capped pass still counts)
     for dep in claim.depends_on:
         pv = prior.get(dep)
-        if pv is not None and pv.status != "proven" and pv.evidence is not None:
+        if pv is not None and not satisfies_dependents(pv) and pv.evidence is not None:
             return Verdict(
                 claim_id=claim.id,
                 status="skipped",

@@ -1,0 +1,14 @@
+# Sidecar for the runvil-docs chapters in this folder (docs/CLI-RUNNER-SPEC.md).
+# Fixtures land in the scratch directory before the first claim; a service claim is proven
+# when its readiness URL answers 200; substitutes run only with --substitute and cap at stale.
+fixtures:
+  gateway-config:
+    path: gateway.toml
+    from: gateway.toml
+services:
+  - match: "runvil-gateway --config"
+    ready: http://127.0.0.1:8081/health
+    ready_timeout_s: 60
+substitute:
+  "cargo install gateway": "cargo install --path crates/gateway/app"
+browser_claims: false   # neither chapter asks the reader to open a browser
