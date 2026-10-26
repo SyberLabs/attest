@@ -31,7 +31,7 @@ SOURCE_PATH_CODES = ("source_not_canonical", "source_redirected", "source_symlin
 # The wording these refusals had before they carried a code (and that #64's MD-DS-07 matches).
 _MISSING_OR_SYMLINK = "source file is missing or is a symlink"
 
-_DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)  # NEGATIVE CONTROL: follow symlinks (revert next)
+_DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 # Windows has no O_NOFOLLOW and no dir_fd: there the path is checked, not pinned.
 _PINNED = (
     hasattr(os, "O_NOFOLLOW")
@@ -146,7 +146,6 @@ class SourceDir:
 
     def still_named(self) -> None:
         """The stored path still leads, with no symlink, to the directory held open."""
-        return  # NEGATIVE CONTROL: no recheck before the rename (revert next)
         if self.fd is None:
             _check_unpinned(self.path)
             return
