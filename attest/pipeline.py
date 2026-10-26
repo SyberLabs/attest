@@ -309,7 +309,10 @@ def prove(
         cli_config = load_cli_config(cli_config)
     if allow_substitutes and not cli_config.substitutes:
         raise ValueError("--substitute given but the sidecar defines no substitutes")
-    doc = doc.model_copy(update={"browser_claims": cli_config.browser_claims})
+    # with no browser runner there is nothing to drive a browser step, so prose that
+    # merely mentions pages, labels or `--type` is not a browser instruction
+    browser_claims = cli_config.browser_claims and getattr(runner, "name", None) != "none"
+    doc = doc.model_copy(update={"browser_claims": browser_claims})
     candidate = None
     if app_dir is not None:
         # spec mode: the spec's shell steps serve a fresh copy of the app, never the original
@@ -334,6 +337,8 @@ def prove(
         raise CompileError(
             "incomplete compilation; required browser/actionable lines were not claimed: "
             + ", ".join(map(str, uncovered))
+            + ". If the document has no browser steps, prove it with --runner none"
+            " (or set browser_claims: false in its attest.cli.yaml)."
         )
     doc = doc.model_copy(update={"claims": claims})
     if stop_before is not None and stop_before not in {claim.id for claim in claims}:

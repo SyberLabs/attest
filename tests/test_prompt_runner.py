@@ -362,3 +362,21 @@ def test_cli_runner_none_needs_no_kane(tmp_path):
     r = CliRunner().invoke(app, ["prove", str(doc), "--runner", "none", "--home", str(tmp_path / "home")])
     assert r.exit_code == 0, r.output
     assert "runner: none" in r.output and "1/1 proven" in r.output
+
+
+def test_runner_none_switches_off_the_browser_heuristics_and_errors_say_how(tmp_path):
+    from attest.compiler import CompileError
+    from attest.runner import NoBrowserRunner
+
+    # prose that trips both browser heuristics, with no sidecar at all
+    doc = tmp_path / "cli.md"
+    doc.write_text(
+        "# Search\n\nYou'll see every match. Type `--type rust` to select Rust files on the page.\n\n```bash\necho ok\n```\n",
+        encoding="utf-8",
+    )
+    result = prove(str(doc), runner=NoBrowserRunner(), home=tmp_path / "home")
+    assert result.doc.browser_claims is False
+    assert result.by_id["c01"].status == "proven"
+    # a browser runner keeps the fail-closed guard, and the error names the way out
+    with pytest.raises(CompileError, match="--runner none"):
+        prove(str(doc), runner=VerifierBrowser(), home=tmp_path / "home2")

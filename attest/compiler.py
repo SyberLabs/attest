@@ -704,7 +704,11 @@ def compile_doc(doc: Doc, llm: LLM | None = None, cache_dir: Path = CACHE_DIR, u
             if any(re.search(r"\b(?:open|click|type|browser|page)\b", line, re.I) for line in doc.lines):
                 print(f"warning: {doc.source}: browser steps were not compiled (no OPENAI_API_KEY and no cache)", file=sys.stderr)
             if required_browser_lines(doc):
-                raise CompileError("browser instructions require a compiler; no verified cache or model is available")
+                raise CompileError(
+                    "browser instructions require a compiler; no verified cache or model is available. "
+                    "If the document has no browser steps, prove it with --runner none "
+                    "(or set browser_claims: false in its attest.cli.yaml)."
+                )
             if not doc.fences:
                 # a chapter with no fenced block makes no claim a run can check:
                 # an empty proof, so a book's prose-only chapters pass through
