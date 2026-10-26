@@ -56,10 +56,15 @@ def _inventory(root: Path, cases: list[dict], bodies: dict[str, str], extra_test
     (tests / "test_cases.py").write_text("\n".join(lines) + extra_tests, encoding="utf-8")
 
 
+# Under Actions these are set for the outer job; a synthetic run must neither
+# append to that job's summary nor print its commit in the header.
+CLEAN_ENV = {k: v for k, v in os.environ.items() if k not in ("GITHUB_STEP_SUMMARY", "GITHUB_SHA")}
+
+
 def _gate(root: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(GATE), "--root", str(root), *args],
-        capture_output=True, text=True, check=False, timeout=120,
+        capture_output=True, text=True, check=False, timeout=120, env=CLEAN_ENV,
     )
 
 
@@ -212,7 +217,7 @@ def test_step_summary_is_written(tmp_path):
     run = subprocess.run(
         [sys.executable, str(GATE), "--root", str(tmp_path)],
         capture_output=True, text=True, check=False, timeout=120,
-        env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_SHA": "abcdef0123"},
+        env={**CLEAN_ENV, "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_SHA": "abcdef0123"},
     )
     assert run.returncode == 0
     assert summary.read_text(encoding="utf-8").startswith("### G3 Adversarial pass at `abcdef0`: passed")
