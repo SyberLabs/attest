@@ -66,6 +66,27 @@ jobs:
           cp attest/ci/runvil-docs/language.cli.yaml runvil-docs/src/language/
           cd runvil-docs/src/language
           attest prove $(ls [01]*.md | sort) --cli-config language.cli.yaml --runner none --prompt-runner runvil --home "$GITHUB_WORKSPACE/.attest/language"
+      - name: Show every claim that did not prove, with its output tail
+        if: always()
+        run: |
+          python - <<'EOF'
+          import json, pathlib
+          for v in sorted(pathlib.Path(".attest").glob("*/*/verdicts.json")):
+              claims = {c["id"]: c for c in json.load(open(v.with_name("claims.json"), encoding="utf-8"))}
+              doc = open(v.with_name("doc.md"), encoding="utf-8").readline().strip()
+              for x in json.load(open(v, encoding="utf-8")):
+                  c = claims[x["claim_id"]]
+                  if c["kind"] == "prose" or x["status"] in ("proven", "skipped"):
+                      continue
+                  ev = x.get("evidence") or {}
+                  print(f"{doc} | {x['claim_id']} line {c['span']['start_line']} {x['status']}: {x['reason'][:160]}")
+                  tail = (ev.get("stdout_tail") or (ev.get("prompt") or {}).get("message") or "").strip().splitlines()[-8:]
+                  for line in tail:
+                      print("    " + line[:200])
+          EOF
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: attest-report, path: .attest/ }
+        with:
+          name: attest-report
+          path: .attest/
+          include-hidden-files: true
