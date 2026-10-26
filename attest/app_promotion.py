@@ -15,7 +15,9 @@ proposal records that build too, as ``spec_build_digest``, and approval binds it
 The approval itself must be the one ``attest approve`` recorded for this workflow
 (``verify_spec_approval``): a digest-correct approval that no approve event backs,
 that names another workflow, a policy or blank approver, a proposal its authority
-denied, or a time outside the approval window is refused with a stable code.
+denied, or a time outside the approval window is refused with a stable code. So is one on
+a workflow whose event log doesn't replay to its state: a rejection, ``unresolved`` or
+promotion the store recorded as final can't be reopened by rewriting the row's state.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from .ingest import sha256_of
 from .models import Claim
 from .proposals import current_build_digest, proposal_digest
 from .shell import new_scratch
-from .storage import SQLiteWorkflowStore, WorkflowRecord, canonical_json
+from .storage import _ALLOWED_TRANSITIONS, SQLiteWorkflowStore, WorkflowRecord, canonical_json
 from .verdict import Rules, load_rules
 
 SPEC_APP_KIND = "spec_app"
@@ -63,7 +65,7 @@ class SpecApprovalError(ApprovalError):
 
 SPEC_APPROVAL_CODES = (
     "approval_missing", "approval_unbound", "approval_not_this_workflow", "approval_not_human",
-    "authority_not_allowed", "approval_unrecorded", "approval_stale",
+    "authority_not_allowed", "approval_unrecorded", "approval_stale", "approval_history_broken",
 )
 
 
@@ -267,6 +269,18 @@ def verify_spec_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> 
         raise SpecApprovalError("approval_stale", "the approval was not given between this proposal and its approval event")
 
 
+def verify_spec_history(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """The approval's workflow is still open: its event log replays to the state the row is in."""
+    # store.create writes one creation event and store.transition one event per allowed step:
+    # replayed, the log ends in the row's state. A final state reopened in the row doesn't.
+    steps = [(e["from_state"], e["to_state"]) for e in store.events(record.workflow_id)]
+    if steps[:1] != [(None, "proposed")] or any(
+        before != after[0] or after[1] not in _ALLOWED_TRANSITIONS.get(after[0], ())
+        for (_, before), after in zip(steps, steps[1:])
+    ) or steps[-1][1] != record.state:
+        raise SpecApprovalError("approval_history_broken", "the workflow's recorded events do not lead to its current state")
+
+
 # -- validation ----------------------------------------------------------------------
 
 
@@ -340,6 +354,7 @@ def resume_app_workflow(
     if record.state == "validated":
         try:
             verify_spec_approval(store, record)
+            verify_spec_history(store, record)
         except ApprovalError as exc:
             raise WorkflowError(f"{exc}; --apply refused") from exc
         if apply:
@@ -349,6 +364,7 @@ def resume_app_workflow(
         raise WorkflowError(f"workflow is {record.state}; only an approved workflow can be resumed")
     try:
         verify_spec_approval(store, record)
+        verify_spec_history(store, record)
         _check_identity(record.proposal)
         files = _candidate_files(store, record.proposal)
         claims = [Claim.model_validate(x) for x in json.loads(store.get_artifact(record.proposal["artifact_digests"]["spec_claims"]))]
@@ -470,6 +486,10 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     _refuse_unbound_browser_evidence(validation, [c.id for c in browser], proposal["spec_build_digest"])
     _refuse_unproven_claims(validation, claims)
     _refuse_unsealed_validation(store, record)
+    try:
+        verify_spec_history(store, record)  # after the seal check, which names a relabelled rejection
+    except ApprovalError as exc:
+        raise WorkflowError(f"{exc}; --apply refused") from exc
     _refuse_unbacked_browser_evidence(validation, browser)
     if tree_digest(base) != proposal.get("base_digest") or tree_digest(source) != proposal.get("source_digest"):
         raise WorkflowError("baseline tree digest mismatch; --apply refused")
