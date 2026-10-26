@@ -4,7 +4,15 @@ FACTORY-REDTEAM-AND-RUBRICS §3 G3: block merge when "any §1 case fails R1–R9
 
 **Check:** `g3-adversarial-pass / G3 Adversarial pass` (`.github/workflows/g3-adversarial-pass.yml`). It is a separate workflow, so it doesn't touch `tests.yml` (G8/G1) or the G5/G7 workflows.
 
-**Status:** Proposed. No hosted run has observed the gate enforcing yet. Update this line only from real run output.
+**Status:** From hosted run output only:
+
+- **On `main` (this PR, #37): INACTIVE.** [Run 40302187220](https://github.com/SyberLabs/attest/actions/runs/40302187220) reports that no §1 case ran, because `main` has no inventory yet. That is not a pass. G3 on `main` stays Proposed until #26 merges and a run on `main` enforces.
+- **Measured (attest, scoped) over the #26+#30 inventory**, through verify-only draft #38 (the #37 G3 commits on top of #30's head `214c12e`):
+  - Green: [run 40302198731](https://github.com/SyberLabs/attest/actions/runs/40302198731). 70 active adversarial cases and 1 active control (MD-CTRL-01) passed, with 0 active cases not passing. The 7 xfail and 3 stub cases are listed as open gaps. pytest gave 71 passed, 3 skipped, 7 xfailed.
+  - Fails closed: [run 40302405267](https://github.com/SyberLabs/attest/actions/runs/40302405267). KR-DS-03, a real open product gap (`find_pack` falls back to the newest pack for an unknown session id), was marked `active`. The job failed with `KR-DS-03 (active, R3,R5) did not pass`.
+  - Green again after the revert: [run 40302533912](https://github.com/SyberLabs/attest/actions/runs/40302533912).
+
+  The scope is the active cases in that inventory at that commit. G3 over *every* §1 case is not met: 10 gaps remain (BR-AB-03, KR-COST-01, KR-DS-03, KR-ISO-02, KR-ISO-06, KR-PI-04, RS-PI-02 xfail; KR-ISO-04, KR-PI-03, KR-SIM-03 stub). No coverage percentage is claimed.
 
 ## Enforced scope
 
