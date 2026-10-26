@@ -267,7 +267,7 @@ def resume_app_workflow(
     from .pipeline import execute
     from .workflow import (
         WorkflowError, _kane_pack_bindings, _kane_run_bindings, _observation_build_failures, _observation_run_failures,
-        _seal_validation, _validation_digest,
+        _reused_kane_runs, _seal_validation, _validation_digest,
     )
 
     record = store.get(workflow_id)
@@ -331,6 +331,7 @@ def resume_app_workflow(
             *_observation_run_failures(claims, evidence, kane_runs),
             *_observation_build_failures(claims, evidence, record.proposal["spec_build_digest"]),
             *unbacked,
+            *(f"{claim_id}:kane_run_reused" for claim_id, _ in _reused_kane_runs(store, workflow_id, None, kane_runs)),
         ]
         if unbound:
             validation["successful"] = False
@@ -369,8 +370,8 @@ def resume_app_workflow(
 def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> WorkflowRecord:
     """Write the approved, validated candidate's changed files into the original app, or nothing."""
     from .workflow import (
-        WorkflowError, _refuse_unbacked_browser_evidence, _refuse_unbound_browser_evidence, _refuse_unproven_claims,
-        _refuse_unsealed_validation,
+        WorkflowError, _refuse_reused_kane_runs, _refuse_unbacked_browser_evidence, _refuse_unbound_browser_evidence,
+        _refuse_unproven_claims, _refuse_unsealed_validation,
     )
 
     record = store.get(workflow_id)
@@ -403,6 +404,7 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     _refuse_unproven_claims(validation, claims)
     _refuse_unsealed_validation(store, record)
     _refuse_unbacked_browser_evidence(validation, browser, record.approval)
+    _refuse_reused_kane_runs(store, record)
     if tree_digest(base) != proposal.get("base_digest") or tree_digest(source) != proposal.get("source_digest"):
         raise WorkflowError("baseline tree digest mismatch; --apply refused")
     candidate_manifest = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}

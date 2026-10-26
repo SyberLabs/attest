@@ -229,14 +229,16 @@ class RecordedKaneCli:
     own), sealed for the test file the runner wrote (``tests/kane_replay.py``), or is the
     path of a pack to drop in as it is. ``ran(bytes) -> bytes`` is the file Kane ran instead
     of the one the runner wrote. ``edit`` rewrites the sealed pack (``rewrite_pack``'s
-    arguments). ``strip_session`` removes the session id the stream reports. ``side_effect``
-    runs during the call, as the app or its build would change during a real run.
+    arguments). ``strip_session`` removes the session id the stream reports. ``session``
+    replaces it, in the stream and in the sealed pack, as another live run would report its
+    own. ``side_effect`` runs during the call, as the app or its build would change during a
+    real run.
     """
 
-    def __init__(self, runner, fixture, pack=None, strip_session=False, side_effect=None, ran=None, edit=None):
+    def __init__(self, runner, fixture, pack=None, strip_session=False, side_effect=None, ran=None, edit=None, session=None):
         self.runner, self.fixture, self.pack = runner, fixture, pack or fixture
         self.strip_session, self.side_effect, self.calls = strip_session, side_effect, []
-        self.ran, self.edit = ran, edit
+        self.ran, self.edit, self.session = ran, edit, session
 
     def __call__(self, cmd, timeout_s):
         self.calls.append(cmd)
@@ -249,12 +251,16 @@ class RecordedKaneCli:
                                 self.ran(written) if self.ran else written)
             if self.edit:
                 sealed = rewrite_pack(sealed, self.runner.home / "edited.zip", **self.edit)
+            if self.session:
+                sealed = _pack_with_session(sealed, self.runner.home / "session.zip", self.session)
             shutil.copy(sealed, self.runner.evidence_dir / f"{self.pack}.evidence")
         if self.side_effect:
             self.side_effect()
         run = parse_events((KANE_FIX / f"{self.fixture}.ndjson").read_text(encoding="utf-8").splitlines())
         if self.strip_session:
             run.session_id = None
+        elif self.session:
+            run.session_id = self.session
         run.exit_code = 0
         return run
 
@@ -2164,3 +2170,201 @@ def test_control_run_time_validation_runs_kane_after_the_approval_and_promotes(t
         assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")
     else:
         assert source.read_text(encoding="utf-8") == CANDIDATE_DOC
+
+
+# -- run reuse: the pack's Kane run is no other validation's --------------------------------
+#
+# Since the run-time section the pack's run has to start no earlier than the approval. A real
+# run of the approved wording that started *after* it still backed a claim: another workflow's
+# validation for the same doc (validated, rejected, or unresolved with only its receipt
+# artifact left), or an earlier attempt at this workflow's own validation that stopped after
+# sealing its receipt and before its transition. Validation passed a Kane command that
+# reported such a session, and a resealed record laundering one promoted, on both paths.
+# Every validation seals the Kane sessions it bound (``kane_runs``) into its record and its
+# receipt artifact, and each validation starts its own runs. So a session any other sealed
+# validation in the store binds, by another workflow's record or by any receipt artifact
+# other than this record's own, is not this validation's run.
+
+OTHER_RUN = "kane-session-of-another-validation"
+
+
+def _reuse_failures(validation: dict) -> list[str]:
+    return [f for f in validation["failed_claims"] if f.endswith(":kane_run_reused")]
+
+
+class _Stopped(BaseException):
+    """Stands in for the process stopping (Ctrl-C, a kill) after validation sealed its receipt."""
+
+
+def _interrupted_attempt(store: SQLiteWorkflowStore, workflow_id: str, llm, runner, monkeypatch) -> None:
+    """An attempt at the validation that seals its receipt and stops before its transition.
+
+    The workflow stays ``validating``, so the next ``resume`` is another attempt. Only the
+    receipt artifact names the first attempt's Kane runs.
+    """
+    transition = store.transition
+
+    def stop(wid, expected_state, new_state, **kw):
+        if new_state == "validated":
+            raise _Stopped()
+        return transition(wid, expected_state, new_state, **kw)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "transition", stop)
+        with pytest.raises(_Stopped):
+            resume_workflow(store, workflow_id, runner=runner, llm=llm)
+    assert store.get(workflow_id).state == "validating" and store.get(workflow_id).validation is None
+
+
+def _another_validation(kind: str, tmp_path: Path, monkeypatch, source: Path, store: SQLiteWorkflowStore, workflow_id: str, llm,
+                        session: str | None = None) -> str:
+    """Seal another validation in the store, after ``workflow_id``'s approval, on a Kane home of its own.
+
+    ``kind`` is what's left of it: another workflow's validated or rejected record, another
+    workflow's receipt alone (the build moved while its Kane ran, so ``unresolved`` overwrote
+    its record), or this workflow's interrupted attempt. Its Kane run reports ``session``
+    (default: the recorded one). Returns the workflow that sealed it.
+    """
+    cli = {"session": session} if session else {}
+    if kind == "interrupted-attempt":
+        runner, _ = kane_runner(tmp_path / "other-kane", monkeypatch, **cli)
+        _interrupted_attempt(store, workflow_id, llm, runner, monkeypatch)
+        return workflow_id
+    other_id = second_repair(source, store, llm, UNVALIDATED_DOC if kind == "rejected-record" else CANDIDATE_DOC)
+    if kind == "receipt-after-unresolved":
+        cli["side_effect"] = lambda: deploy(source)
+    runner, _ = kane_runner(tmp_path / "other-kane", monkeypatch, **cli)
+    outcome = resume_workflow(store, other_id, runner=runner, llm=llm)
+    if kind == "receipt-after-unresolved":
+        (source.parent / "app.js").unlink()  # the approved build is back
+        assert outcome.state == "unresolved" and "kane_runs" not in outcome.validation
+    else:
+        assert outcome.state == {"validated-record": "validated", "rejected-record": "rejected"}[kind], outcome.validation
+    return other_id
+
+
+ANOTHER_VALIDATION = ["validated-record", "rejected-record", "receipt-after-unresolved", "interrupted-attempt"]
+
+
+@pytest.mark.parametrize("kind", ANOTHER_VALIDATION)
+def test_run_reuse_validation_fails_when_the_reported_session_is_another_validations(tmp_path, monkeypatch, kind):
+    # The Kane command this validation started reports the session another validation already
+    # sealed. Its pack (sealed for the file the runner wrote, every step passing, started after
+    # the approval) passes every pack check, so #58 validated it.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+    _another_validation(kind, tmp_path, monkeypatch, source, store, workflow_id, llm)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch)
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
+
+    assert len(cli.calls) == 1  # validation did start a Kane command: stale_kane_run doesn't see this
+    assert outcome.state == "rejected"
+    assert outcome.validation["statuses"]["c08"] == "proven" and _pack_failures(outcome.validation) == []
+    assert _reuse_failures(outcome.validation) == ["c07:kane_run_reused", "c08:kane_run_reused"]
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_run_reuse_spec_mode_validation_fails_when_the_reported_session_is_another_validations(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, workflow_id = approved_spec_promotion(tmp_path)
+    other_id = second_spec_promotion(tmp_path, app, spec, store, APP_JS + "render(greeting.toUpperCase());\n")
+    other, _ = kane_runner(tmp_path / "other-kane", monkeypatch)
+    assert resume_workflow(store, other_id, runner=other).state == "validated"
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert outcome.state == "rejected"
+    assert outcome.validation["statuses"]["c08"] == "proven" and _pack_failures(outcome.validation) == []
+    assert _reuse_failures(outcome.validation) == ["c07:kane_run_reused", "c08:kane_run_reused"]
+    assert app_unchanged(app)
+
+
+def _launder_onto_session(pack: Path, session: str, claim_ids: tuple[str, ...]):
+    """A resealed record moves these claims onto another validation's Kane run and its real pack."""
+
+    def change(v):
+        for cid in claim_ids:
+            v["kane_runs"][cid] = session
+            v["evidence"][cid]["observation"]["kane_run_id"] = session
+            v["kane_packs"][cid] = {"path": str(pack), "sha256": hashlib.sha256(pack.read_bytes()).hexdigest()}
+
+    return change
+
+
+def _other_pack(tmp_path: Path) -> Path:
+    return tmp_path / "other-kane" / ".testmuai" / "evidence" / "witness_stale.evidence"
+
+
+@pytest.mark.parametrize("kind", ANOTHER_VALIDATION)
+def test_run_reuse_promotion_refuses_a_resealed_record_laundering_another_validations_kane_run(tmp_path, monkeypatch, kind):
+    # Every store-side seal rewritten. The pack is real, of the approved wording, and its run
+    # started after this workflow's approval, so #54's, #56's and #58's read-back accept it.
+    # Another validation in the store bound its run. The rejected one's c08 asked for another
+    # greeting, so only c07 (unchanged by both repairs) is laundered from it.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+    if kind == "interrupted-attempt":
+        whose = _another_validation(kind, tmp_path, monkeypatch, source, store, workflow_id, llm, session=OTHER_RUN)
+        runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+        assert resume_workflow(store, workflow_id, runner=runner, llm=llm).state == "validated"
+    else:
+        runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+        assert resume_workflow(store, workflow_id, runner=runner, llm=llm).state == "validated"
+        whose = _another_validation(kind, tmp_path, monkeypatch, source, store, workflow_id, llm, session=OTHER_RUN)
+    claim_ids = ("c07",) if kind == "rejected-record" else ("c07", "c08")
+    pack, approved = _other_pack(tmp_path), _claims(CANDIDATE_DOC, source)
+    approved_at = _approved_at(store, workflow_id)
+    assert all(pack_disagreement(pack.read_bytes(), cid, OTHER_RUN, approved[cid], not_before=approved_at) is None for cid in claim_ids)
+    _reseal(store, workflow_id, _launder_onto_session(pack, OTHER_RUN, claim_ids))
+
+    by = f"workflow {whose}'s validation record" if kind in ("validated-record", "rejected-record") else "validation receipt "
+    with pytest.raises(WorkflowError, match=re.escape(
+            f"evidence for c07 is from another validation's Kane run (Kane session {OTHER_RUN} is bound by {by}")):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_run_reuse_spec_mode_promotion_refuses_a_resealed_record_laundering_another_validations_kane_run(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    other_id = second_spec_promotion(tmp_path, app, spec, store, APP_JS + "render(greeting.toUpperCase());\n")
+    other, _ = kane_runner(tmp_path / "other-kane", monkeypatch, session=OTHER_RUN)
+    assert resume_workflow(store, other_id, runner=other).state == "validated"
+    _reseal(store, workflow_id, _launder_onto_session(_other_pack(tmp_path), OTHER_RUN, ("c07", "c08")))
+
+    with pytest.raises(WorkflowError, match=re.escape(
+            f"evidence for c07 is from another validation's Kane run (Kane session {OTHER_RUN} is bound by workflow {other_id}'s")):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize("kind", ["another-workflow", "another-workflow-spec-mode", "interrupted-attempt"])
+def test_control_run_reuse_each_validation_on_its_own_kane_run_validates_and_promotes(tmp_path, monkeypatch, kind):
+    # Another validation sealed first in the same store, on a Kane run of its own. This one's
+    # run reports its own session, so it validates and promotes.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    if kind == "another-workflow-spec-mode":
+        app, spec, store, workflow_id = approved_spec_promotion(tmp_path)
+        other_id = second_spec_promotion(tmp_path, app, spec, store, APP_JS + "render(greeting.toUpperCase());\n")
+        other, _ = kane_runner(tmp_path / "other-kane", monkeypatch, session=OTHER_RUN)
+        assert resume_workflow(store, other_id, runner=other).state == "validated"
+        llm = None
+    else:
+        source, store, workflow_id, llm = approved_repair(tmp_path, git=True)
+        kind = "validated-record" if kind == "another-workflow" else kind
+        other_id = _another_validation(kind, tmp_path, monkeypatch, source, store, workflow_id, llm, session=OTHER_RUN)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch)
+
+    validated = resume_workflow(store, workflow_id, runner=runner, llm=llm)
+
+    assert validated.state == "validated", validated.validation
+    assert set(validated.validation["kane_runs"].values()) == {session_of("witness_stale")}
+    assert promote_workflow(store, workflow_id).state == "promoted"
+    if kind == "another-workflow-spec-mode":
+        assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")
+    else:
+        assert source.read_text(encoding="utf-8") == CANDIDATE_DOC
+    if other_id != workflow_id:
+        assert store.get(other_id).state == "validated"

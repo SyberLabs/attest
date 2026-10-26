@@ -195,6 +195,68 @@ def _kane_pack_bindings(
     return packs, failures
 
 
+def _sealed_elsewhere(store: SQLiteWorkflowStore, workflow_id: str, own_receipt: str | None) -> dict[str, str]:
+    """The Kane sessions another sealed validation in the store binds: session id -> whose.
+
+    "Another" is any other workflow's stored record, and any receipt artifact validation
+    sealed except ``own_receipt`` (this record's own): another workflow's, which stays when an
+    unresolved transition overwrites its record, or one from an earlier attempt at this
+    workflow's validation that stopped before its transition. The pack needs no key of its
+    own: since #54 it has to name the session it backs.
+    """
+    sealed: dict[str, str] = {}
+
+    def note(validation: Any, whose: str) -> None:
+        runs = validation.get("kane_runs") if isinstance(validation, dict) else None
+        for run_id in runs.values() if isinstance(runs, dict) else ():
+            if isinstance(run_id, str):
+                sealed.setdefault(run_id, whose)
+
+    for other_id, validation in store.validations():
+        if other_id != workflow_id:
+            note(validation, f"workflow {other_id}'s validation record")
+    for artifact_digest, content in store.artifacts_containing(b'"receipt_digest":'):
+        if artifact_digest == own_receipt:
+            continue
+        try:
+            receipt = json.loads(content)
+        except ValueError:
+            continue
+        if isinstance(receipt, dict) and "receipt_digest" in receipt and "workflow_id" in receipt:
+            note(receipt, f"validation receipt {artifact_digest[:12]} of workflow {receipt['workflow_id']}")
+    return sealed
+
+
+def _reused_kane_runs(store: SQLiteWorkflowStore, workflow_id: str, own_receipt: str | None, kane_runs: dict) -> list[tuple[str, str]]:
+    """(claim id, detail) for each bound browser claim whose Kane session another sealed validation binds.
+
+    Each validation starts its own Kane runs after the approval, so a run another validation
+    in this store already bound (another workflow's, or an earlier attempt at this one's) is
+    not this validation's, even when its pack is of the approved wording and started after
+    the approval.
+    """
+    sealed = _sealed_elsewhere(store, workflow_id, own_receipt)
+    return [
+        (claim_id, f"Kane session {run_id} is bound by {sealed[run_id]}")
+        for claim_id, run_id in kane_runs.items()
+        if isinstance(run_id, str) and run_id in sealed
+    ]
+
+
+def _refuse_reused_kane_runs(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """Promotion: no browser claim's Kane run is one another sealed validation in the store binds.
+
+    Checked last: a record that passes every other check names packs of the approved wording
+    from runs started after the approval, and this is what tells this validation's runs from
+    another's.
+    """
+    validation = record.validation or {}
+    reused = _reused_kane_runs(store, record.workflow_id, validation.get("receipt_artifact_digest"), validation.get("kane_runs") or {})
+    if reused:
+        claim_id, detail = reused[0]
+        raise WorkflowError(f"validation browser evidence for {claim_id} is from another validation's Kane run ({detail}); --apply refused")
+
+
 def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[str], build_digest: str | None) -> None:
     """Promotion: each browser claim's stored evidence is from its bound fresh Kane run, on the approved build."""
     kane_runs = validation.get("kane_runs") or {}
@@ -406,6 +468,7 @@ def resume_workflow(
                 *_observation_run_failures(claims, evidence, kane_runs),
                 *_observation_build_failures(claims, evidence, proposal["build_digest"]),
                 *unbacked,
+                *(f"{claim_id}:kane_run_reused" for claim_id, _ in _reused_kane_runs(store, workflow_id, None, kane_runs)),
             ]
             if unbound:
                 validation_data["successful"] = False
@@ -488,6 +551,7 @@ def promote_workflow(
     if ungrounded:
         raise WorkflowError(f"validation record's claims are not the approved candidate's ({ungrounded[0]}); --apply refused")
     _refuse_unbacked_browser_evidence(record.validation, [c for c in validated if c.kind == "browser"], record.approval)
+    _refuse_reused_kane_runs(store, record)
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])
