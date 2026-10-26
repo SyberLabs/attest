@@ -1,0 +1,28 @@
+{
+  "id": "MD-AB-10",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "weaken_promise_refused",
+  "title": "Proposal an older authority allowed (same policy digest) is re-judged at validation and --apply; refused, source unchanged",
+  "input": {
+    "base": "# Retries\n\n```bash\n# retries at most 3 times\necho ready\n```\n",
+    "candidate": "# Retries\n\n```bash\n# retries at most 5 times\necho ready\n```\n",
+    "control_candidate": "# Retries\n\n```bash\n# retries at most 3 times\necho steady\n```\n",
+    "approver": "reviewer"
+  },
+  "expected": {
+    "resume_state": "unresolved",
+    "reason_contains": "no longer authorizes this candidate",
+    "promote_error": "no longer authorizes this candidate",
+    "validated_state": "validated",
+    "control_state": "promoted",
+    "source_unchanged": true
+  }
+}

@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
-import stat
-import tempfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +13,7 @@ from typing import Any
 from .app_promotion import SPEC_APP_KIND, promote_app_workflow, resume_app_workflow
 from .approvals import ApprovalError, verify_approval
 from .compiler import _validate_compiled_claims, compile_doc
+from .docs_source import SourceDir, SourcePathError
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest_text, sha256_of
 from .kane import PACK_BEFORE_APPROVAL, PACK_WORDING, pack_disagreement
@@ -30,6 +28,72 @@ from .verdict import Rules, load_rules
 
 class WorkflowError(RuntimeError):
     pass
+
+
+class DocsApprovalError(ApprovalError):
+    """A Maintain Docs approval was refused; ``code`` is one of DOCS_APPROVAL_CODES."""
+
+    def __init__(self, code: str, detail: str):
+        super().__init__(f"docs approval refused ({code}): {detail}")
+        self.code = code
+
+
+DOCS_APPROVAL_CODES = (
+    "approval_missing", "approval_unbound", "approval_not_human", "authority_not_allowed",
+    "approval_unrecorded", "approval_stale",
+)
+
+# The events a Maintain Docs workflow has once `attest approve` has run, in order.
+_APPROVED_STEPS = [(None, "proposed"), ("proposed", "awaiting_approval"), ("awaiting_approval", "validating")]
+
+
+def verify_docs_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """The approval is a human's, and is the one ``attest approve`` recorded for this workflow.
+
+    ``verify_approval`` checks the approval against the proposal and its own digest, so a
+    digest-correct approval written into the record (or copied from a twin workflow) passes
+    it. This also reads the event chain back: the workflow was offered for approval by an
+    allowing authority under the proposal's policy, then approved once, by this approver,
+    with this approval digest, at a time between the two events.
+    """
+    approval = record.approval
+    if not approval:
+        raise DocsApprovalError("approval_missing", "no human approval is recorded for this workflow")
+    try:
+        verify_approval(record)
+    except ApprovalError as exc:
+        raise DocsApprovalError("approval_unbound", str(exc)) from exc
+    actor = approval.get("actor")
+    # `policy:<name>` is how receipts name an automatic decision, never a person
+    if not isinstance(actor, str) or not actor.strip() or actor != actor.strip() or actor.lower().startswith("policy:"):
+        raise DocsApprovalError("approval_not_human", f"approver {actor!r} is not a human identity")
+    if not (record.proposal.get("authority") or {}).get("allowed"):
+        raise DocsApprovalError("authority_not_allowed", "authority policy did not authorize this proposal")
+    events = store.events(record.workflow_id)
+    steps = [(e["from_state"], e["to_state"]) for e in events]
+    if steps[:3] != _APPROVED_STEPS or any(step in _APPROVED_STEPS for step in steps[3:]):
+        raise DocsApprovalError("approval_unrecorded", "the workflow has no single recorded proposal and approval")
+    offered, approved = events[1], events[2]
+    if offered["payload"] != {"authority": "allowed", "policy_digest": record.proposal.get("policy_digest")}:
+        raise DocsApprovalError("approval_unrecorded", "the workflow was not offered for approval by an allowing authority")
+    if approved["payload"] != {"actor": actor, "approval_digest": approval.get("approval_digest")}:
+        raise DocsApprovalError("approval_unrecorded", "the approval is not the one `attest approve` recorded")
+    try:
+        at = datetime.fromisoformat(approval["approved_at"])
+        start, end = datetime.fromisoformat(offered["created_at"]), datetime.fromisoformat(approved["created_at"])
+        inside = at.tzinfo is not None and start <= at <= end
+    except (KeyError, TypeError, ValueError):
+        inside = False
+    if not inside:
+        raise DocsApprovalError("approval_stale", "the approval was not given between this proposal and its approval event")
+
+
+def _refuse_docs_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """--apply: the approval is the one `attest approve` recorded (verify_docs_approval)."""
+    try:
+        verify_docs_approval(store, record)
+    except ApprovalError as exc:
+        raise WorkflowError(f"{exc}; --apply refused") from exc
 
 
 def _unresolved(store: SQLiteWorkflowStore, record: WorkflowRecord, reason: str) -> WorkflowRecord:
@@ -374,6 +438,38 @@ def _refuse_unsealed_validation(store: SQLiteWorkflowStore, record: WorkflowReco
         raise WorkflowError("validation record is not the one its validated event recorded; --apply refused")
 
 
+def _authority_refusal(store: SQLiteWorkflowStore, proposal: dict[str, Any], policy: MaintainDocsPolicy) -> str | None:
+    """Re-derive the patch authority from the approved artifacts: why the policy refuses
+    this candidate now, or None when it still authorizes it.
+
+    The decision stored at proposal time is this Attest's word only while its authority
+    logic is unchanged. Equal policy digests don't show that: the digest covers the
+    policy's fields, not the code that reads them. So validation and --apply ask again.
+    """
+    artifacts = proposal.get("artifact_digests") or {}
+    try:
+        base_text = store.get_artifact(artifacts["base"]).decode("utf-8")
+        candidate_text = store.get_artifact(artifacts["candidate"]).decode("utf-8")
+        diff = store.get_artifact(artifacts["diff"]).decode("utf-8")
+        baseline = json.loads(store.get_artifact(artifacts["baseline_claims"]))
+        kinds = [c.get("kind") for c in baseline if c.get("id") == proposal["target_claim_id"]]
+        decision = policy.authorize(
+            diff=diff,
+            doc_name=Path(proposal["source_path"]).name,
+            base_text=base_text,
+            candidate_text=candidate_text,
+            target_start=int(proposal["target_start_line"]),
+            target_end=int(proposal["target_end_line"]),
+            target_claim_id=str(proposal["target_claim_id"]),
+            base_digest=str(proposal["base_digest"]),
+            candidate_digest=str(proposal["candidate_digest"]),
+            target_kind=kinds[0] if len(kinds) == 1 else None,  # unknown: judged as prose, the stricter
+        )
+    except Exception as exc:
+        return f"its patch authority cannot be re-derived: {type(exc).__name__}: {exc}"
+    return None if decision.allowed else decision.reason
+
+
 def resume_workflow(
     store: SQLiteWorkflowStore,
     workflow_id: str,
@@ -401,14 +497,14 @@ def resume_workflow(
     if simulation or getattr(runner, "name", None) != "kane":
         raise WorkflowError("promotion validation requires fresh Kane evidence; simulation/fake evidence is not accepted")
     if record.state == "validated":
-        verify_approval(record)
+        _refuse_docs_approval(store, record)
         if apply:
             return promote_workflow(store, workflow_id, policy=policy)
         return record
     if record.state != "validating":
         raise WorkflowError(f"workflow is {record.state}; only an approved workflow can be resumed")
     try:
-        verify_approval(record)
+        verify_docs_approval(store, record)
     except ApprovalError as exc:
         return _unresolved(store, record, str(exc))
     if problem := _approval_disagreement(store, record):
@@ -432,15 +528,21 @@ def resume_workflow(
         or hashlib.sha256(candidate_bytes).hexdigest() != proposal.get("candidate_digest")
     ):
         return _unresolved(store, record, "base or candidate artifact digest mismatch")
+    if refusal := _authority_refusal(store, proposal, policy):
+        return _unresolved(store, record, f"Maintain Docs policy no longer authorizes this candidate ({refusal}); promotion refused")
     source_path = Path(proposal["source_path"])
-    if not source_path.is_file() or source_path.is_symlink():
-        return _unresolved(store, record, "source file is missing or is a symlink")
+    # Read through the stored path with no symlink on it: a directory swapped for a link to
+    # a clone at the same commit would match the source digest and the build identity.
     try:
-        source_text = source_path.read_text(encoding="utf-8")
+        with SourceDir(source_path) as source:
+            source_bytes = source.read()
+        source_text = source_bytes.decode("utf-8")
+    except SourcePathError as exc:
+        return _unresolved(store, record, str(exc))
     except (OSError, UnicodeError) as exc:
         return _unresolved(store, record, f"cannot read source for digest check: {exc}")
     if (
-        hashlib.sha256(source_path.read_bytes()).hexdigest() != proposal.get("source_digest")
+        hashlib.sha256(source_bytes).hexdigest() != proposal.get("source_digest")
         or sha256_of(source_text) != proposal.get("base_digest")
     ):
         return _unresolved(store, record, "source changed after approval; promotion refused")
@@ -516,6 +618,11 @@ def resume_workflow(
                 session.close()
             if scratch.exists():
                 shutil.rmtree(scratch, ignore_errors=True)
+        try:
+            with SourceDir(source_path):
+                pass
+        except SourcePathError as exc:
+            return _unresolved(store, record, f"{exc} after validation ran; promotion refused")
         if current_build_digest(source_path, proposal["source_digest"]) != proposal.get("build_digest"):
             return _unresolved(store, record, "build identity changed during validation; promotion refused")
         if not validation_data["successful"]:
@@ -555,8 +662,7 @@ def promote_workflow(
     policy = policy or MaintainDocsPolicy()
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
-    verify_approval(record)
-    _refuse_unrecorded_approval(store, record)
+    _refuse_docs_approval(store, record)
     if not record.validation.get("successful") or record.validation.get("runner") != "kane":
         raise WorkflowError("--apply is disabled after failed, incomplete, or simulated validation")
     proposal = record.proposal
@@ -592,10 +698,20 @@ def promote_workflow(
     _refuse_reused_kane_runs(store, record)
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
+    if refusal := _authority_refusal(store, proposal, policy):
+        raise WorkflowError(f"Maintain Docs policy no longer authorizes this candidate ({refusal}); --apply refused")
     path = Path(proposal["source_path"])
-    if not path.is_file() or path.is_symlink():
-        raise WorkflowError("source file is missing or is a symlink")
-    original = path.read_bytes()
+    try:
+        with SourceDir(path) as source:
+            return _write_candidate(store, workflow_id, proposal, source)
+    except SourcePathError as exc:
+        raise WorkflowError(f"{exc}; --apply refused") from exc
+
+
+def _write_candidate(store: SQLiteWorkflowStore, workflow_id: str, proposal: dict[str, Any], source: SourceDir) -> WorkflowRecord:
+    """Promote through the approved source's directory, held open with no symlink on its path."""
+    path = source.path
+    original = source.read()
     try:
         current_text = original.decode("utf-8")
     except UnicodeError as exc:
@@ -610,22 +726,14 @@ def promote_workflow(
     candidate = store.get_artifact(proposal["artifact_digests"]["candidate"])
     if hashlib.sha256(candidate).hexdigest() != proposal.get("candidate_digest"):
         raise WorkflowError("candidate digest mismatch; --apply refused")
-    mode = stat.S_IMODE(path.stat().st_mode)
-    fd, staged_name = tempfile.mkstemp(prefix=f".{path.name}.attest-", dir=path.parent)
-    staged = Path(staged_name)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(candidate)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(staged, mode)
+    mode = source.mode()
+
+    def unchanged() -> None:
         # Recheck immediately before the atomic replacement.
-        current = path.read_bytes()
-        if hashlib.sha256(current).hexdigest() != proposal["source_digest"]:
+        if hashlib.sha256(source.read()).hexdigest() != proposal["source_digest"]:
             raise WorkflowError("source changed during promotion; --apply refused")
-        os.replace(staged, path)
-    finally:
-        staged.unlink(missing_ok=True)
+
+    source.replace(candidate, mode, prefix="attest-", before=unchanged)
     try:
         return store.transition(
             workflow_id,
@@ -635,12 +743,10 @@ def promote_workflow(
         )
     except Exception:
         # Never leave an unrecorded promotion if the durable state write fails.
-        if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == proposal["candidate_digest"]:
-            fd, rollback_name = tempfile.mkstemp(prefix=f".{path.name}.attest-rollback-", dir=path.parent)
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(original)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.chmod(rollback_name, mode)
-            os.replace(rollback_name, path)
+        try:
+            promoted = hashlib.sha256(source.read()).hexdigest() == proposal["candidate_digest"]
+        except (SourcePathError, OSError):
+            promoted = False
+        if promoted:
+            source.replace(original, mode, prefix="attest-rollback-")
         raise
