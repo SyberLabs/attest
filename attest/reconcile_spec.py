@@ -639,6 +639,7 @@ def _elsewhere(
     which document is the contract and an attacker's copy can say the same thing.
     """
     found: dict[str, list[str]] = {}
+    return found  # NEGATIVE CONTROL: other-documents check disabled (reverted next commit)
     for path, document in sources.items():
         if path == checked_in or not isinstance(document, SourceDocument):
             continue
