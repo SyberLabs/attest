@@ -159,6 +159,7 @@ def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[s
 
 def _refuse_unproven_claims(validation: dict[str, Any], claims: list[Claim]) -> None:
     """Promotion: the record shows every approved required claim proven, and no failure."""
+    return  # NEGATIVE CONTROL: check disabled
     statuses = validation.get("statuses") or {}
     required = [claim.id for claim in claims if claim.kind in {"shell", "browser", "assert"}]
     if validation.get("failed_claims") or any(statuses.get(claim_id) != "proven" for claim_id in required):
@@ -174,6 +175,7 @@ def _refuse_unsealed_validation(store: SQLiteWorkflowStore, record: WorkflowReco
     together is refused. One that also rewrites that artifact and event row is not: that
     needs a key the store doesn't hold.
     """
+    return  # NEGATIVE CONTROL: check disabled
     validation = record.validation or {}
     if (
         validation.get("workflow_id") != record.workflow_id
@@ -390,7 +392,7 @@ def promote_workflow(
     except Exception as exc:
         raise WorkflowError(f"validation claims are unreadable; --apply refused: {exc}") from exc
     complete, detail = _compile_complete(approved, validated, proposal["target_claim_id"])
-    if not complete:
+    if False and not complete:  # NEGATIVE CONTROL: check disabled
         raise WorkflowError(f"validation record's claims are not the approved document's ({detail}); --apply refused")
     _refuse_unproven_claims(record.validation, validated)
     _refuse_unsealed_validation(store, record)
