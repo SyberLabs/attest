@@ -7,7 +7,7 @@ Unless a case supplies its own ``source``, ``diagnose`` and ``_cli`` give every
 document the request's protected texts are checked against (the authority
 reference's path, else source_doc) a text that labels each requirement with the
 first protected text the request submits for it, so cases about other checks are
-not blocked by the source check. RS-AB-10 to RS-AB-14 and RS-CTRL-01 supply their
+not blocked by the source check. RS-AB-10 to RS-AB-15 and RS-CTRL-01 supply their
 own documents.
 """
 
@@ -436,6 +436,46 @@ def test_text_matched_where_the_title_or_prose_withdraws_it_blocks(rt_case, tmp_
     # "no longer valid" in SEC-4's text, SEC-3 withdrawn in favour of SEC-4 and SEC-5's withdrawn subsection
     # beside it, "which are deprecated" in SEC-6, SEC-7's "Draft documents" title, a change log naming SEC-4
     # as the replacement, and one where "was replaced by" follows SEC-4 only in the next sentence
+    _assert_governing_ready_and_variants_blocked(rt_case, tmp_path)
+
+    # the API path blocks the same way, and a ready JSON that lists a withdrawing line does not load
+    withdrawn = i["variants"]["changelog_id"]["document"]
+    handoff = diagnose(_contract_request(i["protected_text"]), source=withdrawn)
+    assert handoff.handoff_state == x["handoff_state"] and handoff.source_state == x["source_state"]
+    assert handoff.blocking_reasons == [x["reason_prefix"] + "prose"]
+    ready = diagnose(_contract_request(i["governing_requirements"]["SEC-4"]), source=i["governing"]).model_dump()
+    assert ready["handoff_state"] == "ready"
+    ready["conflicts"][0]["source_not_governing"] = [i["variants"]["changelog_id"]["shows"]]
+    with pytest.raises(ValidationError):
+        ReconcileHandoff.model_validate(ready)
+
+
+@case("RS-AB-15")
+def test_text_matched_where_another_note_names_it_as_withdrawn_blocks(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    # a governing contract that names SEC-4 as the replacement ("SEC-3 was replaced by SEC-4", "Replace
+    # password rotation with SEC-4"), names it beside another id's withdrawal ("Replaces SEC-3 and keeps
+    # SEC-4", "Withdrew SEC-2; SEC-4 is unchanged", "removed nightly and SEC-4 sign-in"), names longer ids in
+    # SEC-4's own section (SEC-40, SEC-4a), or uses the verbs for other things in SEC-4's own text ("replacing
+    # password-only sign-in", "is suspended") is still ready
+    _assert_governing_ready_and_variants_blocked(rt_case, tmp_path)
+
+    # the API path blocks the same way, and a ready JSON that lists such a line does not load
+    named = i["variants"]["other_label_replaces"]
+    handoff = diagnose(_contract_request(i["protected_text"]), source=named["document"])
+    assert handoff.handoff_state == x["handoff_state"] and handoff.source_state == x["source_state"]
+    assert handoff.blocking_reasons == [x["reason_prefix"] + "prose"]
+    assert handoff.conflicts[0].source_not_governing == [named["shows"]]
+    ready = diagnose(_contract_request(i["governing_requirements"]["SEC-4"]), source=i["governing"]).model_dump()
+    assert ready["handoff_state"] == "ready"
+    ready["conflicts"][0]["source_not_governing"] = [named["shows"]]
+    with pytest.raises(ValidationError):
+        ReconcileHandoff.model_validate(ready)
+
+
+def _assert_governing_ready_and_variants_blocked(rt_case, tmp_path) -> None:
+    """Each governing requirement is a ready handoff, and each variant blocks with its reasons and line."""
+    i, x = rt_case["input"], rt_case["expected"]
     for requirement, text in i["governing_requirements"].items():
         governing = tmp_path / f"governing-{requirement}"
         _write_files(governing / "src", {"contracts/security.md": i["governing"]})
@@ -461,17 +501,6 @@ def test_text_matched_where_the_title_or_prose_withdraws_it_blocks(rt_case, tmp_
         assert conflict["source_not_governing"] == [variant["shows"]], (name, conflict["source_not_governing"])
         assert x["markdown_contains"] in markdown and variant["shows"] in markdown, name
         assert (root / "contracts" / "security.md").read_text(encoding="utf-8") == variant["document"], name
-
-    # the API path blocks the same way, and a ready JSON that lists a withdrawing line does not load
-    withdrawn = i["variants"]["changelog_id"]["document"]
-    handoff = diagnose(_contract_request(i["protected_text"]), source=withdrawn)
-    assert handoff.handoff_state == x["handoff_state"] and handoff.source_state == x["source_state"]
-    assert handoff.blocking_reasons == [x["reason_prefix"] + "prose"]
-    ready = diagnose(_contract_request(i["governing_requirements"]["SEC-4"]), source=i["governing"]).model_dump()
-    assert ready["handoff_state"] == "ready"
-    ready["conflicts"][0]["source_not_governing"] = [i["variants"]["changelog_id"]["shows"]]
-    with pytest.raises(ValidationError):
-        ReconcileHandoff.model_validate(ready)
 
 
 def _referenced_request(protected_text: str, source_doc: str, reference: str) -> dict:

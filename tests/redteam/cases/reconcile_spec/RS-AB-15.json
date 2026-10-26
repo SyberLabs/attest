@@ -1,0 +1,130 @@
+{
+  "id": "RS-AB-15",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "injected_superseded_claim",
+  "title": "Protected text quoted exactly from a document where another requirement, a change log or front matter names it as what is withdrawn or replaced (`SEC-9: Replaces SEC-4.`, \"We dropped SEC-4\", `Obsoletes: SEC-4`, \"Withdrawal of SEC-4\") blocks the handoff (exit 3) and shows the line; a governing contract that names SEC-4 as the replacement, or names other ids, is still ready",
+  "input": {
+    "protected_text": "The application must require multi-factor authentication\nfor every administrator sign-in.",
+    "governing": "# Security contract\n\n**Status:** Approved\n\n## Authentication\n\n- **SEC-4:** The application must require multi-factor authentication\nfor every administrator sign-in, replacing password-only sign-in. An account that fails it three times is suspended.\n- **SEC-8:** Replace password rotation with SEC-4.\n- **SEC-9:** Replaces SEC-3 and keeps SEC-4.\n\nThe sign-in page removes SEC-40 headers and drops SEC-4a probes.\n\n## Gateway\n\n- **SEC-10:** The gateway removes SEC-40 headers and drops SEC-4a probes.\n- **SEC-11:** Idle sessions are removed nightly and SEC-4 sign-in is required again.\n\n## Change log\n\n- 2026-09-01: SEC-3 was replaced by SEC-4.\n- 2026-09-01: Withdrew SEC-2; SEC-4 is unchanged.\n",
+    "variants": {
+      "other_label_replaces": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## New rules\n\n- **SEC-9:** Replaces SEC-4.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- **SEC-9:** Replaces SEC-4."
+      },
+      "other_label_trailing": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## New rules\n\n- **SEC-9:** Sessions expire after 15 minutes idle. This replaces SEC-4.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- **SEC-9:** Sessions expire after 15 minutes idle. This replaces SEC-4."
+      },
+      "other_heading": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-9: Retires SEC-4\n\nAdministrators sign in with a hardware key.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "## SEC-9: Retires SEC-4"
+      },
+      "changelog_dropped": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: We dropped SEC-4.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: We dropped SEC-4."
+      },
+      "changelog_list": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: SEC-9 replaced SEC-3, SEC-4 and SEC-5.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: SEC-9 replaced SEC-3, SEC-4 and SEC-5."
+      },
+      "changelog_requirement": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: Removed requirement SEC-4.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: Removed requirement SEC-4."
+      },
+      "changelog_noun": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: Withdrawal of **SEC-4** approved by the security board.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: Withdrawal of **SEC-4** approved by the security board."
+      },
+      "in_place_of": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-9\n\nAdministrators sign in with a hardware key. SEC-9 applies in place of SEC-4.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "Administrators sign in with a hardware key. SEC-9 applies in place of SEC-4."
+      },
+      "obsoletes_key": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-9\n\nObsoletes: SEC-4\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "Obsoletes: SEC-4"
+      },
+      "linked": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-9\n\nRevokes [SEC-4](#sec-4) for every administrator.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "Revokes [SEC-4](#sec-4) for every administrator."
+      },
+      "front_matter": {
+        "document": "---\nstatus: active\nobsoletes: [SEC-3, SEC-4]\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "--- status: active obsoletes: [SEC-3, SEC-4] ---"
+      },
+      "own_subsection": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n### History\n\nSEC-9 revokes the SEC-4 rule from 2026-09-01.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "SEC-9 revokes the SEC-4 rule from 2026-09-01."
+      },
+      "own_text": {
+        "document": "# Security contract\n\n## Authentication\n\n- **SEC-4:** The application must require multi-factor authentication\nfor every administrator sign-in, until SEC-9 deprecates SEC-4.\n",
+        "protected_text": "The application must require multi-factor authentication for every administrator sign-in, until SEC-9 deprecates SEC-4.",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- **SEC-4:** The application must require multi-factor authentication for every administrator sign-in, until SEC-9 deprecates SEC-4."
+      }
+    },
+    "governing_requirements": {
+      "SEC-4": "The application must require multi-factor authentication for every administrator sign-in, replacing password-only sign-in. An account that fails it three times is suspended.",
+      "SEC-8": "Replace password rotation with SEC-4.",
+      "SEC-9": "Replaces SEC-3 and keeps SEC-4.",
+      "SEC-10": "The gateway removes SEC-40 headers and drops SEC-4a probes.",
+      "SEC-11": "Idle sessions are removed nightly and SEC-4 sign-in is required again."
+    }
+  },
+  "expected": {
+    "exit_code": 3,
+    "stderr_contains": "blocked:",
+    "governing_exit_code": 0,
+    "handoff_state": "blocked",
+    "source_state": "not_governing",
+    "authority_state": "conflicting",
+    "repair_state": "handoff",
+    "reason_prefix": "c01:source_not_governing:",
+    "markdown_contains": "Where the checked document says this requirement may not govern"
+  }
+}

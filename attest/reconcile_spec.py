@@ -588,6 +588,33 @@ _SELF_WITHDRAWN = re.compile(rf"{_SELF}{_WITHDRAWS}", re.IGNORECASE)
 _THIS_REQUIREMENT = rf"\bthis\s+(?:requirement|rule|control|clause|section)\b|{_SELF}"
 # a unit labelled with an id-shaped token (letters, a hyphen, a digit): another requirement's own text
 _ID_LABEL = re.compile(_LABEL_PREFIX.pattern + r"([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)(?![\w-])")
+# What a sentence says before the requirement it withdraws, whatever its subject: a verb
+# (``SEC-9 replaces SEC-4``, ``We dropped SEC-4``, ``Obsoletes: SEC-4``), a noun and "of"
+# (``Withdrawal of SEC-4``) or "in place of", then optionally "the", a word for a requirement
+# and other ids in a list (``Revokes SEC-3, SEC-4``). "Replaced by SEC-4" and "replace X
+# with SEC-4" name SEC-4 as the replacement and don't match.
+_WITHDRAWING_VERB = (
+    r"replac(?:e|es|ed|ing)|withdr(?:aw|aws|awn|awing|ew)|retir(?:e|es|ed|ing)|revok(?:e|es|ed|ing)"
+    r"|rescind(?:s|ed|ing)?|repeal(?:s|ed|ing)?|deprecat(?:e|es|ed|ing)|obsolet(?:e|es|ed|ing)"
+    r"|cancel(?:s|led|ed|ling|ing)?|void(?:s|ed|ing)?|drop(?:s|ped|ping)?|remov(?:e|es|ed|ing)"
+    r"|delet(?:e|es|ed|ing)|abolish(?:es|ed|ing)?|discontinu(?:e|es|ed|ing)|annul(?:s|led|ling)?"
+    r"|retract(?:s|ed|ing)?|scrap(?:s|ped|ping)?|suspend(?:s|ed|ing)?|sunset(?:s|ted|ting)?"
+)
+_WITHDRAWING_NOUN = (
+    r"(?:replacement|withdrawal|retirement|revocation|rescission|repeal|deprecation|cancell?ation|removal"
+    r"|deletion|abolition|discontinuation|annulment|retraction|suspension)\s+(?:of|for)|in\s+place\s+of|instead\s+of"
+)
+_OBJECT_MARKS = r"[\s*_`'\"\[\]():]*"
+_WITHDRAWING = (
+    rf"\b(?:{_WITHDRAWING_VERB}|{_WITHDRAWING_NOUN})\b{_OBJECT_MARKS}(?:the\s+)?"
+    rf"(?:(?:old|former|previous|existing)\s+)?(?:(?:requirements?|rules?|controls?|clauses?)\s+)?{_OBJECT_MARKS}"
+    rf"(?:[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+{_OBJECT_MARKS}(?:,|&|/|\band\b|\bor\b){_OBJECT_MARKS})*"
+)
+
+
+def _withdrawing(requirement: str) -> str:
+    """A pattern for a sentence that names ``requirement`` as what it withdraws or replaces."""
+    return rf"{_WITHDRAWING}(?<![\w-]){re.escape(requirement)}(?![\w-])"
 
 
 def _heading_level(unit: str) -> int:
@@ -665,7 +692,9 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
       (``This requirement was replaced by SEC-9``), or that opens a segment with a
       state (``Withdrawn in favour of SEC-9.``). Anywhere in the document, a sentence
       that withdraws the requirement by its id (``SEC-4 no longer applies``) or the
-      document itself (``This contract has been withdrawn``).
+      document itself (``This contract has been withdrawn``), and one that names the
+      id as what it withdraws or replaces, whatever its subject (``SEC-9 replaces
+      SEC-4``, ``We dropped SEC-4``, ``Obsoletes: SEC-4``; see ``_WITHDRAWING``).
 
     The values are the folded lines that tripped each one, for the handoff.
     """
@@ -686,7 +715,9 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
             found.setdefault("superseded", []).append(_fold(line))
 
     token = re.compile(rf"(?<![\w-]){re.escape(requirement)}(?![\w-])", re.IGNORECASE)
-    withdrawn = re.compile(rf"(?:{token.pattern}|{_THIS_REQUIREMENT}){_WITHDRAWS}", re.IGNORECASE)
+    withdrawn = re.compile(
+        rf"(?:{token.pattern}|{_THIS_REQUIREMENT}){_WITHDRAWS}|{_withdrawing(requirement)}", re.IGNORECASE
+    )
     own: set[int] = set()
     for index, body in _labels(units, requirement):
         if body != matched:
