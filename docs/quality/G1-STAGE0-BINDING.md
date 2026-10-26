@@ -37,6 +37,10 @@
   - Green again on the revert `e54f892`: [run 40361982411](https://github.com/SyberLabs/attest/actions/runs/40361982411), 140 passed. `tests / pytest` gave 748 passed, 4 skipped, 2 xfailed ([run 40361981834](https://github.com/SyberLabs/attest/actions/runs/40361981834)).
 
 FACTORY §3 lists G1 as Measured (scoped) through #27, but names a gap that #27 does not cover: "app/build version and Kane run-id binding, live Kane". This gate covers the first two. It does not cover live Kane.
+- **`run-reuse` section: the pack's Kane run is no other validation's** (PR #66, stacked on #58): **Measured (scoped)** from hosted Actions output on PR #66. New section `run-reuse` with 10 cases; `control` goes from 15 to 18. PR #66 targets #58's branch, so its runs are on the merge with `feat/g1-next-after-56` at `d0fa5e6`, which #58's own runs show green.
+  - Green on `d1efc22`: [run 40367290086](https://github.com/SyberLabs/attest/actions/runs/40367290086), 153 passed (version 13, kane-run 36, observation-build 24, record 18, pack 18, wording 9, run-time 7, run-reuse 10, control 18). `tests / pytest` gave 762 passed, 4 skipped, 2 xfailed ([run 40367290164](https://github.com/SyberLabs/attest/actions/runs/40367290164)).
+  - Fails closed on `3670665`: [run 40367371511](https://github.com/SyberLabs/attest/actions/runs/40367371511). That commit made `_reused_kane_runs` return nothing, which turns off both the validation and the promotion hook. All 10 run-reuse cases failed, 143 passed (all 18 controls among them), and the job failed with `section [run-reuse] has no passing test`. `tests / pytest` gave 10 failed, 752 passed ([run 40367371562](https://github.com/SyberLabs/attest/actions/runs/40367371562)). G2, G3, G4, G5 and G7 stayed green.
+  - Green again on the revert `7efbc43` (same tree as `d1efc22`): [run 40367387217](https://github.com/SyberLabs/attest/actions/runs/40367387217), 153 passed. `tests / pytest` gave 762 passed, 4 skipped, 2 xfailed ([run 40367387365](https://github.com/SyberLabs/attest/actions/runs/40367387365)).
 
 ## What the gate checks
 
@@ -197,7 +201,7 @@ Deliberate choices:
 - **The approval is the time anchor.** It is the human act validation follows, and its digest covers `approved_at`. A start equal to `approved_at` passes. No tolerance is allowed. If the approving host's clock runs ahead of the clock on the host that ran Kane, validation refuses, which errs toward blocking.
 - **A pack that doesn't say when it ran backs nothing** once a time is asked for. Every recorded capture has `started`. Without `not_before`, the reader is #56's.
 
-### The pack's Kane run is no other validation's (stacked on #58)
+### The pack's Kane run is no other validation's (PR #66, stacked on #58)
 
 Since #58 the pack's run must not start before the approval. A real run of the approved wording that started *after* it still backed a claim. On #58's tip (`d0fa5e6`) these validated, on both paths: a Kane command reporting the session of another workflow's validation of the same doc (validated, or rejected on another claim), of another workflow whose record `unresolved` overwrote after the build moved while its Kane ran (only its receipt artifact names its runs), or of an earlier attempt at this workflow's own validation that stopped after sealing its receipt and before its transition (the workflow stays `validating`, so the next `resume` is another attempt). Each of those packs is sealed for the file the runner wrote, of the approved wording, and started after the approval, so every pack check passes. With record, receipt artifact and validated event resealed, a record laundering such a run and its real pack onto c07 and c08 promoted too.
 
