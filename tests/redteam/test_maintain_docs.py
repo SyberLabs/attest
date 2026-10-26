@@ -387,7 +387,13 @@ def _forged_approval(tmp_path, i, shape: str):
         approve_workflow(store, wid, i["approver"])
         _write_row(store, wid, "validating", approve_workflow(store, twin.workflow_id, "intruder").approval)
     elif shape == "policy_actor":
-        approve_workflow(store, wid, "policy:auto-approve")
+        # #60 refuses this actor at admission. Still exercise #63 against a row
+        # written by an older host (or directly), past that earlier guard.
+        with pytest.raises(ApprovalError, match="human approver"):
+            approve_workflow(store, wid, "policy:auto-approve")
+        approval = _digest_correct_approval(record, "policy:auto-approve")
+        store.transition(wid, "awaiting_approval", "validating", approval=approval,
+                         event={"actor": approval["actor"], "approval_digest": approval["approval_digest"]})
     elif shape == "backdated":
         approval = _digest_correct_approval(record, i["approver"], approved_at="2020-01-01T00:00:00+00:00")
         store.transition(wid, "awaiting_approval", "validating", approval=approval,
@@ -440,6 +446,7 @@ def test_record_validated_without_the_approve_event_is_refused_at_apply(rt_case,
         with monkeypatch.context() as older:
             # an Attest whose gate stopped at verify_approval validated this record
             older.setattr(workflow_module, "verify_docs_approval", lambda store, record: verify_approval(record))
+            older.setattr(workflow_module, "_approval_disagreement", lambda store, record: None)
             validated = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(root / "ran"))
         assert validated.state == x["validated_state"], item
 
