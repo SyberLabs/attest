@@ -9,6 +9,15 @@ Rules from docs/ARCHITECTURE.md:
    exact on-page label it expects. It stores what it saw under ``store_as``.
 3. Prose that promises nothing observable is ``prose`` and gets no badge.
 
+Rules from docs/CLI-RUNNER-SPEC.md, applied with no model call:
+
+4. A ``markdown`` fence whose text opens with frontmatter carrying a ``runvil:``
+   key is a ``prompt`` claim; ``command`` is the fence text byte for byte.
+5. A ``text`` fence that follows it with only blank lines between becomes that
+   claim's ``expects``, byte for byte. The claim's span covers both fences.
+6. A ``lua`` or ``markdown`` fence that is not a complete prompt file is a
+   fragment and compiles to prose: it promises nothing a run can check.
+
 The LLM output is checked post-hoc against the doc. On failure the call is
 retried once with the failing line quoted; on a second failure the fenced
 blocks are compiled by regex and only the LLM's non-fence claims are kept.
@@ -21,6 +30,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -31,6 +41,10 @@ from .models import Claim, Doc, Fence, Span
 
 SHELL_LANGS = {"", "sh", "bash", "shell", "console", "zsh", "shell-session", "terminal", "cmd", "powershell", "ps1"}
 OUTPUT_LANGS = {"text", "txt", "output", "plaintext", "log", "console-output"}
+# a complete Runvil prompt file sits in a markdown fence (docs/CLI-RUNNER-SPEC.md, compiler rule 1)
+PROMPT_LANGS = {"markdown"}
+# a lua or markdown fence that is not a complete prompt file is a fragment: prose, never run
+FRAGMENT_LANGS = {"lua", "markdown", "md"}
 DEFAULT_MODEL = os.environ.get("ATTEST_OPENAI_MODEL", "gpt-5-mini")
 
 
@@ -109,6 +123,7 @@ Rules:
 - Walk the document top to bottom. Every fenced code block is exactly one claim. Copy the lines between the fences verbatim into `command` (never the ``` fence lines themselves, never the language tag) and set kind to "shell". If the block is only program output, or every line starts with #, set kind to "assert" and copy the text into `expects` instead.
 - A sentence that tells the reader to open a page, click, type, or that says what they will see in a browser is a "browser" claim. Write `objective` as one plain-English step a person can follow, in the imperative, ending in a check of the exact on-page text. Put that exact on-page text, and nothing else, in `expects`. Do not format the step for any tool.
 - When a shell step says what it prints (for example "Running on http://..."), put that exact text in `expects`.
+- A `markdown` fence that holds a complete prompt file (frontmatter with a `runvil:` key), the `text` fence with its result, and any `lua` fence are placed by rule, not by you: return each of those blocks as "prose".
 - Everything else that promises nothing observable is "prose". Prose must have null command, objective and expects.
 - `start_line` and `end_line` are 1-based inclusive line numbers from the numbering shown. `text` is the exact text of those lines, joined with newlines, without the line numbers.
 - Never invent a check the document did not make. Never paraphrase a code block.
@@ -143,7 +158,13 @@ def _expectation_in_source(expects: str, doc: Doc) -> bool:
 
 
 def required_browser_lines(doc: Doc) -> list[int]:
-    """Find non-fenced source lines that promise an observable browser action."""
+    """Find non-fenced source lines that promise an observable browser action.
+
+    Empty when the doc declares it has no browser steps (``Doc.browser_claims``
+    is False, set from the sidecar file): a Language guide chapter talks about
+    pages, text and labels without asking anyone to open a browser."""
+    if not doc.browser_claims:
+        return []
     fenced_lines = {n for f in doc.fences for n in range(f.start_line, f.end_line + 1)}
     return [
         n
@@ -163,9 +184,31 @@ def same_block(a: str | None, b: str) -> bool:
     return bool(la) and la == lb
 
 
-def classify_fence(fence: Fence) -> Literal["shell", "assert"]:
+_FRONTMATTER_KEY = re.compile(r"^runvil\s*:")
+
+
+def is_prompt_fence(fence: Fence) -> bool:
+    """A markdown fence whose text opens with frontmatter carrying a ``runvil:`` key."""
+    if fence.lang.lower() not in PROMPT_LANGS:
+        return False
+    lines = fence.text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return False
+    for ln in lines[1:]:
+        if ln.strip() == "---":
+            return False  # the frontmatter closed without the key
+        if _FRONTMATTER_KEY.match(ln):
+            return True
+    return False
+
+
+def classify_fence(fence: Fence) -> Literal["shell", "assert", "prompt", "prose"]:
     lang = fence.lang.lower()
     lines = [ln for ln in fence.text.splitlines() if ln.strip()]
+    if is_prompt_fence(fence):
+        return "prompt"
+    if lang in FRAGMENT_LANGS:
+        return "prose"
     if lang in OUTPUT_LANGS:
         return "assert"
     if lang not in SHELL_LANGS:
@@ -175,16 +218,105 @@ def classify_fence(fence: Fence) -> Literal["shell", "assert"]:
     return "shell"
 
 
-def fence_claim(fence: Fence, cid: str) -> Claim:
+FenceRole = Literal["shell", "assert", "prompt", "result", "prose"]
+
+
+@dataclass(frozen=True)
+class FencePlan:
+    """One fence and the role the rules give it. A prompt fence may own the
+    result fence that follows it; that result fence is then not a claim."""
+
+    fence: Fence
+    role: FenceRole
+    result: Fence | None = None
+
+
+def _only_blank_between(doc: Doc, first: Fence, second: Fence) -> bool:
+    """True when nothing but blank lines sits between the closing fence of
+    ``first`` and the opening fence of ``second``."""
+    return all(not ln.strip() for ln in doc.lines[first.end_line + 1 : second.start_line - 2])
+
+
+def plan_fences(doc: Doc) -> list[FencePlan]:
+    """Give every fence a role by rule. The plan is the single source of truth for
+    which fences are claims, which are results and which are prose."""
+    plan: list[FencePlan] = []
+    fences = doc.fences
+    i = 0
+    while i < len(fences):
+        f = fences[i]
+        role = classify_fence(f)
+        if role == "prompt" and i + 1 < len(fences):
+            nxt = fences[i + 1]
+            if nxt.lang.lower() in OUTPUT_LANGS and _only_blank_between(doc, f, nxt):
+                plan.append(FencePlan(f, "prompt", nxt))
+                plan.append(FencePlan(nxt, "result"))
+                i += 2
+                continue
+        plan.append(FencePlan(f, role))
+        i += 1
+    return plan
+
+
+def fence_claim(fence: Fence, cid: str, doc: Doc | None = None, result: Fence | None = None) -> Claim:
+    """The claim a fence compiles to by rule. ``result`` is the paired result
+    fence of a prompt; it needs ``doc`` so the span can cover both fences."""
     kind = classify_fence(fence)
     span = Span(start_line=fence.start_line, end_line=fence.end_line, text=fence.text)
     if kind == "shell":
         return Claim(id=cid, kind="shell", span=span, command=fence.text)
+    if kind == "prompt":
+        if result is not None:
+            if doc is None:
+                raise ValueError("a paired prompt claim needs the doc to build its span")
+            span = Span(
+                start_line=fence.start_line,
+                end_line=result.end_line,
+                text="\n".join(doc.lines[fence.start_line - 1 : result.end_line]),
+            )
+        return Claim(id=cid, kind="prompt", span=span, command=fence.text, expects=result.text if result else None)
+    if kind == "prose":
+        return Claim(id=cid, kind="prose", span=span)
     return Claim(id=cid, kind="assert", span=span, expects=fence.text)
 
 
 def fences_by_regex(doc: Doc) -> list[Claim]:
-    return [fence_claim(f, f"c{i + 1:02d}") for i, f in enumerate(doc.fences)]
+    claims: list[Claim] = []
+    for item in plan_fences(doc):
+        if item.role == "result":
+            continue
+        claims.append(fence_claim(item.fence, f"c{len(claims) + 1:02d}", doc=doc, result=item.result))
+    return claims
+
+
+def _rule_placed(plan: list[FencePlan]) -> list[FencePlan]:
+    """Fences the rules place without the model: prompts, their results and fragments."""
+    return [item for item in plan if item.role in ("prompt", "result", "prose")]
+
+
+def _overlaps(start: int, end: int, fence: Fence) -> bool:
+    return start <= fence.end_line and fence.start_line <= end
+
+
+def _represents(claim: Claim, item: FencePlan) -> bool:
+    """True when ``claim`` is exactly the claim the plan item compiles to."""
+    f = item.fence
+    if item.role == "shell":
+        return claim.kind == "shell" and (claim.span.start_line, claim.span.end_line) == (f.start_line, f.end_line) and claim.command == f.text
+    if item.role == "assert":
+        return claim.kind == "assert" and (claim.span.start_line, claim.span.end_line) == (f.start_line, f.end_line) and claim.expects == f.text
+    if item.role == "prose":
+        return claim.kind == "prose" and (claim.span.start_line, claim.span.end_line) == (f.start_line, f.end_line)
+    if item.role == "prompt":
+        end = item.result.end_line if item.result else f.end_line
+        expects = item.result.text if item.result else None
+        return (
+            claim.kind == "prompt"
+            and (claim.span.start_line, claim.span.end_line) == (f.start_line, end)
+            and claim.command == f.text
+            and claim.expects == expects
+        )
+    return False
 
 
 def _span_from(doc: Doc, lc: LLMClaim) -> Span | None:
@@ -197,6 +329,8 @@ def _span_from(doc: Doc, lc: LLMClaim) -> Span | None:
 def check_claims(doc: Doc, drafts: list[LLMClaim]) -> list[str]:
     """Return problems in an LLM draft. Empty means all required claims are resolved."""
     problems: list[str] = []
+    plan = plan_fences(doc)
+    rule_fences = [item.fence for item in _rule_placed(plan)]
     if not drafts:
         problems.append("compiler returned no claims")
     for i, lc in enumerate(drafts):
@@ -204,6 +338,8 @@ def check_claims(doc: Doc, drafts: list[LLMClaim]) -> list[str]:
         if span is None:
             problems.append(f"claim {i + 1}: span {lc.start_line}-{lc.end_line} is outside the document")
             continue
+        if any(_overlaps(lc.start_line, lc.end_line, f) for f in rule_fences):
+            continue  # the rules place this block; the draft is dropped in assemble
         if _strip_ws(span.text) != _strip_ws(lc.text):
             problems.append(
                 f"claim {i + 1}: text does not match lines {lc.start_line}-{lc.end_line}. Document says: {span.text!r}"
@@ -224,8 +360,10 @@ def check_claims(doc: Doc, drafts: list[LLMClaim]) -> list[str]:
         ):
             problems.append(f"claim {i + 1}: shell command is not verbatim from its source fence")
 
-    for f in doc.fences:
-        want = classify_fence(f)
+    for item in plan:
+        if item.role not in ("shell", "assert"):
+            continue  # prompts, results and fragments are placed by rule
+        f, want = item.fence, item.role
         matches = [
             lc
             for lc in drafts
@@ -257,11 +395,21 @@ def _fence_for(doc: Doc, lc: LLMClaim) -> Fence | None:
 
 
 def assemble(doc: Doc, drafts: list[LLMClaim]) -> list[Claim]:
-    """Turn checked drafts into Claims with ids in doc order and a dependency chain."""
-    drafts = sorted(drafts, key=lambda d: (d.start_line, d.end_line))
+    """Turn checked drafts into Claims with ids in doc order and a dependency chain.
+
+    Prompt fences, their result fences and fragments come from the rules, not
+    the drafts: any draft touching one of those blocks is dropped."""
+    plan = plan_fences(doc)
+    rule_items = _rule_placed(plan)
+    rule_fences = [item.fence for item in rule_items]
+    drafts = sorted(
+        (d for d in drafts if not any(_overlaps(d.start_line, d.end_line, f) for f in rule_fences)),
+        key=lambda d: (d.start_line, d.end_line),
+    )
+    # placeholder ids; the final ids follow doc order once rule claims are merged in
     claims: list[Claim] = []
-    for i, lc in enumerate(drafts):
-        cid = f"c{i + 1:02d}"
+    for lc in drafts:
+        cid = "c00"
         fence = _fence_for(doc, lc) if lc.kind in ("shell", "assert") else None
         if fence is not None:
             # fences are shell/assert by construction: pin the span to the block
@@ -290,18 +438,31 @@ def assemble(doc: Doc, drafts: list[LLMClaim]) -> list[Claim]:
             claims.append(Claim(id=cid, kind="assert", span=span, expects=lc.expects or span.text))
         else:  # a shell claim the model made up without a fence: keep as prose, never run it
             claims.append(Claim(id=cid, kind="prose", span=span))
-    return chain_dependencies(claims)
+    for item in rule_items:
+        if item.role != "result":
+            claims.append(fence_claim(item.fence, cid, doc=doc, result=item.result))
+    claims.sort(key=lambda c: (c.span.start_line, c.span.end_line))
+    numbered: list[Claim] = []
+    for i, c in enumerate(claims):
+        cid = f"c{i + 1:02d}"
+        update: dict[str, Any] = {"id": cid}
+        if c.kind == "browser":
+            update["store_as"] = f"{cid}_label"
+        numbered.append(c.model_copy(update=update))
+    return chain_dependencies(numbered)
 
 
 def chain_dependencies(claims: list[Claim]) -> list[Claim]:
     """Deterministic ordering rule: a step needs the previous shell step, and a
-    browser step also needs the previous browser step."""
+    browser step also needs the previous browser step. A prompt step needs only
+    the previous shell step: prompt examples are independent Host runs, so one
+    broken example never hides the ones after it."""
     out: list[Claim] = []
     last_shell: str | None = None
     last_browser: str | None = None
     for c in claims:
         deps: list[str] = []
-        if c.kind in ("shell", "browser", "assert") and last_shell:
+        if c.kind in ("shell", "browser", "assert", "prompt") and last_shell:
             deps.append(last_shell)
         if c.kind == "browser" and last_browser:
             deps.append(last_browser)
@@ -332,6 +493,7 @@ def _legacy_cache_path(doc: Doc, cache_dir: Path) -> Path:
 def _validate_compiled_claims(doc: Doc, claims: list[Claim]) -> list[str]:
     """Prove that cached/assembled claims still refer to this exact source."""
     problems: list[str] = []
+    plan = plan_fences(doc)
     source_text = "\n".join(doc.lines)
     if doc.sha256 not in {sha256_of(source_text), sha256_of(source_text + "\n")}:
         problems.append("document hash does not match its current source lines")
@@ -361,26 +523,18 @@ def _validate_compiled_claims(doc: Doc, claims: list[Claim]) -> list[str]:
         elif claim.kind == "assert" and not (claim.expects and claim.expects.strip()):
             problems.append(f"{claim.id}: assert claim has no expected text")
         elif claim.kind == "shell":
-            if not any(
-                claim.span.start_line == f.start_line
-                and claim.span.end_line == f.end_line
-                and claim.command == f.text
-                and classify_fence(f) == "shell"
-                for f in doc.fences
-            ):
+            if not any(_represents(claim, item) for item in plan if item.role == "shell"):
                 problems.append(f"{claim.id}: shell command does not match a source fence")
+        elif claim.kind == "prompt":
+            if not any(_represents(claim, item) for item in plan if item.role == "prompt"):
+                problems.append(f"{claim.id}: prompt claim does not match a source fence and its result")
 
-    for f in doc.fences:
-        want = classify_fence(f)
-        matches = [
-            claim
-            for claim in claims
-            if claim.kind == want
-            and claim.span.start_line == f.start_line
-            and claim.span.end_line == f.end_line
-            and (claim.command == f.text if want == "shell" else claim.expects == f.text)
-        ]
+    for item in plan:
+        if item.role == "result":
+            continue  # represented by the prompt claim that owns it
+        matches = [claim for claim in claims if _represents(claim, item)]
         if len(matches) != 1:
+            f = item.fence
             problems.append(f"source fence at lines {f.start_line}-{f.end_line} is not represented exactly once")
     for line in required_browser_lines(doc):
         if not any(claim.kind == "browser" and claim.span.start_line <= line <= claim.span.end_line for claim in claims):
@@ -513,9 +667,14 @@ def recompile_claim(doc: Doc, claim: Claim, llm: LLM | None = None) -> Claim:
     """Re-compile only one claim's span against an updated doc. Keeps the id and dependencies."""
     start, end = claim.span.start_line, min(claim.span.end_line, len(doc.lines))
     # if the span now sits on a fence, the fence wins without a model call
-    for f in doc.fences:
+    plan = plan_fences(doc)
+    for item in plan:
+        f = item.fence
         if f.start_line <= start <= f.end_line or start <= f.start_line <= end:
-            fresh = fence_claim(f, claim.id)
+            if item.role == "result":
+                # a result fence belongs to the prompt before it
+                item = next(p for p in plan if p.role == "prompt" and p.result is f)
+            fresh = fence_claim(item.fence, claim.id, doc=doc, result=item.result)
             return fresh.model_copy(update={"depends_on": claim.depends_on, "expects": claim.expects if fresh.kind == "shell" else fresh.expects})
     span = Span(start_line=start, end_line=end, text="\n".join(doc.lines[start - 1 : end]))
     if claim.kind == "prose":

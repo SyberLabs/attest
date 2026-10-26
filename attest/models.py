@@ -108,6 +108,9 @@ class Doc(BaseModel):
     claims: list[Claim] = Field(default_factory=list)
     fences: list[Fence] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
+    # False when the sidecar file declares the doc has no browser steps, so the
+    # compiler does not demand a browser claim for prose that merely mentions pages
+    browser_claims: bool = True
 
     def numbered(self, start: int = 1, end: int | None = None) -> str:
         """Return lines start..end (1-based inclusive) prefixed with their numbers."""

@@ -33,6 +33,8 @@ _UNCOMPILED_ACTION = re.compile(
 
 
 def _uncompiled_required_lines(doc: Doc, claims: list[Claim]) -> list[int]:
+    if not doc.browser_claims:
+        return []
     covered = {
         line
         for claim in claims
@@ -293,6 +295,10 @@ def claim_banner(claim: Claim) -> str:
         if claim.expects:
             return f'Kane is checking line {line}: does the page show "{claim.expects}"?'
         return f"Kane is checking line {line}"
+    if claim.kind == "prompt":
+        name = re.search(r"^name:\s*(.+)$", claim.command or "", re.M)
+        label = name.group(1).strip() if name else "prompt"
+        return f"Running prompt `{label}` (line {line})"
     return f"Reading line {line}"
 
 

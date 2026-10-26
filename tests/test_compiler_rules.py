@@ -1,0 +1,240 @@
+"""Compiler rules for prompt docs (docs/CLI-RUNNER-SPEC.md): prompt and result
+fences pair by rule with no model call, fragments are prose, nesting holds.
+
+Offline: the Language guide chapter is a fixture copy under tests/fixtures/runvil/.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from attest.compiler import (
+    CompileError,
+    ClaimSet,
+    LLMClaim,
+    assemble,
+    check_claims,
+    classify_fence,
+    compile_doc,
+    fences_by_regex,
+    is_prompt_fence,
+    load_cached,
+    plan_fences,
+    recompile_claim,
+    required_browser_lines,
+    save_cache,
+)
+from attest.ingest import ingest, ingest_text
+from attest.models import Fence
+from attest.pipeline import claim_banner
+
+ROOT = Path(__file__).resolve().parents[1]
+CHAPTER = ROOT / "tests" / "fixtures" / "runvil" / "language-03-blocks-and-prose.md"
+
+PROMPT = "---\nname: fences\ndescription: One Lua block between two prose blocks\nrunvil: 0\n---\n\n# Fences\n\n## Main\n\nBefore.\n\n```lua\nreturn 'hello'\n```\n\nAfter.\n"
+PAIRED = f"# Chapter\n\nIntro.\n\n````markdown\n{PROMPT}````\n\n````text\nhello\n````\n\nAfter the pair.\n"
+
+
+@pytest.fixture(autouse=True)
+def no_model(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+
+class FakeLLM:
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.prompts = []
+
+    def parse_claims(self, system, user):
+        self.prompts.append(user)
+        return self.answers.pop(0)
+
+
+def chapter():
+    doc = ingest(str(CHAPTER))
+    return doc.model_copy(update={"browser_claims": False})
+
+
+# -- the Language guide chapter -----------------------------------------------------------
+
+
+def test_chapter_fixture_names_its_source_and_commit():
+    first = CHAPTER.read_text(encoding="utf-8").splitlines()[0]
+    assert first.startswith("<!-- source: https://github.com/cppalliance/runvil-docs/blob/dd8a2456f92961928f54f09c37ade0da1b956355/src/language/03-blocks-and-prose.md")
+
+
+def test_chapter_compiles_by_rule_without_a_model():
+    doc = chapter()
+    claims = compile_doc(doc, llm=None, use_cache=False)
+    prompts = [c for c in claims if c.kind == "prompt"]
+    # the spec's 75 counts every markdown fence; 7 are fragments without frontmatter (prose),
+    # and 2 of the spec's 60 result fences follow such a fragment, so 58 prompts carry a result
+    assert len(prompts) == 68
+    assert sum(1 for c in prompts if c.expects) == 58
+    assert all(c.expects_error is False for c in prompts)
+    fragments = [c for c in claims if c.kind == "prose"]
+    assert len(fragments) == 7
+    # text fences with prose between them and the prompt, or after a fragment, stay assert claims
+    assert sum(1 for c in claims if c.kind == "assert") == 15
+    assert not any(c.kind in ("shell", "browser") for c in claims)
+    # ids are in doc order and every span is doc text
+    assert [c.id for c in claims] == [f"c{i + 1:02d}" for i in range(len(claims))]
+    for c in claims:
+        assert c.span.text == "\n".join(doc.lines[c.span.start_line - 1 : c.span.end_line])
+
+
+def test_chapter_first_example_is_the_fences_prompt_byte_for_byte():
+    doc = chapter()
+    first = fences_by_regex(doc)[0]
+    assert first.kind == "prompt"
+    assert first.command == doc.fences[0].text
+    assert first.command.startswith("---\nname: fences\n")
+    assert "```lua\nreturn 'hello'\n```" in first.command
+    assert first.expects == "hello"
+    assert first.expects == doc.fences[1].text
+    # the span covers the prompt fence and its result fence
+    assert first.span.start_line == doc.fences[0].start_line
+    assert first.span.end_line == doc.fences[1].end_line
+    assert claim_banner(first) == f"Running prompt `fences` (line {first.span.start_line})"
+
+
+def test_four_backtick_fences_keep_nested_lua_fences_inside():
+    doc = chapter()
+    assert len(doc.fences) == 148
+    assert all(f.lang in ("markdown", "text") for f in doc.fences)
+    nested = [f for f in doc.fences if f.lang == "markdown" and "```lua" in f.text]
+    assert len(nested) == 69
+    # no fence content line is a bare three-backtick line left over from a split
+    assert not any(f.text.strip() == "```" for f in doc.fences)
+    # and a synthetic check: the closing of a nested fence does not close the outer one
+    small = ingest_text("````markdown\n---\nrunvil: 0\n---\n# A\n## Main\n```lua\nreturn 1\n```\n````\n")
+    assert len(small.fences) == 1
+    assert small.fences[0].text.endswith("```")
+
+
+def test_chapter_fails_closed_on_browser_heuristic_unless_declared_prompt_only():
+    doc = ingest(str(CHAPTER))
+    assert doc.browser_claims is True
+    assert len(required_browser_lines(doc)) > 0
+    with pytest.raises(CompileError, match="browser instructions require a compiler"):
+        compile_doc(doc, llm=None, use_cache=False)
+    assert required_browser_lines(doc.model_copy(update={"browser_claims": False})) == []
+
+
+def test_chapter_claims_cache_and_revalidate(tmp_path):
+    doc = chapter()
+    claims = compile_doc(doc, llm=None, cache_dir=tmp_path)
+    assert load_cached(doc, tmp_path) == claims
+    path = next(tmp_path.glob("v*.json"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    target = next(c for c in payload["claims"] if c["kind"] == "prompt" and c["expects"])
+    target["expects"] = "forged"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_cached(doc, tmp_path) is None
+
+
+# -- the rules on small documents -----------------------------------------------------------
+
+
+def test_prompt_fence_needs_markdown_tag_and_runvil_frontmatter():
+    good = Fence(start_line=1, end_line=5, lang="markdown", text="---\nname: x\nrunvil: 0\n---\n# X")
+    assert is_prompt_fence(good) and classify_fence(good) == "prompt"
+    no_key = Fence(start_line=1, end_line=4, lang="markdown", text="---\nname: x\n---\n# X")
+    assert not is_prompt_fence(no_key) and classify_fence(no_key) == "prose"
+    key_after_close = Fence(start_line=1, end_line=5, lang="markdown", text="---\nname: x\n---\nrunvil: 0\n# X")
+    assert not is_prompt_fence(key_after_close)
+    no_frontmatter = Fence(start_line=1, end_line=2, lang="markdown", text="## Setup\n```lua\nx\n```")
+    assert classify_fence(no_frontmatter) == "prose"
+    wrong_tag = Fence(start_line=1, end_line=5, lang="yaml", text="---\nname: x\nrunvil: 0\n---\n# X")
+    assert classify_fence(wrong_tag) == "assert"
+    assert classify_fence(Fence(start_line=1, end_line=1, lang="lua", text="return 1")) == "prose"
+    # untouched: shell, output and other-language fences classify as before
+    assert classify_fence(Fence(start_line=1, end_line=1, lang="", text="ls")) == "shell"
+    assert classify_fence(Fence(start_line=1, end_line=1, lang="text", text="out")) == "assert"
+    assert classify_fence(Fence(start_line=1, end_line=1, lang="python", text="x = 1")) == "assert"
+
+
+def test_pairing_requires_only_blank_lines_between():
+    doc = ingest_text(PAIRED)
+    plan = plan_fences(doc)
+    assert [p.role for p in plan] == ["prompt", "result"]
+    assert plan[0].result is doc.fences[1]
+    claims = fences_by_regex(doc)
+    assert len(claims) == 1 and claims[0].expects == "hello"
+    # two blank lines still pair
+    two = ingest_text(PAIRED.replace("````\n\n````text", "````\n\n\n````text"))
+    assert fences_by_regex(two)[0].expects == "hello"
+    # prose between breaks the pair: the text fence becomes an assert claim
+    broken = ingest_text(PAIRED.replace("````\n\n````text", "````\n\nThe result:\n\n````text"))
+    kinds = [c.kind for c in fences_by_regex(broken)]
+    assert kinds == ["prompt", "assert"]
+    assert fences_by_regex(broken)[0].expects is None
+    # a lua fence after a prompt is not a result
+    lua = ingest_text(PAIRED.replace("````text\nhello\n````", "````lua\nreturn 1\n````"))
+    assert [c.kind for c in fences_by_regex(lua)] == ["prompt", "prose"]
+
+
+def test_prompt_claims_are_independent_runs_after_the_last_shell_step():
+    doc = ingest_text(PAIRED + "\n" + PAIRED.split("\n", 3)[3])
+    claims = compile_doc(doc, llm=None, use_cache=False)
+    assert [c.kind for c in claims] == ["prompt", "prompt"]
+    # a broken example never hides the one after it
+    assert claims[1].depends_on == []
+    with_shell = ingest_text("```bash\necho setup\n```\n\n" + PAIRED)
+    claims = compile_doc(with_shell, llm=None, use_cache=False)
+    assert [c.kind for c in claims] == ["shell", "prompt"]
+    assert claims[1].depends_on == ["c01"]
+
+
+def test_model_drafts_on_rule_placed_fences_are_dropped_not_rejected(tmp_path):
+    text = "Run it:\n\n```bash\necho hi\n```\n\n" + PAIRED
+    doc = ingest_text(text)
+    bash = doc.fences[0]
+    prompt_fence, result_fence = doc.fences[1], doc.fences[2]
+    drafts = [
+        LLMClaim(kind="prose", start_line=1, end_line=1, text="Run it:", command=None, objective=None, expects=None),
+        LLMClaim(kind="shell", start_line=bash.start_line, end_line=bash.end_line, text=bash.text, command=bash.text, objective=None, expects=None),
+        # the model wrongly calls the prompt a shell block and the result an assert: both are ignored
+        LLMClaim(kind="shell", start_line=prompt_fence.start_line, end_line=prompt_fence.end_line, text="wrong", command="wrong", objective=None, expects=None),
+        LLMClaim(kind="assert", start_line=result_fence.start_line, end_line=result_fence.end_line, text="hello", command=None, objective=None, expects="hello"),
+    ]
+    assert check_claims(doc, drafts) == []
+    claims = assemble(doc, drafts)
+    assert [c.kind for c in claims] == ["prose", "shell", "prompt"]
+    assert claims[2].command == prompt_fence.text and claims[2].expects == "hello"
+    assert claims[2].depends_on == ["c02"]
+    compiled = compile_doc(doc, llm=FakeLLM(ClaimSet(claims=drafts)), cache_dir=tmp_path)
+    assert compiled == claims
+    assert load_cached(doc, tmp_path) == claims
+
+
+def test_model_must_still_cover_shell_fences_in_a_prompt_doc():
+    text = "```bash\necho hi\n```\n\n" + PAIRED
+    doc = ingest_text(text)
+    drafts = [LLMClaim(kind="prose", start_line=1, end_line=1, text=doc.lines[0], command=None, objective=None, expects=None)]
+    problems = check_claims(doc, drafts)
+    assert any("exactly one verbatim shell claim" in p for p in problems)
+
+
+def test_recompile_prompt_claim_follows_an_edited_result_fence_without_a_model():
+    doc = ingest_text(PAIRED)
+    claim = fences_by_regex(doc)[0]
+    new_doc = ingest_text(PAIRED.replace("````text\nhello\n````", "````text\ngoodbye\n````"))
+    fresh = recompile_claim(new_doc, claim, llm=FakeLLM())
+    assert fresh.kind == "prompt" and fresh.id == claim.id
+    assert fresh.expects == "goodbye"
+    assert fresh.command == claim.command
+    # a claim whose span now sits on the result fence resolves to the same prompt claim
+    moved = claim.model_copy(update={"span": claim.span.model_copy(update={"start_line": new_doc.fences[1].start_line})})
+    assert recompile_claim(new_doc, moved, llm=FakeLLM()).expects == "goodbye"
+
+
+def test_save_cache_refuses_a_prompt_claim_that_lost_its_result(tmp_path):
+    doc = ingest_text(PAIRED)
+    claims = fences_by_regex(doc)
+    bad = [claims[0].model_copy(update={"expects": None})]
+    with pytest.raises(CompileError, match="not represented exactly once"):
+        save_cache(doc, bad, tmp_path)
