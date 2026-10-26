@@ -29,6 +29,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import zipfile
 from dataclasses import dataclass, field
@@ -37,6 +38,7 @@ from typing import Iterable
 
 import yaml
 
+from .execution.supervisor import terminate_process_tree
 from .models import BrowserObservation, Claim
 from .proposals import current_build_digest
 from .runner import UNBOUND_NOTE_PREFIX
@@ -107,6 +109,11 @@ _CLICKS = re.compile(r"\b(?:click|clicks|select|choose|tap|press|open)\b", re.I)
 _CLICKED = re.compile(r"\b(?:click|clicks|select|choose|tap|press)\s+(?:on\s+)?(?:the\s+)?(?:[\w-]+\s+){0,3}?\"([^\"]+)\"", re.I)
 
 
+# every character str.splitlines() breaks on: one of them in doc text would start a new
+# line of the _test.md, and a line "## <id>" is a step Kane runs
+_LINE_BREAKS = re.compile(r"\s*[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]+\s*")
+
+
 def _compound(action: str) -> bool:
     """Two or more clicks in one step, e.g. 'click your profile photo and select "Your repositories"'."""
     return len(_CLICKS.findall(action)) >= 2
@@ -141,7 +148,7 @@ def step_body(claim: Claim, base_url: str | None = None) -> str:
     else:
         parts.append(f"Store the exact visible text of the main heading or message on the page as '{key}'.")
     parts.append("Verify the page has finished loading.")
-    return " ".join(parts)
+    return _LINE_BREAKS.sub(" ", " ".join(parts))
 
 
 def start_url(group: list[Claim], base_url: str | None) -> str | None:
@@ -589,6 +596,10 @@ class KaneBrowserRunner:
         self.home.mkdir(parents=True, exist_ok=True)
         stderr_path = self.home / "last-stderr.log"
         lines: list[str] = []
+        # kane-cli gets its own process group, so the deadline also stops the browser it
+        # started; the watchdog runs beside the read, so a silent kane-cli is stopped too
+        group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+        timed_out, finished = threading.Event(), threading.Event()
         with stderr_path.open("w", encoding="utf-8") as err:
             proc = subprocess.Popen(
                 cmd,
@@ -599,22 +610,35 @@ class KaneBrowserRunner:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                **group,
             )
-            deadline = time.time() + timeout_s
+
+            def watchdog() -> None:
+                if not finished.wait(timeout_s):
+                    timed_out.set()
+                    terminate_process_tree(proc)
+
+            timer = threading.Thread(target=watchdog, name=f"kane-deadline-{proc.pid}", daemon=True)
             assert proc.stdout is not None
-            for line in proc.stdout:
-                lines.append(line)
-                if time.time() > deadline:
-                    proc.kill()
-                    break
             try:
-                code = proc.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                code = 3
+                timer.start()
+                for line in proc.stdout:
+                    lines.append(line)
+                try:
+                    code = proc.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    terminate_process_tree(proc)
+                    code = 3
+            except BaseException:
+                terminate_process_tree(proc)
+                raise
+            finally:
+                finished.set()
+                timer.join(timeout=5)
+                proc.stdout.close()
         (self.home / "last-run.ndjson").write_text("".join(lines), encoding="utf-8")
         run = parse_events(lines)
-        run.exit_code = 3 if code not in (0, 1, 2) else code
+        run.exit_code = 3 if timed_out.is_set() or code not in (0, 1, 2) else code
         run.stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
         return run
 

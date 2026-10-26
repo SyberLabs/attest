@@ -26,9 +26,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -e '.[test]'
-      # ACTIVATION: main has no tests/redteam/cases until the case inventory
-      # (#26) merges, so this reports INACTIVE (exit 0, nothing ran, not a
-      # pass). Once the directory exists the flag has no effect. Drop the flag
-      # after #26 merges so that deleting the inventory fails the job.
+      # The inventory (#26) is in this branch's history, so the job runs
+      # without --allow-missing-inventory (#37 keeps that flag only for a main
+      # that has no tests/redteam/cases). A missing inventory fails the job.
       - name: Active red-team cases (R1-R9)
-        run: python scripts/g3-adversarial-pass.py --allow-missing-inventory
+        run: python scripts/g3-adversarial-pass.py

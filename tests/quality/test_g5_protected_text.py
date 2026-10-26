@@ -56,7 +56,9 @@ def trees(tmp_path):
 def _replace(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert text.count(old) == 1, f"{old!r} not unique in {path}"
-    path.write_text(text.replace(old, new), encoding="utf-8")
+    # LF like the repo (.gitattributes eol=lf); text mode would write CRLF on Windows and
+    # change every line's bytes, protected ones included
+    path.write_text(text.replace(old, new), encoding="utf-8", newline=chr(10))
 
 
 def _edit_claim(path: Path, claim_id: str, **changes) -> None:

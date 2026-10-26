@@ -14,6 +14,11 @@ import sys
 from .implement import _openai_worker
 from .loop import AGENT_TIMEOUT_S
 
+# the top-level keys of attest.ticket/v0 (implement.build_ticket). Anything else, such as
+# a caller's "success", "verified" or "evidence", is refused: SyberWork rejects unknown
+# ticket fields, and its worker must not be the weaker side of the seam.
+TICKET_KEYS = frozenset({"schema", "case_id", "title", "spec", "acceptance", "observed", "app", "output"})
+
 
 def main() -> int:
     try:
@@ -21,8 +26,12 @@ def main() -> int:
     except json.JSONDecodeError as e:
         print(f"attest.worker: ticket is not JSON: {e}", file=sys.stderr)
         return 2
-    if ticket.get("schema") != "attest.ticket/v0":
+    if not isinstance(ticket, dict) or ticket.get("schema") != "attest.ticket/v0":
         print("attest.worker: expected an attest.ticket/v0 ticket", file=sys.stderr)
+        return 2
+    unknown = sorted(set(ticket) - TICKET_KEYS)
+    if unknown:
+        print(f"attest.worker: attest.ticket/v0 has no field(s) {', '.join(unknown)}; ticket refused", file=sys.stderr)
         return 2
     diff = _openai_worker(ticket, AGENT_TIMEOUT_S)
     if not diff or diff.startswith("openai worker error"):

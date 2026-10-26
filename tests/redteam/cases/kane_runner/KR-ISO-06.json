@@ -5,10 +5,10 @@
   "rubrics": [
     "R7"
   ],
-  "status": "xfail",
+  "status": "active",
   "theme": null,
   "title": "A Kane process killed at its deadline leaves its own child process running",
-  "gap": "KaneBrowserRunner._execute kills only the direct kane-cli process at the deadline (proc.kill, no process group, no ProcessSupervisor), so a browser it started keeps running.",
+  "closed": "KaneBrowserRunner._execute starts kane-cli in its own process group and the deadline kill uses terminate_process_tree on that group, so a browser it started is stopped too.",
   "input": {
     "timeout_s": 0.4,
     "tick_s": 0.05
