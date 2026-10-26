@@ -95,6 +95,39 @@ def expects_in(expects: str, haystack: str | None) -> bool:
     return _norm_text(expects) in _norm_text(haystack)
 
 
+_ELIDED = re.compile(r"^\s*(?:\.\.\.|…|\[\.\.\.\]|\[…\])\s*$")
+TAIL_LINES = 50  # the shell runner keeps this many output lines
+
+
+def lines_in_order(expects: str, haystack: str | None) -> bool:
+    """Every non-blank line the doc shows appears in the output, in the same order,
+    each within one output line after whitespace collapse; a placeholder stands for
+    run-specific text and a lone `...` line marks an elision. Only the last
+    TAIL_LINES shown lines are checked, since that is all the runner keeps."""
+    if haystack is None:
+        return False
+    shown = [ln for ln in expects.splitlines() if ln.strip() and not _ELIDED.match(ln)][-TAIL_LINES:]
+    got = [_norm_text(ln) for ln in haystack.splitlines()]
+    pos = 0
+    for line in shown:
+        want = _norm_text(line)
+        pattern = placeholder_pattern(want)
+        while pos < len(got) and not (pattern.search(got[pos]) if pattern else want in got[pos]):
+            pos += 1
+        if pos == len(got):
+            return False
+        pos += 1
+    return True
+
+
+def output_shown(expects: str, haystack: str | None) -> bool:
+    """The doc's promised output appears: as one run of text, or, for several lines,
+    line by line in order."""
+    if expects_in(expects, haystack):
+        return True
+    return "\n" in expects.strip() and lines_in_order(expects, haystack)
+
+
 # the three normalizations a prompt result goes through before byte comparison;
 # every prompt verdict reason names them so a reader knows nothing else was folded
 RESULT_NORMALIZATIONS = "CRLF to LF, trailing spaces removed, one final newline"
@@ -216,7 +249,9 @@ def satisfies_dependents(v: Verdict) -> bool:
     if v.status == "proven":
         return True
     ev = v.evidence
-    if v.status == "stale" and ev is not None and ev.kind == "shell" and ev.substitute is not None:
+    if v.status == "stale" and ev is not None and ev.kind == "shell" and (ev.claim_id == v.claim_id):
+        # the step ran and succeeded; what is stale is the doc's wording of its command
+        # (a substitute) or of its output. Later steps can still run on what it did.
         return ev.exit_code == 0 or ev.service_ready
     return False
 
@@ -289,7 +324,7 @@ def _judge_shell_run(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
             )
         return Verdict(claim_id=claim.id, status="broken", reason="broken: command timed out", evidence=ev)
     if ev.service_ready and ev.exit_code is None:
-        if claim.expects and not expects_in(claim.expects, ev.stdout_tail):
+        if claim.expects and not output_shown(claim.expects, ev.stdout_tail):
             return Verdict(
                 claim_id=claim.id,
                 status="stale",
@@ -307,7 +342,7 @@ def _judge_shell_run(claim: Claim, ev: Evidence, rules: Rules) -> Verdict:
     if ev.exit_code != 0:
         return Verdict(claim_id=claim.id, status="broken", reason=f"broken: exit code {ev.exit_code}", evidence=ev)
     if claim.expects:
-        if expects_in(claim.expects, ev.stdout_tail):
+        if output_shown(claim.expects, ev.stdout_tail):
             return Verdict(claim_id=claim.id, status="proven", reason="proven: exit 0 and promised output found", evidence=ev, label_match=1.0)
         return Verdict(
             claim_id=claim.id,

@@ -252,10 +252,16 @@ def test_substitutes_are_off_by_default_and_capped_at_stale_when_allowed(tmp_pat
     assert satisfies_dependents(verdicts[0]) is True
 
 
-def test_satisfies_dependents_only_for_proven_or_a_passing_substitute():
+def test_satisfies_dependents_for_proven_or_a_step_that_ran_and_succeeded():
     ev = Evidence(claim_id="c01", kind="shell", command="a", exit_code=0)
     assert satisfies_dependents(Verdict(claim_id="c01", status="proven", reason="r", evidence=ev))
-    assert not satisfies_dependents(Verdict(claim_id="c01", status="stale", reason="r", evidence=ev))
+    # stale only in its printed output: the step ran and succeeded, so later steps may run
+    assert satisfies_dependents(Verdict(claim_id="c01", status="stale", reason="r", evidence=ev))
+    # a stale shell step that did not succeed, or a skip carrying another claim's evidence, still blocks
+    assert not satisfies_dependents(Verdict(claim_id="c01", status="stale", reason="r", evidence=ev.model_copy(update={"exit_code": 2})))
+    assert not satisfies_dependents(Verdict(claim_id="c02", status="skipped", reason="r", evidence=ev))
+    browser = Evidence(claim_id="c01", kind="browser", observation=__import__("attest.models", fromlist=["BrowserObservation"]).BrowserObservation(status="passed"))
+    assert not satisfies_dependents(Verdict(claim_id="c01", status="stale", reason="r", evidence=browser))
     sub = Evidence(claim_id="c01", kind="shell", command="a", exit_code=0, substitute="b")
     assert satisfies_dependents(Verdict(claim_id="c01", status="stale", reason="r", evidence=sub))
     failed_sub = Evidence(claim_id="c01", kind="shell", command="a", exit_code=1, substitute="b")

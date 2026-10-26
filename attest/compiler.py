@@ -23,6 +23,10 @@ Rules from docs/CLI-RUNNER-SPEC.md, applied with no model call:
    is a printed response and compiles to an assert on the command before it.
    The Gateway guide tags none of its fences (docs/CLI-RUNNER-SPEC.md asks
    upstream to; this is the interim).
+8. A console transcript (``$ `` command lines with output under them) is a
+   shell claim whose ``expects`` is the output it shows, checked line by line
+   in order. In a doc that writes its commands that way, a shell fence with no
+   ``$ `` line is not a command and compiles to prose.
 
 The LLM output is checked post-hoc against the doc. On failure the call is
 retried once with the failing line quoted; on a second failure the fenced
@@ -318,6 +322,7 @@ def plan_fences(doc: Doc) -> list[FencePlan]:
     which fences are claims, which are results and which are prose."""
     plan: list[FencePlan] = []
     fences = doc.fences
+    console_doc = is_console_doc(doc)
     i = 0
     while i < len(fences):
         f = fences[i]
@@ -333,9 +338,43 @@ def plan_fences(doc: Doc) -> list[FencePlan]:
             # frontmatter shown on its own, with no title after it: a fragment the
             # guides use to show declarations, which the parser would refuse
             role = "prose"
+        if role == "shell" and console_doc and not _has_prompt_line(f.text):
+            # the doc marks its commands with `$`, so a fence without one is not a
+            # command: a .gitignore line, a file's contents, an alias to paste
+            role = "prose"
         plan.append(FencePlan(f, role))
         i += 1
     return plan
+
+
+_PROMPT_LINE = re.compile(r"^\s*\$ ")
+
+
+def _has_prompt_line(text: str) -> bool:
+    return any(_PROMPT_LINE.match(ln) for ln in text.splitlines())
+
+
+def is_console_doc(doc: Doc) -> bool:
+    """A doc that writes its commands as console transcripts: at least two shell
+    fences carry `$ ` prompt lines, and they are at least half of its shell fences."""
+    shell = [f for f in doc.fences if classify_fence(f) == "shell"]
+    prompted = [f for f in shell if _has_prompt_line(f.text)]
+    return len(prompted) >= 2 and 2 * len(prompted) >= len(shell)
+
+
+_ELISION = re.compile(r"^\s*(?:\.\.\.|…|\[\.\.\.\]|\[…\])\s*$")
+
+
+def transcript_output(text: str) -> str | None:
+    """The output a console transcript shows: every line that is not a `$ ` command,
+    in order. None when the fence is not a transcript (no `$ ` line, or no output)."""
+    lines = text.splitlines()
+    if not any(_PROMPT_LINE.match(ln) for ln in lines):
+        return None
+    shown = [ln for ln in lines if not _PROMPT_LINE.match(ln) and ln.strip()]
+    if not shown or all(_ELISION.match(ln) for ln in shown):
+        return None
+    return "\n".join(shown)
 
 
 def _has_h1(fence: Fence) -> bool:
@@ -359,7 +398,8 @@ def fence_claim(
     kind = role if role in ("shell", "assert", "prompt", "prose") else classify_fence(fence)
     span = Span(start_line=fence.start_line, end_line=fence.end_line, text=fence.text)
     if kind == "shell":
-        return Claim(id=cid, kind="shell", span=span, command=fence.text)
+        # a console transcript promises the output it shows under its `$ ` commands
+        return Claim(id=cid, kind="shell", span=span, command=fence.text, expects=transcript_output(fence.text))
     if kind == "prompt":
         if result is not None:
             if doc is None:

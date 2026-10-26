@@ -81,6 +81,8 @@ def failure_text(claim: Claim, verdict: Verdict) -> tuple[str, str]:
         last = tail[-1] if tail else ""
         if ev.timed_out:
             return "timed out", last or "timed out"
+        if verdict.status == "stale" and (ev.exit_code == 0 or ev.service_ready):
+            return "output differs", f"doc shows {(claim.expects or '').splitlines()[0][:60] if claim.expects else ''}"
         return f"exit {ev.exit_code}", last or f"exit {ev.exit_code}"
     return verdict.status, verdict.reason
 

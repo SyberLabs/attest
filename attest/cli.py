@@ -310,6 +310,10 @@ def _log(claim, verdict) -> None:
             detail = f"exit code {'timed out' if evidence and evidence.timed_out else evidence.exit_code if evidence else 'unknown'}"
         if evidence and evidence.substitute:
             detail += f" via substitute `{evidence.substitute}`"
+        elif verdict.status == "stale" and claim.expects and evidence and not evidence.timed_out:
+            shown = claim.expects.strip().splitlines()[0]
+            got = (evidence.stdout_tail or "").strip().splitlines()
+            detail = f'doc shows "{_clip(shown, 40)}", output "{_clip(got[-1] if got else "", 40)}"'
     elif claim.kind == "prompt" and evidence and evidence.prompt:
         obs = evidence.prompt
         if obs.status == "completed":
