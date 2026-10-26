@@ -24,4 +24,4 @@ python -m http.server 8765 --bind 127.0.0.1
 
 Open http://127.0.0.1:8765/ in your browser. The page shows the heading "Counter" and a button labelled "count is 0".
 
-Click the "count is 0" button once. The counter increments by one: its label changes to "count is 1".
+Click the "count is 0" button once. The counter changes: its label changes to "count is 1".
