@@ -48,7 +48,7 @@ use runvil::Prompt;
 use runvil::effect::Round;
 use runvil::model::{
     Completion, CompletionError, CompletionErrorKind, CompletionOptions, CompletionResult, Message,
-    ModelBinding, ModelCatalog, ModelId, ModelInfo, ThinkingMode, ToolSchema,
+    ModelBinding, ModelCatalog, ModelId, ModelInfo, Role, ThinkingMode, ToolSchema,
 };
 use runvil::vfs::{MemoryBackend, Mode, ModePolicy, Op, Origin, Policy, Verdict, VfsPath};
 use serde::{Deserialize, Serialize};
@@ -82,6 +82,10 @@ struct Request {
     refuse: Vec<String>,
     #[serde(default)]
     execution: Option<String>,
+    /// Answers any round the script does not cover with this text, so a run the doc
+    /// shows no reply for can still complete; the observation counts those rounds.
+    #[serde(default)]
+    placeholder: Option<String>,
 }
 
 /// The Host's store policy for one run: the paths the doc says the Host refuses
@@ -158,6 +162,10 @@ struct Observation {
     error_line: Option<u32>,
     message: Option<String>,
     rounds: u32,
+    /// The last user message of each model round, in order, starved rounds included.
+    sent: Vec<String>,
+    /// Rounds answered with the placeholder rather than a scripted reply.
+    placeholder_rounds: u32,
     host_version: String,
 }
 
@@ -170,6 +178,8 @@ impl Observation {
             error_line: None,
             message: None,
             rounds: 0,
+            sent: Vec::new(),
+            placeholder_rounds: 0,
             host_version: format!("runvil@{}", env!("RUNVIL_COMMIT")),
         }
     }
@@ -179,16 +189,22 @@ impl Observation {
 /// round found the script empty.
 struct ScriptBroker {
     replies: Mutex<VecDeque<String>>,
+    placeholder: Option<String>,
     played: AtomicU32,
+    placeholders: AtomicU32,
     starved: AtomicBool,
+    sent: Mutex<Vec<String>>,
 }
 
 impl ScriptBroker {
-    fn new(script: Vec<String>) -> Self {
+    fn new(script: Vec<String>, placeholder: Option<String>) -> Self {
         Self {
             replies: Mutex::new(script.into()),
+            placeholder,
             played: AtomicU32::new(0),
+            placeholders: AtomicU32::new(0),
             starved: AtomicBool::new(false),
+            sent: Mutex::new(Vec::new()),
         }
     }
 }
@@ -208,11 +224,19 @@ impl InferenceBroker for ScriptBroker {
     fn chat(
         &self,
         _binding: ModelBinding,
-        _messages: Vec<Message>,
+        messages: Vec<Message>,
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         _round: Round,
     ) -> BoxFuture<Result<Box<Completion>, CompletionError>> {
+        // what this round asked: the last user message, which the doc's prose quotes
+        let asked = messages
+            .iter()
+            .rev()
+            .find(|message| matches!(message.role(), Role::User))
+            .map(|message| message.content().to_owned())
+            .unwrap_or_default();
+        self.sent.lock().expect("the sent lock is never poisoned").push(asked);
         let next = self
             .replies
             .lock()
@@ -221,6 +245,11 @@ impl InferenceBroker for ScriptBroker {
         let reply = match next {
             Some(text) => {
                 self.played.fetch_add(1, Ordering::SeqCst);
+                Completion::from_result(CompletionResult::Text(text), MODEL).map(Box::new)
+            }
+            None if self.placeholder.is_some() => {
+                self.placeholders.fetch_add(1, Ordering::SeqCst);
+                let text = self.placeholder.clone().unwrap_or_default();
                 Completion::from_result(CompletionResult::Text(text), MODEL).map(Box::new)
             }
             None => {
@@ -258,7 +287,7 @@ async fn observe(request: Request) -> Result<Observation, String> {
     }
 
     let vfs = store_for(&request)?;
-    let broker = Arc::new(ScriptBroker::new(request.script));
+    let broker = Arc::new(ScriptBroker::new(request.script, request.placeholder.clone()));
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = Harness::new(
         recorder,
@@ -313,6 +342,8 @@ async fn observe(request: Request) -> Result<Observation, String> {
         }
     };
     observation.rounds = rounds;
+    observation.sent = broker.sent.lock().expect("the sent lock is never poisoned").clone();
+    observation.placeholder_rounds = broker.placeholders.load(Ordering::SeqCst);
     Ok(observation)
 }
 

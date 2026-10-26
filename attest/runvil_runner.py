@@ -31,6 +31,8 @@ from pydantic import ValidationError
 from .models import Claim, PromptObservation
 
 HOST_NAME = "runvil-docs-host"
+# the reply a placeholder round gets: plainly not a model's answer
+PLACEHOLDER_REPLY = "(placeholder reply from Attest: the doc shows no model reply)"
 HOST_ENV = "ATTEST_RUNVIL_HOST"
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -96,6 +98,7 @@ class RunvilPromptRunner:
             "mode": context.mode if context else None,
             "refuse": list(context.refuse) if context else [],
             "execution": context.execution if context else None,
+            "placeholder": PLACEHOLDER_REPLY if context and context.placeholder_replies else None,
         }
 
     def run(self, claim: Claim) -> PromptObservation:

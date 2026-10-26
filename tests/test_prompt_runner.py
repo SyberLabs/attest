@@ -275,7 +275,7 @@ def test_runvil_runner_speaks_the_protocol(tmp_path, monkeypatch):
     request = json.loads(log.read_text(encoding="utf-8"))
     assert request == {
         "prompt": PROMPT, "args": [], "script": [], "seed": claim_seed("c01"), "started_at": claim_started_at("c01"),
-        "files": {}, "input": None, "mode": None, "refuse": [], "execution": None,
+        "files": {}, "input": None, "mode": None, "refuse": [], "execution": None, "placeholder": None,
     }
     assert judge(prompt_claim(), Evidence(claim_id="c01", kind="prompt", prompt=obs)).status == "proven"
     # the same claim gives the same request twice

@@ -305,3 +305,43 @@ def test_a_json_response_assert_compares_as_json():
     # text asserts keep the substring rule
     t = Claim(id="c02", kind="assert", span=span(), expects="Hello from Flask", depends_on=["c01"])
     assert judge(t, Evidence(claim_id="c02", kind="shell", exit_code=0, stdout_tail="...\nHello from Flask\n")).status == "proven"
+
+
+# -- what a prompt sends to the model (sent messages, placeholder replies) --------------------------
+
+
+def test_sends_check_in_order_and_contained():
+    from attest.verdict import sends_check
+
+    assert sends_check([], ["x"]) == (None, "")
+    assert sends_check(["Name one ocean."], []) == (None, "")
+    ok, note = sends_check(["Name one planet.", "Name one ocean."], ["Before.\n\nName one planet.", "Name one ocean."])
+    assert ok is True and "as the doc says" in note
+    ok, note = sends_check(["Name one ocean.", "Name one planet."], ["Name one planet.", "Name one ocean."])
+    assert ok is False and "the doc says it sends 'Name one planet.'" in note
+
+
+def test_sent_messages_shape_the_prompt_verdict():
+    base = prompt_claim().model_copy(update={"sends": ["Name one ocean."]})
+    # needs_script stays unverifiable either way (the spec), with the comparison in the reason
+    v = judge(base, prompt_ev(status="needs_script", sent=["Name one ocean."]))
+    assert v.status == "unverifiable" and "sent 'Name one ocean.' as the doc says" in v.reason
+    v = judge(base, prompt_ev(status="needs_script", sent=["Name one river."]))
+    assert v.status == "unverifiable" and "the doc says it sends" in v.reason
+    # placeholder replies: judged on what was sent, never on the result
+    v = judge(base, prompt_ev(status="completed", result="(placeholder)", sent=["Name one ocean."], placeholder_rounds=1))
+    assert v.status == "proven" and "placeholder" in v.reason and "result is not part of the check" in v.reason
+    v = judge(base, prompt_ev(status="completed", result="(placeholder)", sent=["Name one river."], placeholder_rounds=1))
+    assert v.status == "stale" and "did not send what the doc says" in v.reason
+    no_sends = prompt_claim()
+    assert judge(no_sends, prompt_ev(status="completed", result="x", sent=["hi"], placeholder_rounds=1)).status == "unverifiable"
+    # a scripted run with a result fence still needs both
+    both = base.model_copy(update={"expects": "Atlantic\n"})
+    v = judge(both, prompt_ev(status="completed", result="Atlantic", sent=["Name one ocean."], rounds=1))
+    assert v.status == "proven" and "sent 'Name one ocean.'" in v.reason
+    assert judge(both, prompt_ev(status="completed", result="Atlantic", sent=["Name one river."], rounds=1)).status == "stale"
+
+
+def test_sends_is_prompt_only():
+    with pytest.raises(ValidationError):
+        Claim(id="c01", kind="shell", span=span(), command="ls", sends=["x y"])

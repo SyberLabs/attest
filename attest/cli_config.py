@@ -23,6 +23,8 @@ that a command doc assumes a reader already has, kept beside the doc so the doc 
         execution: execute-test             # the run's name, sys.execution
         script: [first reply, second reply] # model replies, in round order
         args: rust                          # overrides the argument string the doc names
+    placeholder_replies: true  # answer unscripted model rounds with a placeholder when the doc
+                               # shows no result, so the example is judged on what it sends
     browser_claims: false  # the doc has no browser steps; prose about pages is not a claim
 
 Everything is validated when loaded; an unknown key or an unsafe path is an error, never ignored.
@@ -94,6 +96,7 @@ class CliConfig:
     substitutes: dict[str, str] = field(default_factory=dict)
     expects: tuple[ExpectSpec, ...] = ()
     prompts: dict[str, PromptSpec] = field(default_factory=dict)
+    placeholder_replies: bool = False
     browser_claims: bool = True
     path: Path | None = None
 
@@ -146,7 +149,7 @@ def load_cli_config(path: str | Path) -> CliConfig:
         raise CliConfigError(f"cannot read sidecar {path}: {exc}") from exc
     if not isinstance(data, dict):
         raise CliConfigError(f"{path}: expected a mapping at the top level")
-    known = {"fixtures", "services", "substitute", "expects", "prompts", "browser_claims"}
+    known = {"fixtures", "services", "substitute", "expects", "prompts", "placeholder_replies", "browser_claims"}
     unknown = set(data) - known
     if unknown:
         raise CliConfigError(f"{path}: unknown keys {sorted(unknown)}; known keys are {sorted(known)}")
@@ -227,6 +230,9 @@ def load_cli_config(path: str | Path) -> CliConfig:
     browser_claims = data.get("browser_claims", True)
     if not isinstance(browser_claims, bool):
         raise CliConfigError(f"{path}: browser_claims must be true or false")
+    placeholder_replies = data.get("placeholder_replies", False)
+    if not isinstance(placeholder_replies, bool):
+        raise CliConfigError(f"{path}: placeholder_replies must be true or false")
 
     return CliConfig(
         fixtures=fixtures,
@@ -234,6 +240,7 @@ def load_cli_config(path: str | Path) -> CliConfig:
         substitutes=substitutes,
         expects=tuple(expects),
         prompts=prompts,
+        placeholder_replies=placeholder_replies,
         browser_claims=browser_claims,
         path=path,
     )

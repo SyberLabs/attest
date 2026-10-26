@@ -313,3 +313,29 @@ def test_frontmatter_only_prompt_fences_are_fragments_unless_a_result_follows():
     assert [c.kind for c in claims] == ["prompt"] and claims[0].expects == "prompt requires an H1 title"
     whole = ingest_text(f"````markdown\n{frontmatter}\n# Greeter\n\n## Main\n\n```lua\nreturn 1\n```\n````\n")
     assert [c.kind for c in fences_by_regex(whole)] == ["prompt"]
+
+
+def test_sends_are_read_from_the_prose_after_an_example():
+    from attest.compiler import sends_after
+
+    body = PROMPT.rstrip("\n")
+    lines = [
+        "# C", "",
+        "````markdown", body, "````", "",
+        "The epilog sends `Name one ocean.` to the model, and `models.infer(prose)` returns the reply.",
+        "The prompt asks `Name one planet.` first, and then `Name one river.` from `## Answer`.",
+        "It sends it with `models.infer`, which is a reference, not a message.",
+        "",
+    ]
+    doc = ingest_text("\n".join(lines) + "\n")
+    claim = fences_by_regex(doc)[0]
+    assert claim.sends == ["Name one ocean.", "Name one planet.", "Name one river."]
+    assert sends_after(doc, doc.fences[0].end_line, None) == ("Name one ocean.", "Name one planet.", "Name one river.")
+    # a cached claim must carry the same sends to count as the fence's claim
+    from attest.compiler import save_cache
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        with pytest.raises(CompileError, match="not represented exactly once"):
+            save_cache(doc, [claim.model_copy(update={"sends": []})], Path(d))
+    # no prose after the example, or prose without a message: nothing
+    assert fences_by_regex(ingest_text(PAIRED))[0].sends == []

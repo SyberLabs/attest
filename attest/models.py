@@ -68,6 +68,9 @@ class PromptContext(BaseModel):
     refuse: list[str] = Field(default_factory=list)  # store paths whose changes the Host policy refuses
     execution: str | None = None  # the run's name, sys.execution
     script: list[str] = Field(default_factory=list)  # model replies, in round order
+    # answer rounds the script does not cover with a fixed placeholder, so an example
+    # whose doc shows no reply can complete and be judged on what it sent
+    placeholder_replies: bool = False
 
 
 class Claim(BaseModel):
@@ -89,6 +92,8 @@ class Claim(BaseModel):
     args: str | None = None
     # prompt claims: what the sidecar says the Host supplies for this example
     context: PromptContext | None = None
+    # prompt claims: the messages the doc's prose says the example sends to the model, in order
+    sends: list[str] = Field(default_factory=list)
     # names of sidecar fixtures that must exist before the claim runs
     setup: list[str] = Field(default_factory=list)
 
@@ -108,6 +113,8 @@ class Claim(BaseModel):
             raise ValueError("args is only meaningful on a prompt claim")
         if self.context is not None and self.kind != "prompt":
             raise ValueError("context is only meaningful on a prompt claim")
+        if self.sends and self.kind != "prompt":
+            raise ValueError("sends is only meaningful on a prompt claim")
         return self
 
 
@@ -175,6 +182,10 @@ class PromptObservation(BaseModel):
     error_line: int | None = Field(default=None, ge=1)
     message: str | None = None
     rounds: int = Field(default=0, ge=0)
+    # the last user message of each model round, in order, starved rounds included
+    sent: list[str] = Field(default_factory=list)
+    # rounds answered with the placeholder rather than a scripted reply
+    placeholder_rounds: int = Field(default=0, ge=0)
     host_version: str
 
 

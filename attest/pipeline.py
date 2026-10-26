@@ -234,7 +234,7 @@ def prompt_name(claim: Claim) -> str | None:
 def annotate_prompts(claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
     """The sidecar's ``prompts`` gives a prompt claim the Host context the doc
     describes in prose: seeded files, input text, mode, policy, run name, script."""
-    if not cli_config.prompts:
+    if not cli_config.prompts and not cli_config.placeholder_replies:
         return claims
     out = []
     for c in claims:
@@ -244,6 +244,13 @@ def annotate_prompts(claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
             if spec.args is not None:
                 update["args"] = spec.args
             c = c.model_copy(update=update)
+        if cli_config.placeholder_replies and c.kind == "prompt" and c.sends and not c.expects:
+            # the doc says what the example sends and shows no reply: let it complete
+            from .models import PromptContext
+
+            context = c.context or PromptContext()
+            if not context.script:
+                c = c.model_copy(update={"context": context.model_copy(update={"placeholder_replies": True})})
         out.append(c)
     return out
 

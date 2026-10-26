@@ -442,6 +442,7 @@ def test_sidecar_prompts_give_a_prompt_claim_its_host_context(tmp_path):
         ("prompts:\n  a:\n    args: ''\n", "non-empty string"),
         ("prompts: [a]\n", "mapping of prompt name"),
         ("prompts:\n  a: text\n", "needs a mapping"),
+        ("placeholder_replies: sometimes\n", "true or false"),
     ],
 )
 def test_sidecar_prompts_are_validated(tmp_path, text, match):

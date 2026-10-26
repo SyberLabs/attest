@@ -367,11 +367,30 @@ def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
             reason="unverifiable: simulation-only prompt observation is not verification evidence",
             evidence=ev,
         )
+    sent_ok, sent_note = sends_check(claim.sends, obs.sent)
     if obs.status == "needs_script":
+        # the spec keeps this unverifiable whatever was sent; the reason says what was seen
         return Verdict(
             claim_id=claim.id,
             status="unverifiable",
-            reason=f"unverifiable: the run wanted a model reply the doc never showed (round {obs.rounds + 1}); {obs.message or 'no script'}",
+            reason=f"unverifiable: the run wanted a model reply the doc never showed (round {obs.rounds + 1}); {obs.message or 'no script'}{sent_note}",
+            evidence=ev,
+        )
+    if obs.status == "completed" and sent_ok is False:
+        return Verdict(claim_id=claim.id, status="stale", reason=f"stale: the run completed but did not send what the doc says{sent_note}", evidence=ev)
+    if obs.status == "completed" and obs.placeholder_rounds and not claim.expects_error:
+        # placeholder replies: only what was sent is a check; the result came from Attest
+        if sent_ok:
+            return Verdict(
+                claim_id=claim.id,
+                status="proven",
+                reason=f"proven: the run {sent_note.lstrip('; ')}; {obs.placeholder_rounds} model round{'s were' if obs.placeholder_rounds != 1 else ' was'} answered with a placeholder, so the result is not part of the check",
+                evidence=ev,
+            )
+        return Verdict(
+            claim_id=claim.id,
+            status="unverifiable",
+            reason="unverifiable: model rounds were answered with a placeholder and the doc says nothing checkable about what they sent",
             evidence=ev,
         )
     if obs.status == "refused":
@@ -404,7 +423,7 @@ def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
             reason = f"proven: completed and the result equals the doc's result fence (compared after {RESULT_NORMALIZATIONS}{_placeholder_note(claim.expects)}); scripted run"
         else:
             reason = "proven: completed as the doc promised; scripted run"
-        return Verdict(claim_id=claim.id, status="proven", reason=reason, evidence=ev)
+        return Verdict(claim_id=claim.id, status="proven", reason=reason + (sent_note if sent_ok else ""), evidence=ev)
     # failure promised
     if not failed:
         return Verdict(claim_id=claim.id, status="broken", reason="broken: failure promised but the run completed", evidence=ev)
@@ -421,6 +440,25 @@ def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
     else:
         reason = f"proven: the run failed as the doc promised ({error}); scripted run"
     return Verdict(claim_id=claim.id, status="proven", reason=reason, evidence=ev)
+
+
+def sends_check(expected: list[str], sent: list[str]) -> tuple[bool | None, str]:
+    """Whether the run sent what the doc says, as (ok, note for the reason). Each
+    expected message must appear within one round's message, in order; ok is None
+    when the doc says nothing about what is sent or the run sent nothing."""
+    if not expected or not sent:
+        return None, ""
+    pos = 0
+    for want in expected:
+        norm = _norm_text(want)
+        while pos < len(sent) and norm not in _norm_text(sent[pos]):
+            pos += 1
+        if pos == len(sent):
+            got = "; ".join(repr(_norm_text(s)[:60]) for s in sent[:3])
+            return False, f"; the doc says it sends {want!r}, the rounds sent {got}"
+        pos += 1
+    shown = ", ".join(repr(w) for w in expected)
+    return True, f"; sent {shown} as the doc says"
 
 
 def json_in(expects: str, haystack: str | None) -> bool | None:

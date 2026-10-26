@@ -286,6 +286,8 @@ class FencePlan:
     result: Fence | None = None
     # the argument string the introducing line names: "Run it with the argument string `rust`:"
     args: str | None = None
+    # the messages the prose after the example says it sends to the model
+    sends: tuple[str, ...] = ()
 
 
 _ARGUMENT_STRING = re.compile(r"argument string `([^`]*)`")
@@ -330,7 +332,8 @@ def plan_fences(doc: Doc) -> list[FencePlan]:
         if role == "prompt" and i + 1 < len(fences):
             nxt = fences[i + 1]
             if nxt.lang.lower() in OUTPUT_LANGS and _introduces_result(doc, f, nxt):
-                plan.append(FencePlan(f, "prompt", nxt, _args_in(_introducing_line(doc, f, nxt))))
+                after = fences[i + 2] if i + 2 < len(fences) else None
+                plan.append(FencePlan(f, "prompt", nxt, _args_in(_introducing_line(doc, f, nxt)), sends_after(doc, nxt.end_line, after)))
                 plan.append(FencePlan(nxt, "result"))
                 i += 2
                 continue
@@ -338,6 +341,11 @@ def plan_fences(doc: Doc) -> list[FencePlan]:
             # frontmatter shown on its own, with no title after it: a fragment the
             # guides use to show declarations, which the parser would refuse
             role = "prose"
+        if role == "prompt":
+            after = fences[i + 1] if i + 1 < len(fences) else None
+            plan.append(FencePlan(f, role, sends=sends_after(doc, f.end_line, after)))
+            i += 1
+            continue
         if role == "shell" and console_doc and not _has_prompt_line(f.text):
             # the doc marks its commands with `$`, so a fence without one is not a
             # command: a .gitignore line, a file's contents, an alias to paste
@@ -348,6 +356,30 @@ def plan_fences(doc: Doc) -> list[FencePlan]:
 
 
 _PROMPT_LINE = re.compile(r"^\s*\$ ")
+_SENDS_VERB = re.compile(r"\b(?:sends|asks|asked)\s+`")
+_SENDS = re.compile(r"\b(?:sends|asks|asked)\s+`([^`\n]+)`|\bthen\s+`([^`\n]+)`")
+_CODE_LIKE = re.compile(r"[(){}=\[\]]|^\w+(?:\.\w+)+$|^[a-z_]+$")
+
+
+def sends_after(doc: Doc, end_line: int, next_fence: Fence | None, window: int = 8) -> tuple[str, ...]:
+    """The messages the prose right after an example says it sends to the model, by rule:
+    a backticked sentence after "sends", "asks" or "asked" (and after "then" in a sentence
+    that uses one of those). A backticked span that reads like code (a call, a name, a
+    field path) is a reference, not a message."""
+    stop = (next_fence.start_line - 1) if next_fence is not None else len(doc.lines) + 1
+    lines = [ln for ln in doc.lines[end_line + 1 : min(stop - 1, end_line + 1 + window)] if ln.strip()]
+    found: list[str] = []
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            break
+        for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z`])", line):
+            if not _SENDS_VERB.search(sentence):
+                continue
+            for m in _SENDS.finditer(sentence):
+                text = (m.group(1) or m.group(2) or "").strip()
+                if text and " " in text and not _CODE_LIKE.search(text) and text not in found:
+                    found.append(text)
+    return tuple(found)
 
 
 def _has_prompt_line(text: str) -> bool:
@@ -390,6 +422,7 @@ def fence_claim(
     result: Fence | None = None,
     args: str | None = None,
     role: FenceRole | None = None,
+    sends: tuple[str, ...] = (),
 ) -> Claim:
     """The claim a fence compiles to by rule. ``result`` is the paired result
     fence of a prompt; it needs ``doc`` so the span can cover both fences.
@@ -409,7 +442,7 @@ def fence_claim(
                 end_line=result.end_line,
                 text="\n".join(doc.lines[fence.start_line - 1 : result.end_line]),
             )
-        return Claim(id=cid, kind="prompt", span=span, command=fence.text, expects=result.text if result else None, args=args)
+        return Claim(id=cid, kind="prompt", span=span, command=fence.text, expects=result.text if result else None, args=args, sends=list(sends))
     if kind == "prose":
         return Claim(id=cid, kind="prose", span=span)
     return Claim(id=cid, kind="assert", span=span, expects=fence.text)
@@ -420,7 +453,7 @@ def fences_by_regex(doc: Doc) -> list[Claim]:
     for item in plan_fences(doc):
         if item.role == "result":
             continue
-        claims.append(fence_claim(item.fence, f"c{len(claims) + 1:02d}", doc=doc, result=item.result, args=item.args, role=item.role))
+        claims.append(fence_claim(item.fence, f"c{len(claims) + 1:02d}", doc=doc, result=item.result, args=item.args, role=item.role, sends=item.sends))
     return claims
 
 
@@ -451,6 +484,7 @@ def _represents(claim: Claim, item: FencePlan) -> bool:
             and claim.command == f.text
             and claim.expects == expects
             and claim.args == item.args
+            and claim.sends == list(item.sends)
         )
     return False
 
@@ -576,7 +610,7 @@ def assemble(doc: Doc, drafts: list[LLMClaim]) -> list[Claim]:
             claims.append(Claim(id=cid, kind="prose", span=span))
     for item in rule_items:
         if item.role != "result":
-            claims.append(fence_claim(item.fence, cid, doc=doc, result=item.result, args=item.args, role=item.role))
+            claims.append(fence_claim(item.fence, cid, doc=doc, result=item.result, args=item.args, role=item.role, sends=item.sends))
     claims.sort(key=lambda c: (c.span.start_line, c.span.end_line))
     numbered: list[Claim] = []
     for i, c in enumerate(claims):
@@ -819,7 +853,7 @@ def recompile_claim(doc: Doc, claim: Claim, llm: LLM | None = None) -> Claim:
             if item.role == "result":
                 # a result fence belongs to the prompt before it
                 item = next(p for p in plan if p.role == "prompt" and p.result is f)
-            fresh = fence_claim(item.fence, claim.id, doc=doc, result=item.result, args=item.args, role=item.role)
+            fresh = fence_claim(item.fence, claim.id, doc=doc, result=item.result, args=item.args, role=item.role, sends=item.sends)
             return fresh.model_copy(update={"depends_on": claim.depends_on, "expects": claim.expects if fresh.kind == "shell" else fresh.expects})
     span = Span(start_line=start, end_line=end, text="\n".join(doc.lines[start - 1 : end]))
     if claim.kind == "prose":
