@@ -44,6 +44,7 @@ from attest.loop import run_loop
 from attest.models import BrowserObservation
 from attest.pipeline import prove
 from attest.policy import MaintainDocsPolicy, Policy
+from attest import reconcile_spec as reconcile_spec_mod
 from attest.reconcile_spec import ReconcileSpec
 from attest.storage import SQLiteWorkflowStore, canonical_json
 from attest.verdict import Rules
@@ -472,6 +473,8 @@ def _run_rs_control(tmp_path: Path) -> None:
     assert data["authority_state"] == "present"
     assert data["evidence_state"] == "provided"
     assert data["repair_state"] == "handoff"
+    assert data["handoff_state"] == "ready"
+    assert data["blocking_reasons"] == []
     assert data["apply_requested"] is False
     conflict = data["conflicts"][0]
     assert conflict["protected_edit_refused"] is False
@@ -482,6 +485,7 @@ def _run_rs_control(tmp_path: Path) -> None:
     assert pointers == ["artifacts/run-17/sign-in.png", "artifacts/run-17/receipt.json"]
     assert all(p in markdown for p in pointers)
     assert "Repair: `handoff`" in markdown
+    assert "Handoff: `ready`" in markdown
     # R2 and §0: the contract is untouched and nothing is marked reconciled.
     assert contract.read_text(encoding="utf-8") == RS_PROTECTED
     assert "reconciled" not in json.dumps(data)
@@ -502,9 +506,24 @@ def test_pc_rs_01_twin_apply_flag_is_refused(tmp_path):
 def test_pc_rs_01_twin_weakening_proposal_is_refused(tmp_path):
     request = _rs_request(proposed_protected_text="The application may skip multi-factor authentication.")
     contract, result, data, _ = _run_reconcile(tmp_path, request)
+    assert result.exit_code == 2
     assert data["repair_state"] == "refused"
     assert data["conflicts"][0]["protected_edit_refused"] is True
     assert contract.read_text(encoding="utf-8") == RS_PROTECTED
+
+
+def test_pc_rs_01_twin_missing_evidence_pointers_block_the_handoff(tmp_path):
+    contract, result, data, _ = _run_reconcile(tmp_path, _rs_request(evidence=[]))
+    assert result.exit_code == 3
+    assert data["handoff_state"] == "blocked"
+    assert data["blocking_reasons"] == ["c01:evidence_missing"]
+    assert contract.read_text(encoding="utf-8") == RS_PROTECTED
+
+
+def test_pc_rs_01_control_fails_when_reconcile_spec_blocks_everything(tmp_path, monkeypatch):
+    monkeypatch.setattr(reconcile_spec_mod, "_blocking_reasons", lambda request: ["request:authority_missing"])
+    with pytest.raises(AssertionError):
+        _run_rs_control(tmp_path)
 
 
 def test_pc_rs_01_control_fails_when_reconcile_spec_refuses_everything(tmp_path, monkeypatch):

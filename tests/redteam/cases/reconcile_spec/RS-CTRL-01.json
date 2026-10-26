@@ -1,0 +1,57 @@
+{
+  "id": "RS-CTRL-01",
+  "component": "reconcile_spec",
+  "category": "CONTROL",
+  "rubrics": [
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Positive control: a complete conflict (authority present, matching reference, pointers on every conflict) is a ready handoff and exits 0",
+  "input": {
+    "request": {
+      "source_doc": "contracts/security.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        },
+        {
+          "claim_id": "c02",
+          "protected_requirement_id": "SEC-5",
+          "authority_reference": "contracts/security.md#sec-5",
+          "protected_text": "Sessions must expire after 15 minutes idle.",
+          "observed_text": "A session stayed open for 2 hours.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "receipt",
+              "pointer": "artifacts/run-17/receipt.json"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "exit_code": 0,
+    "authority_state": "present",
+    "evidence_state": "provided",
+    "repair_state": "handoff",
+    "handoff_state": "ready",
+    "blocking_reasons": []
+  }
+}

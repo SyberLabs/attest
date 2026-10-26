@@ -42,9 +42,11 @@ tests/test_positive_controls.py::test_pc_rs_01_complete_conflict_reaches_handoff
 [rs-twin]
 tests/test_positive_controls.py::test_pc_rs_01_twin_apply_flag_is_refused
 tests/test_positive_controls.py::test_pc_rs_01_twin_weakening_proposal_is_refused
+tests/test_positive_controls.py::test_pc_rs_01_twin_missing_evidence_pointers_block_the_handoff
 
 [rs-mutant]
 tests/test_positive_controls.py::test_pc_rs_01_control_fails_when_reconcile_spec_refuses_everything
+tests/test_positive_controls.py::test_pc_rs_01_control_fails_when_reconcile_spec_blocks_everything
 
 [gate]
 # The runner itself fails closed.

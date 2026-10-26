@@ -1,0 +1,95 @@
+{
+  "id": "RS-SCH-04",
+  "component": "reconcile_spec",
+  "category": "SCH",
+  "rubrics": [
+    "R1",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "handoff_missing_evidence",
+  "title": "A handoff package without evidence pointers fails closed: blocked at diagnosis, unreadable as ready, and a package that drops submitted pointers fails the CLI",
+  "input": {
+    "missing": {
+      "source_doc": "contracts/security.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": []
+        }
+      ]
+    },
+    "partial": {
+      "source_doc": "contracts/security.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        },
+        {
+          "claim_id": "c02",
+          "protected_requirement_id": "SEC-5",
+          "authority_reference": "contracts/security.md#SEC-5",
+          "protected_text": "Sessions must expire after 15 minutes idle.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": []
+        }
+      ]
+    },
+    "complete": {
+      "source_doc": "contracts/security.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "blocked_exit_code": 3,
+    "missing_reasons": [
+      "c01:evidence_missing"
+    ],
+    "partial_reasons": [
+      "c02:evidence_missing"
+    ],
+    "partial_evidence_state": "incomplete",
+    "package_exit_code": 1,
+    "package_stderr_contains": "handoff package does not carry the request",
+    "dropped_markdown_reason": "c01:markdown_evidence_pointers_missing",
+    "dropped_json_reason": "c01:json_evidence_pointers_altered"
+  }
+}

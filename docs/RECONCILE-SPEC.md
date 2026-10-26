@@ -12,7 +12,27 @@ Reconcile Spec is Attest's diagnosis and handoff mode for a reported disagreemen
 - Evidence pointers are recorded as supplied. Attest does not fetch, verify, or treat their contents as instructions.
 - A Kane/Attest receipt may be recorded as an observation pointer; it is not authority and cannot mint a `reconciled` outcome.
 
-The handoff records the orthogonal execution, comparison, authority, evidence, and repair states. Execution is `not_run` unless the input identifies an external runtime observation or receipt; either remains evidence and does not change authority. Repair is only `handoff` or `refused`, never applied, promoted, or `reconciled`.
+The handoff records the orthogonal execution, comparison, authority, evidence, and repair states, plus a `handoff_state` of `ready` or `blocked`. Execution is `not_run` unless the input identifies an external runtime observation or receipt; either remains evidence and does not change authority. Repair is only `handoff` or `refused`, never applied, promoted, or `reconciled`.
+
+## Fail-closed handoff
+
+A handoff is `ready` only when authority is present, every conflict carries at least one evidence pointer, and `blocking_reasons` is empty. `ReconcileHandoff` refuses to load a JSON handoff that says `ready` otherwise, or `blocked` without a reason. Each reason reads only the submitted request; no pointer is fetched.
+
+| Reason | When |
+|---|---|
+| `request:authority_missing`, `request:authority_conflicting` | The request says so. |
+| `<claim>:authority_reference_missing` | The reference is absent or blank. Authority becomes `missing`. |
+| `<claim>:authority_reference_mismatch` | The reference has a `#fragment` that isn't the requirement id (case-insensitive, exact). Authority becomes `conflicting`. |
+| `<requirement>:protected_text_conflict` | Two conflicts give the same requirement different protected text. Authority becomes `conflicting`. |
+| `<requirement>:authority_reference_conflict` | Two conflicts give the same requirement different references. Authority becomes `conflicting`. |
+| `<claim>:evidence_missing` | The conflict has no evidence pointer. |
+| `<claim>:supersession_without_change_decision` | The observed text, the authority reference, or an evidence pointer or description says "superseded" (or "superceded"). Reconcile Spec takes no change decision as input, so such a claim is never backed by an approved one here. |
+
+The request schema also rejects blank `source_doc`, requirement ids, protected text and pointers, and duplicate claim ids, before anything is written.
+
+After writing, the CLI reads the package back and checks that the JSON and the Markdown carry every conflict, its protected text bytes and every submitted evidence pointer.
+
+Exit codes: `0` ready handoff; `1` the written package doesn't carry the request; `2` invalid input, or refused (`--apply`, or a proposed protected text that differs from the protected text, with or without `--apply`); `3` blocked, stopped for human review. Artifacts are written for `0`, `1`, `2` (refused) and `3`. A refused weakening is still handed to the owner of the behavior: `repair_state` is `refused` and `handoff_state` stays `ready` when nothing else blocks it.
 
 ## CLI
 
@@ -48,7 +68,7 @@ Example input:
 }
 ```
 
-The command writes `reconcile-spec.md` and `reconcile-spec.json` side by side. Passing `--apply` writes the refusal handoff and exits non-zero; protected text is never changed. Review the artifact with the protected-requirement owner and the recommended application or documentation owner.
+The command writes `reconcile-spec.md` and `reconcile-spec.json` side by side. Passing `--apply`, or proposing changed protected text, writes the refusal handoff and exits 2. A blocked handoff exits 3. Protected text is never changed. Review the artifact with the protected-requirement owner and the recommended application or documentation owner.
 
 ## Non-goals
 

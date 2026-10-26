@@ -1,0 +1,217 @@
+{
+  "id": "RS-AB-09",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "missing_or_conflicting_authority",
+  "title": "Missing or conflicting authority stops the run: the CLI writes a blocked handoff and exits 3",
+  "input": {
+    "variants": {
+      "status_missing": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "missing",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "status_conflicting": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "conflicting",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "blank_reference": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "   ",
+            "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "reference_names_other_requirement": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-1",
+            "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "two_protected_texts": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          },
+          {
+            "claim_id": "c02",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "Administrators may optionally use multi-factor authentication.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      },
+      "two_authority_references": {
+        "source_doc": "contracts/security.md",
+        "authority_status": "present",
+        "conflicts": [
+          {
+            "claim_id": "c01",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security.md#SEC-4",
+            "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          },
+          {
+            "claim_id": "c02",
+            "protected_requirement_id": "SEC-4",
+            "authority_reference": "contracts/security-2025.md#SEC-4",
+            "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [
+              {
+                "kind": "runtime",
+                "pointer": "artifacts/run-17/sign-in.png",
+                "description": "Observed sign-in flow"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "expected": {
+    "exit_code": 3,
+    "stderr_contains": "blocked:",
+    "repair_state": "handoff",
+    "handoff_state": "blocked",
+    "variants": {
+      "status_missing": {
+        "authority_state": "missing",
+        "blocking_reasons": [
+          "request:authority_missing"
+        ]
+      },
+      "status_conflicting": {
+        "authority_state": "conflicting",
+        "blocking_reasons": [
+          "request:authority_conflicting"
+        ]
+      },
+      "blank_reference": {
+        "authority_state": "missing",
+        "blocking_reasons": [
+          "c01:authority_reference_missing"
+        ]
+      },
+      "reference_names_other_requirement": {
+        "authority_state": "conflicting",
+        "blocking_reasons": [
+          "c01:authority_reference_mismatch"
+        ]
+      },
+      "two_protected_texts": {
+        "authority_state": "conflicting",
+        "blocking_reasons": [
+          "SEC-4:protected_text_conflict"
+        ]
+      },
+      "two_authority_references": {
+        "authority_state": "conflicting",
+        "blocking_reasons": [
+          "SEC-4:authority_reference_conflict"
+        ]
+      }
+    }
+  }
+}

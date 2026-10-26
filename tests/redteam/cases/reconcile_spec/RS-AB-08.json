@@ -1,0 +1,52 @@
+{
+  "id": "RS-AB-08",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "weaken_requirement_refused_handoff",
+  "title": "Weakening 'fix' without --apply: the CLI refuses and exits non-zero, the contract file is untouched, the conflict is still handed to its owner",
+  "input": {
+    "contract": "The application must require multi-factor authentication for every administrator sign-in.\n",
+    "proposals": {
+      "optional": "Administrators may optionally use multi-factor authentication.",
+      "trailing_space": "The application must require multi-factor authentication for every administrator sign-in. ",
+      "scoped_down": "The application must require multi-factor authentication for administrator sign-ins from new devices."
+    },
+    "request": {
+      "source_doc": "contracts/security.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "exit_code": 2,
+    "stderr_contains": "refused:",
+    "repair_state": "refused",
+    "protected_edit_refused": true,
+    "recommended_owner": "application owner",
+    "handoff_state": "ready",
+    "markdown_contains": "Unapplied proposed protected text"
+  }
+}
