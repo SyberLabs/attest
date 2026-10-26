@@ -716,7 +716,7 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
 
     token = re.compile(rf"(?<![\w-]){re.escape(requirement)}(?![\w-])", re.IGNORECASE)
     withdrawn = re.compile(
-        rf"(?:{token.pattern}|{_THIS_REQUIREMENT}){_WITHDRAWS}", re.IGNORECASE  # NEGATIVE CONTROL: object form off
+        rf"(?:{token.pattern}|{_THIS_REQUIREMENT}){_WITHDRAWS}|{_withdrawing(requirement)}", re.IGNORECASE
     )
     own: set[int] = set()
     for index, body in _labels(units, requirement):
