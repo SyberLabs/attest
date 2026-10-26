@@ -6,6 +6,11 @@ directory is a separate, host-created workflow with the same gates as Maintain
 Docs: a human approval bound to the exact source, base, candidate, plan, build
 and policy digests, fresh whole-spec Kane validation of the approved candidate,
 and a digest-checked write of only the files the candidate changed.
+
+Kane's browser observations are bound as on the Maintain Docs path: each names the
+fresh Kane run validation binds it to, and the build the runner measured around that
+run. The runner measures the spec's worktree (the doc it was prepared with), so the
+proposal records that build too, as ``spec_build_digest``, and approval binds it.
 """
 
 from __future__ import annotations
@@ -97,6 +102,17 @@ def _no_symlink_on_path(root: Path, rel: str) -> bool:
     return True
 
 
+def spec_build_digest(spec_source: str) -> str | None:
+    """The build KaneBrowserRunner stamps on observations of this spec; None for a URL or unreadable spec."""
+    if spec_source.startswith(("http://", "https://")):
+        return None
+    path = Path(spec_source).resolve()
+    try:
+        return current_build_digest(path, hashlib.sha256(path.read_bytes()).hexdigest())
+    except OSError:
+        return None
+
+
 def _app_dir(proposal: dict[str, Any]) -> Path:
     path = Path(proposal["source_path"])
     if path.is_symlink() or not path.is_dir():
@@ -159,6 +175,7 @@ def create_app_promotion_proposal(
         "base_digest": tree_digest(candidate.base_manifest),
         "candidate_digest": tree_digest(cand_manifest),
         "build_digest": current_build_digest(original, source_digest),
+        "spec_build_digest": spec_build_digest(doc.source),
         "policy_digest": SPEC_POLICY_DIGEST,
         "plan": plan,
         "plan_digest": hashlib.sha256(plan.encode("utf-8")).hexdigest(),
@@ -231,6 +248,9 @@ def _check_identity(proposal: dict[str, Any]) -> None:
             raise AppPromotionError(f"cannot read the spec for its digest check: {exc}") from exc
         if sha256_of(current) != proposal.get("spec_digest"):
             raise AppPromotionError("the spec changed after approval; promotion refused")
+    # A proposal recorded before observation builds were bound has none: validate it again.
+    if "spec_build_digest" not in proposal or spec_build_digest(spec) != proposal["spec_build_digest"]:
+        raise AppPromotionError("spec build identity changed after approval; promotion refused")
 
 
 def resume_app_workflow(
@@ -245,7 +265,9 @@ def resume_app_workflow(
 ) -> WorkflowRecord:
     """Validate the approved candidate with fresh Kane evidence against the whole spec, optionally promote."""
     from .pipeline import execute
-    from .workflow import WorkflowError, _validation_digest
+    from .workflow import (
+        WorkflowError, _kane_run_bindings, _observation_build_failures, _observation_run_failures, _validation_digest,
+    )
 
     record = store.get(workflow_id)
     if record.proposal.get("kind") != SPEC_APP_KIND:
@@ -269,6 +291,7 @@ def resume_app_workflow(
 
     scratch = new_scratch("attest-validate-app-")
     session = None
+    runs_before = len(getattr(runner, "runs", None) or [])
     try:
         app_root = scratch / "app"
         for rel, data in files.items():
@@ -295,6 +318,19 @@ def resume_app_workflow(
             "evidence": evidence_payload,
         }
         validation["evidence_digest"] = _validation_digest(evidence_payload)
+        # The same bindings as Maintain Docs validation: a fresh Kane run per browser claim,
+        # named by its observation, on the spec build approval recorded.
+        kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
+        validation["spec_build_digest"] = record.proposal["spec_build_digest"]
+        validation["kane_runs"] = kane_runs
+        unbound = [
+            *stale_runs,
+            *_observation_run_failures(claims, evidence, kane_runs),
+            *_observation_build_failures(claims, evidence, record.proposal["spec_build_digest"]),
+        ]
+        if unbound:
+            validation["successful"] = False
+            validation["failed_claims"] = [*failed, *unbound]
         validation["receipt_digest"] = _validation_digest(validation)
         validation["receipt_artifact_digest"] = store.put_artifact(canonical_json(validation))
     except Exception as exc:
@@ -306,10 +342,14 @@ def resume_app_workflow(
         if session is not None:
             session.close()
         shutil.rmtree(scratch, ignore_errors=True)
+    try:
+        _check_identity(record.proposal)
+    except AppPromotionError as exc:  # the app, its build or the spec moved while Kane ran
+        return _unresolved(store, record, f"changed during validation: {exc}")
     if not validation["successful"]:
         return store.transition(
             workflow_id, "validating", "rejected", validation=validation,
-            event={"reason": "fresh validation failed", "failed_claims": failed},
+            event={"reason": "fresh validation failed", "failed_claims": validation["failed_claims"]},
         )
     record = store.transition(
         workflow_id, "validating", "validated", validation=validation,
@@ -325,7 +365,7 @@ def resume_app_workflow(
 
 def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> WorkflowRecord:
     """Write the approved, validated candidate's changed files into the original app, or nothing."""
-    from .workflow import WorkflowError
+    from .workflow import WorkflowError, _refuse_unbound_browser_evidence
 
     record = store.get(workflow_id)
     proposal = record.proposal
@@ -346,8 +386,13 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
         files = _candidate_files(store, proposal)
         base = json.loads(store.get_artifact(proposal["artifact_digests"]["base_tree"]))
         source = json.loads(store.get_artifact(proposal["artifact_digests"]["source_tree"]))
+        claims = [Claim.model_validate(x) for x in json.loads(store.get_artifact(proposal["artifact_digests"]["spec_claims"]))]
     except AppPromotionError as exc:
         raise WorkflowError(f"{exc}; --apply refused") from exc
+    # Browser claims come from the approved spec claims, never from the validation record.
+    if "spec_build_digest" not in validation or validation["spec_build_digest"] != proposal["spec_build_digest"]:
+        raise WorkflowError("validation evidence is not bound to the approved app/build version; --apply refused")
+    _refuse_unbound_browser_evidence(validation, [c.id for c in claims if c.kind == "browser"], proposal["spec_build_digest"])
     if tree_digest(base) != proposal.get("base_digest") or tree_digest(source) != proposal.get("source_digest"):
         raise WorkflowError("baseline tree digest mismatch; --apply refused")
     candidate_manifest = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}
