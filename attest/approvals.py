@@ -26,11 +26,16 @@ def approval_bindings(proposal: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def is_policy_actor(actor: str) -> bool:
+    """`policy:<name>` is how receipts name an automatic decision, never a person."""
+    return actor.strip().lower().startswith("policy:")
+
+
 def approve_workflow(store: SQLiteWorkflowStore, workflow_id: str, actor: str) -> WorkflowRecord:
     record = store.get(workflow_id)
     if record.state != "awaiting_approval":
         raise ApprovalError(f"workflow must be awaiting_approval, not {record.state}")
-    if not actor.strip():
+    if not actor.strip() or is_policy_actor(actor):
         raise ApprovalError("a human approver identity is required")
     authority = record.proposal.get("authority") or {}
     if not authority.get("allowed"):
@@ -42,6 +47,7 @@ def approve_workflow(store: SQLiteWorkflowStore, workflow_id: str, actor: str) -
         **bindings,
         "actor": actor.strip(),
         "approved_at": datetime.now(timezone.utc).isoformat(),
+        "workflow_id": workflow_id,
     }
     approval["approval_digest"] = hashlib.sha256(canonical_json(approval).encode("utf-8")).hexdigest()
     return store.transition(
