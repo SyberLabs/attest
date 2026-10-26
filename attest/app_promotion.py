@@ -266,7 +266,7 @@ def resume_app_workflow(
     """Validate the approved candidate with fresh Kane evidence against the whole spec, optionally promote."""
     from .pipeline import execute
     from .workflow import (
-        WorkflowError, _kane_pack_bindings, _kane_run_bindings, _observation_build_failures, _observation_run_failures,
+        WorkflowError, _approval_disagreement, _kane_pack_bindings, _kane_run_bindings, _observation_build_failures, _observation_run_failures,
         _reused_kane_runs, _seal_validation, _validation_digest,
     )
 
@@ -284,6 +284,8 @@ def resume_app_workflow(
         raise WorkflowError(f"workflow is {record.state}; only an approved workflow can be resumed")
     try:
         verify_approval(record)
+        if problem := _approval_disagreement(store, record):
+            raise WorkflowError(problem)
         _check_identity(record.proposal)
         files = _candidate_files(store, record.proposal)
         claims = [Claim.model_validate(x) for x in json.loads(store.get_artifact(record.proposal["artifact_digests"]["spec_claims"]))]
@@ -371,7 +373,7 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     """Write the approved, validated candidate's changed files into the original app, or nothing."""
     from .workflow import (
         WorkflowError, _refuse_reused_kane_runs, _refuse_unbacked_browser_evidence, _refuse_unbound_browser_evidence,
-        _refuse_unproven_claims, _refuse_unsealed_validation,
+        _refuse_unproven_claims, _refuse_unrecorded_approval, _refuse_unsealed_validation,
     )
 
     record = store.get(workflow_id)
@@ -381,6 +383,7 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
     verify_approval(record)
+    _refuse_unrecorded_approval(store, record)
     validation = record.validation
     if (
         not validation.get("successful")

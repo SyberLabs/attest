@@ -24,6 +24,7 @@ import shutil
 import sqlite3
 import subprocess
 import zipfile
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -2368,3 +2369,172 @@ def test_control_run_reuse_each_validation_on_its_own_kane_run_validates_and_pro
         assert source.read_text(encoding="utf-8") == CANDIDATE_DOC
     if other_id != workflow_id:
         assert store.get(other_id).state == "validated"
+
+
+# -- approval time: the approval a pack's run is read against is the one the human gave -----
+#
+# Since the run-time section each pack's run has to start no earlier than the approval's
+# ``approved_at``. The approval digest covers that time, but nothing checked the digest against
+# anything outside the approval. So a writer who backdated ``approved_at`` and recomputed the
+# digest moved the bound back, and a Kane run from before the approval backed a claim: at
+# validation, and at promotion with the record resealed to the new digest, on both paths.
+# ``approve_workflow`` writes the approval's digest into its approval event in the same
+# transaction, and only runs once the workflow is put up for approval. So the approval has to
+# be the one its only approval event names, dated no earlier than the event that put the
+# workflow up for approval. Both are the store's own rows: a writer who also rewrites the
+# approval event and dates the approval after that event isn't caught.
+
+BEFORE_THE_CAPTURE = datetime(2026, 10, 24, 17, 0, tzinfo=timezone.utc)  # the recorded run started 17:23:10.741Z
+
+
+def _backdate_approval(store: SQLiteWorkflowStore, workflow_id: str, when: datetime, *, event: bool = False) -> str:
+    """Date the stored approval ``when`` and recompute its digest, as a writer who knows the scheme.
+
+    ``event`` also rewrites the approval event's digest to match. Returns the new digest.
+    """
+    approval = store.get(workflow_id).approval
+    approval.pop("approval_digest")
+    approval["approved_at"] = when.isoformat()
+    approval["approval_digest"] = digest(canonical_json(approval))
+    with sqlite3.connect(store.path) as db:
+        db.execute("UPDATE workflows SET approval_json = ? WHERE workflow_id = ?", (canonical_json(approval), workflow_id))
+        if event:
+            for event_id, payload in db.execute(
+                "SELECT event_id, payload_json FROM workflow_events WHERE workflow_id = ? AND from_state = 'awaiting_approval' "
+                "AND to_state = 'validating'", (workflow_id,)).fetchall():
+                rewritten = {**json.loads(payload), "approval_digest": approval["approval_digest"]}
+                db.execute("UPDATE workflow_events SET payload_json = ? WHERE event_id = ?", (canonical_json(rewritten), event_id))
+    return approval["approval_digest"]
+
+
+def _put_up_at(store: SQLiteWorkflowStore, workflow_id: str) -> datetime:
+    (event,) = [e for e in store.events(workflow_id) if e["to_state"] == "awaiting_approval"]
+    return datetime.fromisoformat(event["created_at"])
+
+
+def test_approval_time_reader_needs_the_approval_its_event_recorded_dated_after_it_was_put_up(tmp_path):
+    from attest.workflow import APPROVAL_BEFORE_PROPOSAL, APPROVAL_NOT_RECORDED, _approval_disagreement
+
+    _, store, workflow_id, _ = approved_repair(tmp_path)
+    check = lambda: _approval_disagreement(store, store.get(workflow_id))  # noqa: E731
+    assert check() is None
+    put_up = _put_up_at(store, workflow_id)
+    assert put_up <= _approved_at(store, workflow_id)
+    # Backdated, digest recomputed: the approval event still names the digest the human's approval had.
+    _backdate_approval(store, workflow_id, BEFORE_THE_CAPTURE)
+    assert check() == APPROVAL_NOT_RECORDED
+    # The event rewritten too: dated before the workflow was put up for approval.
+    _backdate_approval(store, workflow_id, BEFORE_THE_CAPTURE, event=True)
+    assert check() == APPROVAL_BEFORE_PROPOSAL
+    _backdate_approval(store, workflow_id, put_up - timedelta(microseconds=1), event=True)
+    assert check() == APPROVAL_BEFORE_PROPOSAL
+    _backdate_approval(store, workflow_id, put_up, event=True)
+    assert check() is None  # the same instant counts
+    record = store.get(workflow_id)
+    undated = {k: v for k, v in record.approval.items() if k != "approved_at"}
+    assert _approval_disagreement(store, replace(record, approval=undated)) == APPROVAL_BEFORE_PROPOSAL
+    # Two approval events, or none: not the approval the store recorded.
+    with sqlite3.connect(store.path) as db:
+        (event_id, payload), = db.execute("SELECT event_id, payload_json FROM workflow_events WHERE workflow_id = ? "
+                                          "AND to_state = 'validating'", (workflow_id,)).fetchall()
+        db.execute("INSERT INTO workflow_events(workflow_id, from_state, to_state, payload_json, created_at) "
+                   "VALUES (?, 'awaiting_approval', 'validating', ?, ?)", (workflow_id, payload, put_up.isoformat()))
+    assert check() == APPROVAL_NOT_RECORDED
+    with sqlite3.connect(store.path) as db:
+        db.execute("DELETE FROM workflow_events WHERE workflow_id = ? AND to_state = 'validating'", (workflow_id,))
+    assert check() == APPROVAL_NOT_RECORDED
+
+
+# (backdated to, approval event rewritten too, when Kane's run started, the reason)
+BACKDATED = {
+    "approval-rewritten": (lambda put_up: BEFORE_THE_CAPTURE, False, lambda put_up: _ran_on_event_day,
+                           "approval is not the one its approval event recorded"),
+    "approval-and-its-event-rewritten": (lambda put_up: BEFORE_THE_CAPTURE, True, lambda put_up: _ran_on_event_day,
+                                         "approval is dated before the workflow was put up for approval"),
+    # Inside the window: the time bound alone accepts it, the approval event doesn't.
+    "approval-rewritten-to-when-it-was-put-up": (lambda put_up: put_up, False, lambda put_up: lambda r: stamped(r, put_up),
+                                                 "approval is not the one its approval event recorded"),
+}
+
+
+@pytest.mark.parametrize("backdate, event, ran, reason", BACKDATED.values(), ids=BACKDATED.keys())
+@pytest.mark.parametrize("mode", ["maintain-docs", "spec-mode"])
+def test_approval_time_validation_is_unresolved_when_the_approval_was_backdated(tmp_path, monkeypatch, mode, backdate, event, ran, reason):
+    # The approval is backdated and its digest recomputed. The command validation starts
+    # reports a session whose pack, sealed for the file the runner wrote, ran after the
+    # backdated time and before the human approved (on event day, or the instant the workflow
+    # was put up for approval). #66 read the pack against the backdated time, so it validated
+    # and promoted. Now no Kane runs.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    if mode == "spec-mode":
+        app, _, store, workflow_id = approved_spec_promotion(tmp_path)
+        llm = None
+    else:
+        source, store, workflow_id, llm = approved_repair(tmp_path)
+    put_up = _put_up_at(store, workflow_id)
+    assert put_up < _approved_at(store, workflow_id)
+    _backdate_approval(store, workflow_id, backdate(put_up), event=event)
+    runner, cli = kane_runner(tmp_path / "kane", monkeypatch, edit={"run": ran(put_up)})
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
+
+    assert outcome.state == "unresolved", outcome.validation
+    assert outcome.validation["reason"] == reason
+    assert cli.calls == []
+    if mode == "spec-mode":
+        assert app_unchanged(app)
+    else:
+        assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+@pytest.mark.parametrize("event", [False, True], ids=["approval-rewritten", "approval-and-its-event-rewritten"])
+@pytest.mark.parametrize("mode", ["maintain-docs", "spec-mode"])
+def test_approval_time_promotion_refuses_a_resealed_record_on_a_backdated_approval(tmp_path, monkeypatch, mode, event):
+    # A real Kane run of the approved wording, taken before the proposal (the implement loop
+    # proving the candidate), laundered onto c07 and c08 by a fully resealed record. The
+    # approval is backdated to that run's start, its digest recomputed, and the record sealed
+    # to the new digest, so the pack read-back accepts the run and #66 promoted.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    pack = _kane_run_before_approval(tmp_path, monkeypatch, CANDIDATE_DOC)
+    if mode == "spec-mode":
+        app, _, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    else:
+        source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    started = _run_started(pack.read_bytes())
+    assert started < _put_up_at(store, workflow_id)
+    approval_digest = _backdate_approval(store, workflow_id, started, event=event)
+    launder = _launder_onto(pack, ("c07", "c08"))
+    _reseal(store, workflow_id, lambda v: (launder(v), v.update(approval_digest=approval_digest)))
+    approved = _claims(CANDIDATE_DOC)
+    assert all(pack_disagreement(pack.read_bytes(), cid, LAUNDERED_RUN, approved[cid], not_before=started) is None
+               for cid in ("c07", "c08"))
+
+    refusal = ("approval is dated before the workflow was put up for approval" if event
+               else "approval is not the one its approval event recorded")
+    with pytest.raises(WorkflowError, match=re.escape(f"{refusal}; --apply refused")):
+        promote_workflow(store, workflow_id)
+    if mode == "spec-mode":
+        assert app_unchanged(app)
+    else:
+        assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+@pytest.mark.parametrize("mode", ["maintain-docs", "spec-mode"])
+def test_control_approval_time_the_humans_approval_is_its_events_and_promotes(tmp_path, monkeypatch, mode):
+    # An earlier run of the same wording is in another Kane home, and validation doesn't read it.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _kane_run_before_approval(tmp_path, monkeypatch, CANDIDATE_DOC)
+    if mode == "spec-mode":
+        app, _, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    else:
+        source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    record = store.get(workflow_id)
+    (approval_event,) = [e["payload"] for e in store.events(workflow_id) if e["to_state"] == "validating"]
+
+    assert approval_event["approval_digest"] == record.approval["approval_digest"] == record.validation["approval_digest"]
+    assert _put_up_at(store, workflow_id) <= _approved_at(store, workflow_id)
+    assert promote_workflow(store, workflow_id).state == "promoted"
+    if mode == "spec-mode":
+        assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")
+    else:
+        assert source.read_text(encoding="utf-8") == CANDIDATE_DOC
