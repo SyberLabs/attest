@@ -5,7 +5,8 @@ application observations. It does not execute the application, decide which
 source is authoritative, edit a contract, or promote a proposed requirement.
 The CLI does read the document each conflict's authority reference names (else
 ``source_doc``), confined to a root, to check that the submitted protected text
-is the requirement as that document states it.
+is the requirement as that document states it, and that the document does not
+say it, or the requirement's section, no longer governs.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ CandidateSide = Literal["doc_wrong", "app_wrong", "both", "ambiguous"]
 AuthorityStatus = Literal["present", "missing", "conflicting"]
 EvidenceKind = Literal["runtime", "receipt", "source", "document", "other"]
 HandoffState = Literal["ready", "blocked"]
-SourceState = Literal["matched", "mismatch", "unreadable", "not_checked"]
+SourceState = Literal["matched", "not_governing", "mismatch", "unreadable", "not_checked"]
 
 # A requirements document is text; a larger file is not read and blocks the handoff.
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
@@ -93,6 +94,8 @@ class ConflictDiagnosis(BaseModel):
     source_checked_in: str | None = None
     # what that document labels this requirement with, when that differs from protected_text
     source_protected_text: str | None = None
+    # the lines of that document that say the requirement does not govern (see _not_governing)
+    source_not_governing: list[str] = Field(default_factory=list)
 
 
 class ReconcileHandoff(BaseModel):
@@ -121,13 +124,15 @@ class ReconcileHandoff(BaseModel):
     def _ready_only_when_complete(self) -> "ReconcileHandoff":
         # A consumer re-reading the JSON gets the same guarantee as the CLI: a handoff is
         # ready only with authority present, a pointer on every conflict, every protected
-        # text matched in a document that was read, and no reasons.
+        # text matched in a document that was read and doesn't say it no longer governs,
+        # and no reasons.
         if self.handoff_state == "ready" and (
             self.blocking_reasons
             or self.authority_state != "present"
             or self.evidence_state != "provided"
             or self.source_state != "matched"
             or any(c.source_checked_in not in self.source_digests for c in self.conflicts)
+            or any(c.source_not_governing for c in self.conflicts)
         ):
             raise ValueError(
                 "a ready handoff needs present authority, provided evidence, a matched source and no blocking reasons"
@@ -169,7 +174,7 @@ class ReconcileSpec:
         text it claims to quote, so the handoff is blocked (``not_checked``). This
         method reads no file itself.
         """
-        source_state, source_reasons, in_source = _source_check(request, sources)
+        source_state, source_reasons, in_source, not_governing = _source_check(request, sources)
         blocking = _blocking_reasons(request) + source_reasons
         authority_state = request.authority_status
         if authority_state == "present" and any(_reason_is(r, _CONFLICTING_AUTHORITY) for r in blocking):
@@ -206,6 +211,7 @@ class ReconcileSpec:
                     protected_edit_refused=changed_protected_text or apply_requested,
                     source_checked_in=protected_document(conflict, request.source_doc),
                     source_protected_text=in_source.get(conflict.claim_id),
+                    source_not_governing=not_governing.get(conflict.claim_id, []),
                 )
             )
 
@@ -254,6 +260,7 @@ _CONFLICTING_AUTHORITY = (
     "protected_text_conflict",
     "protected_text_not_in_source",
     "requirement_ambiguous_in_source",
+    "source_not_governing",
 )
 # ... and these make it missing.
 _MISSING_AUTHORITY = (
@@ -264,10 +271,15 @@ _MISSING_AUTHORITY = (
 )
 
 
+# Reason kinds that carry a detail after the kind: ``<claim>:<kind>:<why>``.
+_DETAILED_REASONS = ("source_unreadable", "source_not_governing")
+
+
 def _reason_is(reason: str, kinds: tuple[str, ...]) -> bool:
-    """Whether ``reason`` (``<who>:<kind>``, or ``<claim>:source_unreadable:<why>``) has one of ``kinds``."""
-    if ":source_unreadable:" in reason:
-        return "source_unreadable" in kinds
+    """Whether ``reason`` (``<who>:<kind>``, or ``<claim>:<kind>:<why>``) has one of ``kinds``."""
+    for kind in _DETAILED_REASONS:
+        if f":{kind}:" in reason:
+            return kind in kinds
     return reason.endswith(tuple(f":{kind}" for kind in kinds))
 
 # A claim that the requirement no longer binds. Reconcile Spec has no change-decision
@@ -434,7 +446,12 @@ def _units(text: str) -> list[str]:
 
 
 def _labelled_texts(units: list[str], requirement: str) -> list[str]:
-    """The text each unit labelled ``requirement`` gives it, in document order.
+    """The text each unit labelled ``requirement`` gives it, in document order."""
+    return [text for _, text in _labels(units, requirement)]
+
+
+def _labels(units: list[str], requirement: str) -> list[tuple[int, str]]:
+    """Each unit labelled ``requirement``, as (its index, the text it gives it).
 
     A unit is labelled when the id (case-insensitive, as in the fragment check) is
     its first word after Markdown markers. A heading label's text is what follows
@@ -443,7 +460,7 @@ def _labelled_texts(units: list[str], requirement: str) -> list[str]:
     takes the next unit as its text.
     """
     token = re.compile(rf"(?<![\w-]){re.escape(requirement)}(?![\w-])", re.IGNORECASE)
-    texts: list[str] = []
+    texts: list[tuple[int, str]] = []
     for index, unit in enumerate(units):
         found = token.search(unit)
         if found is None or not _LABEL_PREFIX.fullmatch(unit[: found.start()]):
@@ -460,28 +477,105 @@ def _labelled_texts(units: list[str], requirement: str) -> list[str]:
         elif not body and following:
             body = following[0]
         if body:
-            texts.append(body)
+            texts.append((index, body))
     return texts
+
+
+# A declared status that says the document governs now. Any other declared status
+# (draft, proposed, deprecated, superseded, an unknown word, or none after the colon)
+# does not: the list fails closed.
+GOVERNING_STATUSES = frozenset({"approved", "accepted", "active", "adopted", "current", "effective", "final", "ratified"})
+# ``status: draft`` (front matter), ``**Status:** Draft``, ``## Status: Draft``, ``| Status | Draft |``
+_STATUS_LINE = re.compile(r"[\s#>*_|\-]*status[\s*_]*[:|\u2013\u2014][\s*_|`]*(?P<value>.*)", re.IGNORECASE)
+# ``## Status``: its status is the next non-blank line
+_STATUS_HEADING = re.compile(r"\s*#+\s*status[\s:*_]*", re.IGNORECASE)
+# a front-matter or metadata pointer to the document that replaces this one
+_REPLACED_BY_KEY = re.compile(r"[\s>*_|\-]*replaced[_\- ]by[\s*_]*:", re.IGNORECASE)
+# a heading over the requirement, or a bracketed tag right after its id, that marks it as not governing
+_NOT_GOVERNING_WORDS = re.compile(
+    r"\b(?:super[sc]eded|deprecated|withdrawn|obsolete|rescinded|repealed|retired|archived|draft|proposed|replaced|historical|no\s+longer)\b",
+    re.IGNORECASE,
+)
+_TAG = re.compile(r"[(\[]([^)\]]*)[)\]]")
+
+
+def _heading_level(unit: str) -> int:
+    return len(unit) - len(unit.lstrip("#"))
+
+
+def _not_governing(text: str, units: list[str], requirement: str, matched: str) -> dict[str, list[str]]:
+    """What the document says about ``requirement`` not governing, by reason detail.
+
+    Only the document's own words count; Reconcile Spec has no registry of which
+    document governs. Three things block, each erring toward blocking:
+
+    - ``status``: any declared status (a ``Status:`` line, front matter or table row,
+      or the line after a ``Status`` heading) whose first word isn't in
+      ``GOVERNING_STATUSES``. A status anywhere in the document counts, since this
+      check can't tell which requirement a status belongs to.
+    - ``superseded``: #50's supersession wording anywhere in the document, or a
+      ``replaced_by:`` key.
+    - ``section``: a heading above a label giving ``matched`` (its section, the
+      document title, any enclosing heading), or a bracketed tag right after the id
+      (``## SEC-4 (withdrawn)``), names a non-governing state.
+
+    The values are the folded lines that tripped each one, for the handoff.
+    """
+    found: dict[str, list[str]] = {}
+    lines = text.splitlines()
+    for number, line in enumerate(lines):
+        status = None
+        if _STATUS_HEADING.fullmatch(line):
+            status = next((later for later in lines[number + 1:] if later.strip()), "")
+            shown = _fold(f"{line} {status}")
+        elif found_status := _STATUS_LINE.match(line):
+            status, shown = found_status.group("value"), _fold(line)
+        if status is not None:
+            word = re.search(r"[^\W\d_][\w-]*", status)
+            if word is None or word.group(0).casefold() not in GOVERNING_STATUSES:
+                found.setdefault("status", []).append(shown)
+        if _SUPERSESSION.search(line) or _REPLACED_BY_KEY.match(line):
+            found.setdefault("superseded", []).append(_fold(line))
+
+    token = re.compile(rf"(?<![\w-]){re.escape(requirement)}(?![\w-])", re.IGNORECASE)
+    for index, body in _labels(units, requirement):
+        if body != matched:
+            continue
+        label = units[index]
+        after_id = label[token.search(label).end():].lstrip(" :*_`")
+        tag = _TAG.match(after_id)
+        if tag and _NOT_GOVERNING_WORDS.search(tag.group(1)):
+            found.setdefault("section", []).append(label)
+        # the heading of each enclosing level above the label (a heading label's own title is its text)
+        need = _heading_level(label) if label.startswith("#") else 7
+        for earlier in reversed(units[:index]):
+            if earlier.startswith("#") and _heading_level(earlier) < need:
+                need = _heading_level(earlier)
+                if _NOT_GOVERNING_WORDS.search(earlier):
+                    found.setdefault("section", []).append(earlier)
+    return {why: list(dict.fromkeys(shown)) for why, shown in found.items()}
 
 
 def _source_check(
     request: ReconcileRequest, sources: Mapping[str, SourceDocument | SourceUnreadable] | None
-) -> tuple[SourceState, list[str], dict[str, str]]:
+) -> tuple[SourceState, list[str], dict[str, str], dict[str, list[str]]]:
     """Compare each submitted protected text with what its document says.
 
     The submitted text must equal the text the document labels with the requirement
     id, after folding whitespace only: no case folding, no Unicode normalization,
     no partial match. A shorter, reworded or scoped-down text is not the requirement
-    as written. Returns the state (the worst over all conflicts), the blocking
-    reasons, and per claim the document's text where it differs.
+    as written. A matched text then blocks if the document says it doesn't govern
+    (``_not_governing``). Returns the state (the worst over all conflicts), the
+    blocking reasons, per claim the document's text where it differs, and per claim
+    the lines that say it doesn't govern.
     """
-    return "matched", [], {}  # NEGATIVE CONTROL: source check disabled; reverted next commit
     if sources is None:
-        return "not_checked", ["request:source_not_checked"], {}
+        return "not_checked", ["request:source_not_checked"], {}, {}
     labelled: dict[tuple[str, str], list[str]] = {}
     units: dict[str, list[str]] = {}
     reasons: list[str] = []
     differs: dict[str, str] = {}
+    not_governing: dict[str, list[str]] = {}
     states: set[SourceState] = set()
     for conflict in request.conflicts:
         cid = conflict.claim_id
@@ -509,12 +603,18 @@ def _source_check(
             reasons.append(f"{cid}:protected_text_not_in_source")
             differs[cid] = distinct[0]
         else:
+            found = _not_governing(source.text, units[path], requirement, distinct[0])
+            if found:
+                kinds = [why for why in ("status", "superseded", "section") if why in found]
+                reasons += [f"{cid}:source_not_governing:{why}" for why in kinds]
+                not_governing[cid] = list(dict.fromkeys(line for why in kinds for line in found[why]))
+                states.add("not_governing")
             continue
         states.add("mismatch")
-    for state in ("not_checked", "unreadable", "mismatch"):
+    for state in ("not_checked", "unreadable", "mismatch", "not_governing"):
         if state in states:
-            return state, reasons, differs
-    return "matched", reasons, differs
+            return state, reasons, differs, not_governing
+    return "matched", reasons, differs, not_governing
 
 
 def handoff_package_problems(request: ReconcileRequest, markdown_path: Path, json_path: Path) -> list[str]:
@@ -618,6 +718,8 @@ def render_handoff_markdown(handoff: ReconcileHandoff) -> str:
         lines += _text_block("Protected requirement text", conflict.protected_text)
         if conflict.source_protected_text is not None:
             lines += _text_block("Text the checked document gives this requirement (differs from the submitted text)", conflict.source_protected_text)
+        if conflict.source_not_governing:
+            lines += _text_block("Where the checked document says this requirement may not govern", "\n".join(conflict.source_not_governing))
         lines += _text_block("Observed application behavior (evidence, not authority)", conflict.observed_text)
         if conflict.proposed_protected_text is not None:
             lines += _text_block("Unapplied proposed protected text", conflict.proposed_protected_text)

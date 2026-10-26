@@ -542,6 +542,20 @@ def test_pc_rs_01_twin_source_doc_states_a_stronger_requirement_blocks_the_hando
     assert contract.read_text(encoding="utf-8") == stronger
 
 
+def test_pc_rs_01_twin_contract_that_says_it_is_superseded_blocks_the_handoff(tmp_path):
+    # the submitted text is exactly what the contract says, but the contract says it no longer governs
+    superseded = RS_PROTECTED.replace("\n\n## SEC-4", "\n\n> Superseded by contracts/security-v2.md.\n\n## SEC-4")
+    contract, result, data, markdown = _run_reconcile(tmp_path, _rs_request(), contract_text=superseded)
+    assert result.exit_code == 3
+    assert data["handoff_state"] == "blocked"
+    assert data["source_state"] == "not_governing"
+    assert data["authority_state"] == "conflicting"
+    assert data["blocking_reasons"] == ["c01:source_not_governing:superseded"]
+    assert data["conflicts"][0]["source_not_governing"] == ["> Superseded by contracts/security-v2.md."]
+    assert "Superseded by contracts/security-v2.md." in markdown
+    assert contract.read_text(encoding="utf-8") == superseded
+
+
 def test_pc_rs_01_control_fails_when_reconcile_spec_blocks_everything(tmp_path, monkeypatch):
     monkeypatch.setattr(reconcile_spec_mod, "_blocking_reasons", lambda request: ["request:authority_missing"])
     with pytest.raises(AssertionError):
@@ -550,6 +564,12 @@ def test_pc_rs_01_control_fails_when_reconcile_spec_blocks_everything(tmp_path, 
 
 def test_pc_rs_01_control_fails_when_source_check_rejects_everything(tmp_path, monkeypatch):
     monkeypatch.setattr(reconcile_spec_mod, "_labelled_texts", lambda units, requirement: [])
+    with pytest.raises(AssertionError):
+        _run_rs_control(tmp_path)
+
+
+def test_pc_rs_01_control_fails_when_every_document_is_not_governing(tmp_path, monkeypatch):
+    monkeypatch.setattr(reconcile_spec_mod, "_not_governing", lambda *args: {"status": ["status: draft"]})
     with pytest.raises(AssertionError):
         _run_rs_control(tmp_path)
 
