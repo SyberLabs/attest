@@ -81,7 +81,9 @@ def test_attach_process_tree_is_a_job_on_windows_and_a_no_op_elsewhere():
 
     from attest.execution.supervisor import attach_process_tree, terminate_process_tree
 
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    # started the way Attest starts commands: its own process group (Windows) or session (POSIX)
+    flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], **flags)
     try:
         assert attach_process_tree(proc) is (os.name == "nt")
         assert attach_process_tree(proc) is False  # never twice
