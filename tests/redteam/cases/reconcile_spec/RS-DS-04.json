@@ -1,0 +1,65 @@
+{
+  "id": "RS-DS-04",
+  "component": "reconcile_spec",
+  "category": "DS",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "The same requirement named in another letter case with weaker text is checked against the contract and blocks",
+  "input": {
+    "files": {
+      "contracts/security.md": "# Security contract\n\n**Status:** Approved\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-5\n\nSessions must expire after 15 minutes idle.\n"
+    },
+    "request": {
+      "source_doc": "docs/requirements.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication\nfor every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/c01.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        },
+        {
+          "claim_id": "c02",
+          "protected_requirement_id": "sec-4",
+          "authority_reference": "contracts/security.md#sec-4",
+          "protected_text": "The application must require multi-factor authentication.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/c02.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "exit_code": 3,
+    "reasons": [
+      "c02:protected_text_not_in_source"
+    ],
+    "authority_state": "conflicting",
+    "source_state": "mismatch",
+    "shows": "The application must require multi-factor authentication\nfor every administrator sign-in.",
+    "contract_unchanged": true
+  }
+}

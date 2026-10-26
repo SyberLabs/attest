@@ -1,0 +1,62 @@
+{
+  "id": "RS-DS-06",
+  "component": "reconcile_spec",
+  "category": "DS",
+  "rubrics": [
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "The same contract saved as different bytes (BOM, CRLF) records the digest of the bytes read, never one shared by another save",
+  "input": {
+    "request": {
+      "source_doc": "contracts/security.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        }
+      ]
+    },
+    "document": "contracts/security.md",
+    "text": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication for every administrator sign-in.\n",
+    "saves": {
+      "lf": {
+        "bom": false,
+        "crlf": false
+      },
+      "bom": {
+        "bom": true,
+        "crlf": false
+      },
+      "crlf": {
+        "bom": false,
+        "crlf": true
+      },
+      "bom_crlf": {
+        "bom": true,
+        "crlf": true
+      }
+    }
+  },
+  "expected": {
+    "exit_code": 0,
+    "handoff_state": "ready",
+    "source_state": "matched",
+    "digest_of_bytes_on_disk": true,
+    "distinct_digests": 4
+  }
+}

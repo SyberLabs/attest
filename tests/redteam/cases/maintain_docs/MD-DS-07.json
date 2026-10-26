@@ -1,0 +1,34 @@
+{
+  "id": "MD-DS-07",
+  "component": "maintain_docs",
+  "category": "DS",
+  "rubrics": [
+    "R1",
+    "R3"
+  ],
+  "status": "active",
+  "theme": "path_escape",
+  "title": "The approved source replaced by a symlink to a byte-identical copy, before or after validation, is never validated or written through",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approved_recipes": {
+      "echo ready && exit 0": "print('ready')"
+    },
+    "approver": "reviewer",
+    "copy_name": "elsewhere/guide.md"
+  },
+  "expected": {
+    "before_validation": {
+      "state": "unresolved",
+      "reason_contains": "source file is missing or is a symlink"
+    },
+    "after_validation": {
+      "validated": "validated",
+      "promote_error": "source file is missing or is a symlink",
+      "state": "validated"
+    },
+    "copy_unchanged": true,
+    "still_a_symlink": true
+  }
+}

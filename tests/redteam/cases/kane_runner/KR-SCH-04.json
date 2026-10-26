@@ -1,0 +1,48 @@
+{
+  "id": "KR-SCH-04",
+  "component": "kane_runner",
+  "category": "SCH",
+  "rubrics": [
+    "R1"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Hostile or well-formed step.json and failure.yaml in an unpacked pack never turn the stream's failed step into a proven claim",
+  "input": {
+    "expects": "Dashboard",
+    "step_status": "failed",
+    "shapes": {
+      "step_json_says_passed": {
+        "step.json": "{\"status\": \"passed\", \"summary\": \"passed: the page shows Dashboard\"}"
+      },
+      "step_json_list": {
+        "step.json": "[\"passed\"]"
+      },
+      "step_json_scalar": {
+        "step.json": "\"passed\""
+      },
+      "failure_list": {
+        "step.json": "{\"status\": \"passed\"}",
+        "failure.yaml": "- triage\n- passed\n"
+      },
+      "failure_scalar": {
+        "step.json": "{\"status\": \"passed\"}",
+        "failure.yaml": "passed\n"
+      },
+      "failure_wrong_types": {
+        "step.json": "{\"status\": \"passed\"}",
+        "failure.yaml": "error: passed\ntriage: [1, 2]\n"
+      }
+    }
+  },
+  "expected": {
+    "never": "proven",
+    "outcomes": [
+      "error",
+      "broken"
+    ],
+    "well_formed_outcome": {
+      "step_json_says_passed": "broken"
+    }
+  }
+}

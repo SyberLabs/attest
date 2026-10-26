@@ -13,14 +13,26 @@ from collections import Counter
 
 import pytest
 
-from . import test_kane_runner, test_maintain_docs, test_reconcile_spec, test_syberwork_bridge
+from . import (
+    test_kane_runner,
+    test_kane_runner_captures,
+    test_kane_runner_depth,
+    test_maintain_docs,
+    test_maintain_docs_depth,
+    test_maintain_docs_store,
+    test_reconcile_spec,
+    test_reconcile_spec_depth,
+    test_reconcile_spec_sources,
+    test_syberwork_bridge,
+)
 from ._harness import CASES, CATEGORIES, COMPONENTS, QUOTAS, REQUIRED_THEMES, RUBRICS, STATUSES
 
+# A component's cases may be split across modules; every module is scanned for @case bindings.
 MODULES = {
-    "maintain_docs": test_maintain_docs,
-    "reconcile_spec": test_reconcile_spec,
-    "kane_runner": test_kane_runner,
-    "syberwork_bridge": test_syberwork_bridge,
+    "maintain_docs": (test_maintain_docs, test_maintain_docs_depth, test_maintain_docs_store),
+    "reconcile_spec": (test_reconcile_spec, test_reconcile_spec_depth, test_reconcile_spec_sources),
+    "kane_runner": (test_kane_runner, test_kane_runner_captures, test_kane_runner_depth),
+    "syberwork_bridge": (test_syberwork_bridge,),
 }
 PREFIX = {"maintain_docs": "MD", "reconcile_spec": "RS", "kane_runner": "KR", "syberwork_bridge": "BR"}
 COUNTED = {"active", "xfail"}
@@ -54,12 +66,13 @@ def test_every_case_file_is_well_formed():
 
 def test_case_files_and_tests_match_one_to_one():
     bound = Counter()
-    for component, module in MODULES.items():
-        for _, fn in inspect.getmembers(module, inspect.isfunction):
-            cid = getattr(fn, "redteam_case", None)
-            if cid is not None:
-                assert CASES[cid]["component"] == component, cid
-                bound[cid] += 1
+    for component, modules in MODULES.items():
+        for module in modules:
+            for _, fn in inspect.getmembers(module, inspect.isfunction):
+                cid = getattr(fn, "redteam_case", None)
+                if cid is not None and fn.__module__ == module.__name__:
+                    assert CASES[cid]["component"] == component, cid
+                    bound[cid] += 1
     assert {cid for cid, n in bound.items() if n > 1} == set()
     assert set(bound) == set(CASES)
 

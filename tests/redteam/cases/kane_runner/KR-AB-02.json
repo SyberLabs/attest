@@ -1,0 +1,34 @@
+{
+  "id": "KR-AB-02",
+  "component": "kane_runner",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R5",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "A recorded failing run whose overall and pack-level status are rewritten to passed still fails the claim's step",
+  "input": {
+    "capture": "fail_assert",
+    "claim": "c08",
+    "index": 2,
+    "expects": "Goodbye, World!",
+    "ndjson_overall": {
+      "from": "\"overall_status\":\"failed\"",
+      "to": "\"overall_status\":\"passed\""
+    },
+    "result_status": {
+      "from": "status: failed\nduration_ms",
+      "to": "status: passed\nduration_ms"
+    },
+    "source": "Recorded capture tests/fixtures/kane/fail_assert.pack.zip (event-day smoke run, sanitized); not live Kane."
+  },
+  "expected": {
+    "overall_after_rewrite": "passed",
+    "observation_status": "failed",
+    "verdict_not": "proven",
+    "pack_detail": "pack does not show the claim's step passed"
+  }
+}

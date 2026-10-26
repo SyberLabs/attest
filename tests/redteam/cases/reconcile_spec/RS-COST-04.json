@@ -1,0 +1,46 @@
+{
+  "id": "RS-COST-04",
+  "component": "reconcile_spec",
+  "category": "COST",
+  "rubrics": [
+    "R1",
+    "R7",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "A protected document path that is a named pipe is refused without being opened; the run neither hangs nor hands off as ready",
+  "input": {
+    "request": {
+      "source_doc": "contracts/security.md",
+      "authority_status": "present",
+      "conflicts": [
+        {
+          "claim_id": "c01",
+          "protected_requirement_id": "SEC-4",
+          "authority_reference": "contracts/security.md#SEC-4",
+          "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+          "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+          "candidate_side": "app_wrong",
+          "evidence": [
+            {
+              "kind": "runtime",
+              "pointer": "artifacts/run-17/sign-in.png",
+              "description": "Observed sign-in flow"
+            }
+          ]
+        }
+      ]
+    },
+    "fifo": "contracts/security.md"
+  },
+  "expected": {
+    "exit_code": 3,
+    "max_seconds": 20,
+    "reason": "c01:source_unreadable:not_a_file",
+    "source_state": "unreadable",
+    "handoff_state": "blocked",
+    "source_digests": {},
+    "reader_opened": false
+  }
+}

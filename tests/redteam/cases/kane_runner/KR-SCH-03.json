@@ -1,0 +1,61 @@
+{
+  "id": "KR-SCH-03",
+  "component": "kane_runner",
+  "category": "SCH",
+  "rubrics": [
+    "R1",
+    "R5"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Hostile result.yaml shapes in a recorded pack never back the claim and never escape as an exception",
+  "input": {
+    "capture": "author_pass",
+    "claim": "c07",
+    "expects": "Hello, World!",
+    "start_url": "http://127.0.0.1:5000/",
+    "rewrites": {
+      "steps_scalar": [
+        "steps:\n",
+        "steps: passed\nsteps_was:\n"
+      ],
+      "ordinal_word": [
+        "ordinal: 3",
+        "ordinal: last"
+      ],
+      "last_status_null": [
+        "ordinal: 3\n    status: passed",
+        "ordinal: 3\n    status: null"
+      ],
+      "definition_list": [
+        "definition:\n  path: test.md\n  sha256: ",
+        "definition:\n- "
+      ],
+      "external_id_list": [
+        "external_id:\n  execution_id:",
+        "external_id:\n- moved\nexternal_was:\n  execution_id:"
+      ],
+      "not_yaml": [
+        "evidence: '0.1'\n",
+        "- evidence: '0.1'\n"
+      ],
+      "session_null": [
+        "  session_id: ",
+        "  session_id: ~\n  session_was: "
+      ]
+    },
+    "source": "Recorded capture tests/fixtures/kane/author_pass.pack.zip (event-day smoke run, sanitized); not live Kane."
+  },
+  "expected": {
+    "written_pack_backs": true,
+    "details": {
+      "steps_scalar": "pack does not show the claim's step passed",
+      "ordinal_word": "pack is unreadable: ValueError",
+      "last_status_null": "pack does not show the claim's step passed",
+      "definition_list": "pack's test file is not the definition Kane ran",
+      "external_id_list": "pack names another Kane session",
+      "not_yaml": "pack is unreadable: ParserError",
+      "session_null": "pack names another Kane session"
+    }
+  }
+}

@@ -447,3 +447,66 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
   - Timestamps aren't checked for order across the whole log, only the approval window #60 checks.
   - Maintain Docs' `promote_workflow` / `resume_workflow` don't replay history either. That path belongs to the MD lane (#59 / #63), so it wasn't touched here.
   - Not touched: G1/#58, MD/#59/#63, RS/#57/#61, factory G2/#62/#64, SyberWork, RISE, #24, #38, the Kane stubs.
+## Oct 26: FACTORY G2 red-team depth for MD, RS and Kane recorded captures (PR to `main`)
+
+- On `main` at `942d8b5` every enforced G2 cell was met, but 8 sat exactly on their §1 floor (active-only): MD PI 4/4 and COST 2/2, RS SIM 2/2 and COST 1/1, Kane PI 4/4, AB 1/1, DS 3/3 and SCH 2/2. This adds 18 cases, all fixtures and tests. No product file changed. 15 cases are `active` and 3 are strict `xfail`, each an observed product gap.
+- New cases by component and category (active / xfail):
+  - Maintain Docs: PI +1/0 (MD-PI-05), DS +1/0 (MD-DS-06), COST +1/+1 (MD-COST-03; MD-COST-04 xfail).
+  - Reconcile Spec: PI +1/0 (RS-PI-06), DS +2/0 (RS-DS-04, RS-DS-05), SIM +1/0 (RS-SIM-03), COST +2/0 (RS-COST-02, RS-COST-03).
+  - Kane runner: PI +1/0 (KR-PI-06), AB +1/+1 (KR-AB-02; KR-AB-03 xfail), DS +2/+1 (KR-DS-05, KR-DS-06; KR-DS-04 xfail), SCH +2/0 (KR-SCH-03, KR-SCH-04).
+  - Cells after (active + xfail, floor): MD PI 5 (4), DS 6 (4), COST 3+1 (2). RS PI 6 (4), DS 5 (2), SIM 3 (2), COST 3 (1). Kane PI 5 + KR-PI-03 stub (4), AB 2+1 (1), DS 5+1 (3), SCH 4 (2). Other cells are unchanged. Bridge is unchanged at 6/22 (SyberWork side).
+- Themes not already in the inventory. MD: a chained command in an approved candidate fence never runs under recipes-only validation. A sibling proposal from the same base is refused once another one is promoted. The repair agent's deadline. RS: a written handoff rewritten as executed, verified or applied doesn't load. A sparse 4 GiB protected document is refused at the cap. One document shared by 300 conflicts is read once. A requirement id in another letter case, or a look-alike id, blocks. An added `Status: Approved` line doesn't make a draft govern. Kane, each on a recorded event-day capture (`tests/fixtures/kane/`) resealed with `tests.kane_replay`: page text echoed into stream event fields, an overall or pack status rewritten to passed, a duplicated claim heading, a test file swapped without its definition digest, and hostile `result.yaml` / `step.json` / `failure.yaml` shapes.
+- Open gaps found (strict xfail, honest reasons in the case files):
+  - KR-DS-04: `pack_disagreement` takes the start URL from the pack's own front matter. A pack Kane sealed for a test file whose `url:` names another origin backs the claim when the claim's objective has no URL. A fix needs the URL Attest wrote recorded with the run.
+  - KR-AB-03: only the claim's own `## <id>` section is compared. A step Attest never wrote, run before the claim's step, doesn't stop the pack backing it. A fix needs the written group file, or its digest, recorded with the run.
+  - MD-COST-04: `loop.call_agent` uses `subprocess.run(shell=True, timeout=…)`. At the deadline only the shell is killed, so the agent command and its child keep running (Linux, `/bin/sh`). Kane's runner already stops the process group (KR-ISO-06).
+- Wiring: the new cases live in new modules (`test_maintain_docs_depth.py`, `test_reconcile_spec_depth.py`, `test_kane_runner_captures.py`), so this PR doesn't touch #57's `test_reconcile_spec.py`. `test_inventory.py`'s one-to-one check now scans a tuple of modules per component and counts only functions defined in each module. G2 and G3 collect `tests/redteam` as before, so neither script changed.
+- Local, on this tip: full suite 753 passed, 4 skipped, 5 xfailed (`main` at `942d8b5`, same venv: 738 passed, 4 skipped, 2 xfailed). G2 exits 0, with every enforced cell met in both `active+xfail` and `--count active`. G3 exits 0. Active adversarial cases passed: kane_runner 24 → 30, maintain_docs 27 → 30, reconcile_spec 28 → 34. Open gaps go from 2 stubs to 2 stubs + 3 xfail. G1, G4, G5 (`--base origin/main`), G7 (`port-kill`, `tests`) and the gate self-tests exit 0. Each xfail was checked with `--runxfail` to fail on its intended assertion.
+- Teeth: 9 small mutations of `attest/` each turn the intended new case red. They were: allow a duplicated heading (KR-DS-05), skip the definition digest (KR-DS-06), trust the pack's top-level status (KR-AB-02), read a shared document per conflict (RS-COST-03), ignore declared statuses (RS-PI-06), let the handoff ignore extra fields (RS-SIM-03), fold look-alike ids (RS-DS-05), validate with a shell instead of recipes (MD-PI-05), and skip promotion's source digest (MD-DS-06). The mutations were reverted and none was committed.
+- Path overlap with #57 is `NOTES.md` only (both append at the end). Doesn't touch #57's or the live G1/MD branches' files, SyberWork #96, KR-PI-03, KR-ISO-04, #24, #38 or ablit. No coverage figure is claimed; the counts are cases at this commit.
+- Hosted on PR #62 at `781047a` (merge ref with `main` at `942d8b5`), all 8 checks green. tests [run 40363241504](https://github.com/SyberLabs/attest/actions/runs/40363241504) (753 passed, 4 skipped, 5 xfailed). G2 [run 40363241516](https://github.com/SyberLabs/attest/actions/runs/40363241516) PASS. G3 [run 40363242197](https://github.com/SyberLabs/attest/actions/runs/40363242197): kane_runner 30, maintain_docs 30 + 1 control, reconcile_spec 34 + 1 control, 0 active not passing, 3 xfail + 2 stub open gaps. G1, G4, G5 and G7 are green ([40363241478](https://github.com/SyberLabs/attest/actions/runs/40363241478), [40363241476](https://github.com/SyberLabs/attest/actions/runs/40363241476), [40363241495](https://github.com/SyberLabs/attest/actions/runs/40363241495), [40363241549](https://github.com/SyberLabs/attest/actions/runs/40363241549)). No negative-control push: no product hook changed, and the 9 local mutations above stand in for it.
+
+## Oct 26: FACTORY G2 red-team depth after #62 (PR on #62's branch)
+
+- Stacked on PR #62's head `5454cab` (`feat/factory-g2-cases-next`), which is still open, so the PR targets that branch, not `main`. 10 new cases, fixtures and tests only. No product file changed. 8 are `active` and 2 are strict `xfail`, each an observed product gap with its reason in the case file. The cases are in three new modules (`test_kane_runner_depth.py`, `test_maintain_docs_store.py`, `test_reconcile_spec_sources.py`), and `test_inventory`'s `MODULES` lists them. #62's modules are unchanged.
+- New cases by component and category (active / xfail):
+  - Kane runner: PI +1/0 (KR-PI-07), ISO +2/+2 (KR-ISO-07, KR-ISO-08; KR-ISO-09 and KR-ISO-10 xfail).
+  - Maintain Docs: AB +1/0 (MD-AB-11), DS +1/0 (MD-DS-07), SIM +1/0 (MD-SIM-05).
+  - Reconcile Spec: DS +1/0 (RS-DS-06), COST +1/0 (RS-COST-04).
+  - Cells after (active + xfail, floor): Kane PI 6 + KR-PI-03 stub (4), ISO 7+2 + KR-ISO-04 stub (4). MD AB 8 (5), DS 7 (4), SIM 5 (3). RS DS 6 (2), COST 4 (1). Other cells are unchanged. Bridge is unchanged at 6/22 (SyberWork side).
+- Themes not already in the inventory:
+  - Kane PI: a doc objective has Kane store the next claim's expected text under that claim's key during this claim's step. This runs on the recorded `witness_stale` capture. The forged value never becomes the next claim's evidence, whether or not that claim stored a value of its own.
+  - Kane ISO, each with a small Python stand-in for kane-cli, not the real one:
+    - KR-ISO-07: an interrupt while Attest reads the stream stops kane-cli and its child before the interrupt reaches the caller.
+    - KR-ISO-08: kane-cli runs in the Kane home with stdin closed. A relative write lands there, never in the caller's directory, and it can't read Attest's stdin.
+  - MD:
+    - MD-AB-11: a stored approval rewritten after approval stops validation unresolved. The variants are another actor, a rebinding with a recomputed digest, and the approval removed.
+    - MD-SIM-05: a sibling workflow's sealed validation, copied into a digest-identical approved workflow, doesn't promote.
+    - MD-DS-07: the source swapped for a symlink to a byte-identical copy, before or after validation, is never written through.
+  - RS:
+    - RS-COST-04: a named pipe at the protected document's path is refused as `not_a_file` without being opened. A watcher thread records any reader and releases it, so a regression fails instead of hanging.
+    - RS-DS-06: the same contract saved as LF, BOM, CRLF and BOM+CRLF records the sha256 of the bytes on disk each time, with 4 distinct digests.
+- New observed gaps (strict xfail, inventory only; the product hooks are not on this tip):
+  - KR-ISO-09: `KaneBrowserRunner._execute` passes no `env=`, so kane-cli inherits Attest's whole environment, `OPENAI_API_KEY` and unrelated secrets included. Scoping it needs a list of the variables Kane needs, which this repository doesn't record.
+  - KR-ISO-10: when kane-cli exits normally and leaves a child running (a browser off the stream), nothing stops it. The process group is stopped only at the deadline or on an exception.
+  - With a minimal hook in a scratch edit (filtered `env=`, and `terminate_process_tree` in `finally`), each one flips to `XPASS(strict)`. So the tests are reachable, not just failing. The edits were reverted and none was committed.
+- Not promoted: KR-AB-03, KR-DS-04 and MD-COST-04 still xfail strictly on this tip, because no product hook for them exists. KR-PI-03 and KR-ISO-04 (live Kane stubs) are untouched. Open gaps go from 2 stubs + 3 xfail to 2 stubs + 5 xfail.
+- Case ids skip MD-AB-08 to MD-AB-10 (#59) and RS-AB-13/14 (#57, #61), so the inventories don't collide when those land.
+- Teeth: 11 small mutations of `attest/` each turn the intended new case red:
+  - KR-PI-07: fall back to another step's stored value.
+  - KR-ISO-07: drop the tree kill on `BaseException`.
+  - KR-ISO-08: inherit the caller's cwd; inherit stdin.
+  - MD-AB-11: skip the approval digest check; skip the binding check.
+  - MD-SIM-05: skip the validation's workflow/approval binding; skip its own digests.
+  - MD-DS-07: drop promotion's symlink check.
+  - RS-COST-04: drop `read_source`'s regular-file check.
+  - RS-DS-06: digest the decoded text instead of the bytes.
+  - All 11 were run with `PYTHONDONTWRITEBYTECODE=1` after clearing `__pycache__`, then reverted. None was committed.
+- Local, on this tip: full suite 761 passed, 4 skipped, 7 xfailed (#62 at `5454cab`: 753 passed, 4 skipped, 5 xfailed). G2 exits 0 in both `active+xfail` and `--count active`, with every enforced cell met. G3 exits 0. Active adversarial cases passed: kane_runner 30 → 33, maintain_docs 30 → 33, reconcile_spec 34 → 36, with 0 active not passing. G1, G4, G5 (`--base 5454cab`), G7 (`port-kill`, `tests`) and `tests/quality/test_g2_quota_floor.py` exit 0.
+- Path overlap with the open lanes is `NOTES.md` only, which every PR appends to. This doesn't touch G1/#58, MD product/#59, RS/#57/#61, spec mode/#60, SyberWork #96, KR-PI-03, KR-ISO-04, #24, #38 or ablit. No coverage figure is claimed; the counts are cases at this commit.
+- Hosted on PR #64 at `b9ca356` (merge ref with #62's branch at `5454cab`), all 8 checks green.
+  - tests [run 40366915149](https://github.com/SyberLabs/attest/actions/runs/40366915149): 761 passed, 4 skipped, 7 xfailed.
+  - G2 [run 40366916648](https://github.com/SyberLabs/attest/actions/runs/40366916648) PASS.
+  - G3 [run 40366915326](https://github.com/SyberLabs/attest/actions/runs/40366915326): kane_runner 33, maintain_docs 33 + 1 control, reconcile_spec 36 + 1 control, 0 active not passing, 5 xfail + 2 stub open gaps.
+  - G1, G4, G5 and G7 are green ([40366915152](https://github.com/SyberLabs/attest/actions/runs/40366915152), [40366915086](https://github.com/SyberLabs/attest/actions/runs/40366915086), [40366915025](https://github.com/SyberLabs/attest/actions/runs/40366915025), [40366915052](https://github.com/SyberLabs/attest/actions/runs/40366915052)).
+  - No negative-control push: no product hook changed, and the 11 local mutations above stand in for it.
