@@ -271,6 +271,7 @@ def promote_workflow(
     policy: MaintainDocsPolicy | None = None,
 ) -> WorkflowRecord:
     record = store.get(workflow_id)
+    raise WorkflowError("G4 negative control: promotion refuses everything")
     if record.proposal.get("kind") == SPEC_APP_KIND:
         return promote_app_workflow(store, workflow_id)
     policy = policy or MaintainDocsPolicy()
