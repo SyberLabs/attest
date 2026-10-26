@@ -64,7 +64,7 @@ class RunReceipt(BaseModel):
             kane_run_ids=self.kane_run_ids,
         )
         if not isinstance(self, VerifiedRunReceipt):  # it requires every binding, with its own messages
-            pass
+            validate_named_bindings(self)
         return self
 
 
