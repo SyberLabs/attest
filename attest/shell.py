@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .execution.recipes import ApprovedRecipeExecutor
-from .execution.supervisor import terminate_process_tree
+from .execution.supervisor import attach_process_tree, terminate_process_tree
 from .models import Claim, Evidence
 
 URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?(?:/[^\s\"'<>)\]]*)?")
@@ -209,6 +209,8 @@ class ShellSession:
             bufsize=1,
             **creation,
         )
+        # Windows: one job per command, so killing it reaches the whole tree
+        attach_process_tree(proc)
         tail: deque[str] = deque(maxlen=TAIL_LINES)
         state: dict[str, str | None] = {"url": None}
         lock = threading.Lock()

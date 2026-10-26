@@ -48,7 +48,9 @@ def _prose_target(text: str, start: int, end: int) -> Claim:
 def propose(tmp_path: Path, base: str, candidate: str, *, target: Claim | None = None, policy=None,
             plan: str = "Repair only c01; preserve all promises."):
     source = tmp_path / "guide.md"
-    source.write_text(base, encoding="utf-8")
+    # LF bytes on every platform: text mode writes CRLF on Windows, and the CRLF-resave case
+    # (MD-DS-05) needs the approved bytes to differ from the resaved ones
+    source.write_text(base, encoding="utf-8", newline=chr(10))
     claims = [target] if target is not None else fences_by_regex(ingest_text(base, source=str(source)))
     store = SQLiteWorkflowStore(tmp_path / "workflow.sqlite3")
     record = create_repair_proposal(
@@ -239,7 +241,10 @@ def test_url_or_symlink_source_cannot_be_promoted(rt_case, tmp_path):
     real = tmp_path / "real.md"
     real.write_text(i["base"], encoding="utf-8")
     link = tmp_path / "guide.md"
-    link.symlink_to(real)
+    try:
+        link.symlink_to(real)
+    except OSError as exc:  # Windows without Developer Mode or admin cannot create symlinks
+        pytest.skip(f"cannot create a symlink here ({exc}); the URL case above was checked")
     with pytest.raises(ValueError, match=x["symlink_error"]):
         create_repair_proposal(store, source_path=link, **common)
     assert real.read_text(encoding="utf-8") == i["base"]
