@@ -183,3 +183,10 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - KR-SIM-03 (cached Kane replay against a changed app build) is `active`: `tests/redteam/_version_binding.py`, decisions and proof in `docs/quality/G3-KR-SIM-03.md`. On `main`'s product code the same scenario promotes; on #41 it is rejected.
 - Still open: KR-ISO-02 (xfail until #34's port-kill removal meets the #40 stack), KR-PI-03 and KR-ISO-04 (stubs, need live Kane).
 - Merging with #26/#30/#40: take this KR-SIM-03.json, and move `run_case` into `test_kane_runner.py`'s stub (steps in the doc).
+
+## Oct 26: browser observations name the build Kane saw (stacked on #42)
+
+- `BrowserObservation.build_digest`: `KaneBrowserRunner` measures `current_build_digest` of the prepared doc before and after each kane-cli run. A change during the run, a URL doc, or a failed measurement gives `None`.
+- Validation fails `<id>:observation_build_missing` / `<id>:observation_build_mismatch`. Promotion refuses stored evidence whose observation build isn't the approved one. Receipts filled from the observation build fail #41's checks when it is `None` or different.
+- G1 binding gate: new `observation-build` section (`test_observation_build_*`). Status and runs are in `docs/quality/G1-STAGE0-BINDING.md`.
+- Not covered: the build is the worktree identity, not read from the served app. No product code turns observations into `ReceiptEvidence`. Shell evidence has no build.

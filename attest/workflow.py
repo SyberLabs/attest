@@ -89,6 +89,21 @@ def _kane_run_bindings(runner, runs_before: int, claims: list[Claim], evidence: 
     return bindings, stale
 
 
+def _observation_build_failures(claims: list[Claim], evidence: dict, build_digest: str | None) -> list[str]:
+    """Browser evidence must name the app/build it was observed on, and that must be the approved one."""
+    failures: list[str] = []
+    for claim in claims:
+        ev = evidence.get(claim.id)
+        if claim.kind != "browser" or ev is None or ev.observation is None:
+            continue
+        observed = ev.observation.build_digest
+        if observed is None:
+            failures.append(f"{claim.id}:observation_build_missing")
+        elif observed != build_digest:
+            failures.append(f"{claim.id}:observation_build_mismatch")
+    return failures
+
+
 def resume_workflow(
     store: SQLiteWorkflowStore,
     workflow_id: str,
@@ -211,9 +226,10 @@ def resume_workflow(
             kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
             validation_data["build_digest"] = proposal["build_digest"]
             validation_data["kane_runs"] = kane_runs
-            if stale_runs:
+            unbound = [*stale_runs, *_observation_build_failures(claims, evidence, proposal["build_digest"])]
+            if unbound:
                 validation_data["successful"] = False
-                validation_data["failed_claims"] = [*validation_data["failed_claims"], *stale_runs]
+                validation_data["failed_claims"] = [*validation_data["failed_claims"], *unbound]
             validation_data["receipt_digest"] = _validation_digest(validation_data)
             validation_data["receipt_artifact_digest"] = store.put_artifact(canonical_json(validation_data))
         finally:
@@ -270,6 +286,10 @@ def promote_workflow(
     browser = [c.get("id") for c in record.validation.get("validated_claims") or [] if c.get("kind") == "browser"]
     if any(not kane_runs.get(claim_id) for claim_id in browser):
         raise WorkflowError("validation browser evidence is not bound to a fresh Kane run; --apply refused")
+    evidence = record.validation.get("evidence") or {}
+    observed = [((evidence.get(claim_id) or {}).get("observation") or {}).get("build_digest") for claim_id in browser]
+    if any(build != proposal.get("build_digest") for build in observed):
+        raise WorkflowError("validation browser evidence was not observed on the approved app/build version; --apply refused")
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])

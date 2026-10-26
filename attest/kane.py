@@ -38,6 +38,7 @@ from typing import Iterable
 import yaml
 
 from .models import BrowserObservation, Claim
+from .proposals import current_build_digest
 from .runner import UNBOUND_NOTE_PREFIX
 
 KANE_CMD = os.environ.get("ATTEST_KANE_CMD", "kane-cli")
@@ -440,6 +441,7 @@ class KaneBrowserRunner:
         self.kane_cmd = kane_cmd or KANE_CMD
         self.log = log or (lambda msg: None)
         self.label = "doc"
+        self.source: Path | None = None
         self.groups: list[list[Claim]] = []
         self.results: dict[str, tuple[Claim, BrowserObservation]] = {}
         self.runs: list[KaneRun] = []
@@ -455,7 +457,17 @@ class KaneBrowserRunner:
     def prepare(self, claims: list[Claim], source: str = "doc") -> None:
         """Plan the test files for a doc before execution starts."""
         self.label = _slug(Path(source).stem if not source.startswith("http") else source.rsplit("/", 1)[-1])
+        self.source = None if source.startswith("http") else Path(source).resolve()
         self.groups = group_claims(claims)
+
+    def build_digest(self) -> str | None:
+        """The app/build identity of the prepared doc's worktree now; None for a URL or unreadable doc."""
+        if self.source is None or not self.source.is_file():
+            return None
+        try:
+            return current_build_digest(self.source, hashlib.sha256(self.source.read_bytes()).hexdigest())
+        except Exception:  # an unmeasured build binds nothing, so validation fails closed on it
+            return None
 
     def _group_for(self, claim: Claim) -> list[Claim]:
         for i, g in enumerate(self.groups):
@@ -516,8 +528,11 @@ class KaneBrowserRunner:
             cmd = self._reported(cmd, f"attest: prove {self.label} {', '.join(c.id for c in group)}")
         # no URL in this line: a shell runner proving a doc that runs attest would take it for a server announcing itself
         self.log(f"kane: testmd run {path.name} ({len(group)} step(s))")
+        build = self.build_digest()
         run = self._execute(cmd, timeout_s=STEP_TIMEOUT_S * len(group) + 180)
         self.runs.append(run)
+        if build is not None and self.build_digest() != build:
+            build = None  # redeployed while Kane ran: the pages seen belong to neither build
         if run.exit_code == 2:
             raise KaneSetupError(f"kane-cli exited 2 for {path.name}: {run.stderr.strip()[-600:]}")
         pack = find_pack(self.evidence_dir, run.session_id)
@@ -535,6 +550,9 @@ class KaneBrowserRunner:
                     "status": "failed" if obs.status == "passed" else obs.status,
                     "note": f"{UNBOUND_NOTE_PREFIX} no evidence pack names Kane session {run.session_id or '(none reported)'} | {obs.note}",
                 })
+            if build is None:
+                obs = obs.model_copy(update={"note": f"{obs.note} | build: unknown or changed during this Kane run"})
+            obs = obs.model_copy(update={"build_digest": build})
             self.results[c.id] = (c, obs)
             self.run_ids[c.id] = run.session_id if pack is not None else None
         if run.exit_code == 0:
