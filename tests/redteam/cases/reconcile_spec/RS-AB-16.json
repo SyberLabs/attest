@@ -1,0 +1,152 @@
+{
+  "id": "RS-AB-16",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "injected_superseded_claim",
+  "title": "Protected text quoted exactly from a document that says in the passive that the requirement is withdrawn (\"SEC-4 was dropped\", \"SEC-4 is obsoleted by SEC-9\", `## SEC-4 was dropped`, \"This requirement is overridden\"), or that another requirement waives or overrides it (`SEC-9: Waives SEC-4`, \"Waiver of SEC-4\"), blocks the handoff (exit 3) and shows the line; a governing contract that negates the passive, names SEC-4 inside another clause, or names other ids, is still ready",
+  "input": {
+    "protected_text": "The application must require multi-factor authentication\nfor every administrator sign-in.",
+    "governing": "# Security contract\n\n**Status:** Approved\n\n## Authentication\n\n- **SEC-4:** The application must require multi-factor authentication\nfor every administrator sign-in. SEC-4 must never be waived, and SEC-4 is not removed for service accounts.\n- **SEC-12:** Requests that skip SEC-4 are dropped.\n- **SEC-13:** Sessions without SEC-4 sign-in are revoked.\n- **SEC-14:** Unlike SEC-3, SEC-4 accounts are suspended after five failures.\n- **SEC-15:** When SEC-40 is dropped, SEC-4a probes are removed.\n\nRequests that violate this policy are dropped.\n\n## Change log\n\n- 2026-09-01: SEC-3 was dropped and SEC-4 is unchanged.\n- 2026-09-01: SEC-2 was waived; SEC-4 was kept.\n",
+    "variants": {
+      "changelog_dropped": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: SEC-4 was dropped.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: SEC-4 was dropped."
+      },
+      "changelog_obsoleted": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: SEC-4 is obsoleted by SEC-9.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: SEC-4 is obsoleted by SEC-9."
+      },
+      "changelog_list": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: SEC-3, SEC-4, and SEC-5 have been revoked.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: SEC-3, SEC-4, and SEC-5 have been revoked."
+      },
+      "after_clause": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\nAs of 2026-09-01, SEC-4 has been discontinued.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "As of 2026-09-01, SEC-4 has been discontinued."
+      },
+      "appositive": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: SEC-4, the administrator sign-in rule, was removed by the security board.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: SEC-4, the administrator sign-in rule, was removed by the security board."
+      },
+      "rule_word_hereby": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-9\n\nAdministrators sign in with a hardware key. The SEC-4 rule is hereby waived for contract staff.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "Administrators sign in with a hardware key. The SEC-4 rule is hereby waived for contract staff."
+      },
+      "clause_lead": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-9\n\nAdministrators sign in with a hardware key. SEC-9 is in force, so SEC-4 is waived.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "Administrators sign in with a hardware key. SEC-9 is in force, so SEC-4 is waived."
+      },
+      "linked": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: [SEC-3](#sec-3) and [SEC-4](#sec-4) were scrapped.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: [SEC-3](#sec-3) and [SEC-4](#sec-4) were scrapped."
+      },
+      "bracketed_note": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: SEC-4 (administrator sign-in) was annulled by the board.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: SEC-4 (administrator sign-in) was annulled by the board."
+      },
+      "own_this_requirement": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n### History\n\nThis requirement is overridden by SEC-9.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "This requirement is overridden by SEC-9."
+      },
+      "own_heading": {
+        "document": "# Security contract\n\n## SEC-4 was dropped\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "protected_text": "was dropped The application must require multi-factor authentication for every administrator sign-in.",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "## SEC-4 was dropped"
+      },
+      "own_list_label": {
+        "document": "# Security contract\n\n## Authentication\n\n- **SEC-4** has been suspended. The application must require multi-factor authentication\nfor every administrator sign-in.\n",
+        "protected_text": "has been suspended. The application must require multi-factor authentication for every administrator sign-in.",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- **SEC-4** has been suspended. The application must require multi-factor authentication for every administrator sign-in."
+      },
+      "document_passive": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: This contract was cancelled by the security board.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: This contract was cancelled by the security board."
+      },
+      "waives": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## New rules\n\n- **SEC-9:** Waives SEC-4 for contract staff.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- **SEC-9:** Waives SEC-4 for contract staff."
+      },
+      "overrides": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-9\n\nAdministrators sign in with a hardware key. SEC-9 overrides SEC-4.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "Administrators sign in with a hardware key. SEC-9 overrides SEC-4."
+      },
+      "waiver_noun": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Change log\n\n- 2026-09-01: Waiver of SEC-4 granted to the support team.\n",
+        "reasons": [
+          "prose"
+        ],
+        "shows": "- 2026-09-01: Waiver of SEC-4 granted to the support team."
+      }
+    },
+    "governing_requirements": {
+      "SEC-4": "The application must require multi-factor authentication for every administrator sign-in. SEC-4 must never be waived, and SEC-4 is not removed for service accounts.",
+      "SEC-12": "Requests that skip SEC-4 are dropped.",
+      "SEC-13": "Sessions without SEC-4 sign-in are revoked.",
+      "SEC-14": "Unlike SEC-3, SEC-4 accounts are suspended after five failures.",
+      "SEC-15": "When SEC-40 is dropped, SEC-4a probes are removed."
+    }
+  },
+  "expected": {
+    "exit_code": 3,
+    "stderr_contains": "blocked:",
+    "governing_exit_code": 0,
+    "handoff_state": "blocked",
+    "source_state": "not_governing",
+    "authority_state": "conflicting",
+    "repair_state": "handoff",
+    "reason_prefix": "c01:source_not_governing:",
+    "markdown_contains": "Where the checked document says this requirement may not govern"
+  }
+}

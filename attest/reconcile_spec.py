@@ -583,7 +583,6 @@ _SENTENCE_BREAK = re.compile(r"[;!?]|\.(?=\s|$)")
 _WITHDRAWS = rf"(?:[\s*_`(\[:\-\u2013\u2014]*{_STATE}{_STATE_END}|.{{0,80}}?(?:\b(?:is|are|was|were|has\s+been|have\s+been|had\s+been)\s+(?:now\s+)?{_STATE}\b|\breplaced\s+(?:by|with)\b|{_NO_LONGER}))"
 # the document speaking of itself: ``This contract no longer applies``
 _SELF = r"\bthis\s+(?:document|contract|policy|standard|specification|spec)\b"
-_SELF_WITHDRAWN = re.compile(rf"{_SELF}{_WITHDRAWS}", re.IGNORECASE)
 # ... and the requirement speaking of itself: ``This requirement no longer applies``
 _THIS_REQUIREMENT = rf"\bthis\s+(?:requirement|rule|control|clause|section)\b|{_SELF}"
 # a unit labelled with an id-shaped token (letters, a hyphen, a digit): another requirement's own text
@@ -599,10 +598,12 @@ _WITHDRAWING_VERB = (
     r"|cancel(?:s|led|ed|ling|ing)?|void(?:s|ed|ing)?|drop(?:s|ped|ping)?|remov(?:e|es|ed|ing)"
     r"|delet(?:e|es|ed|ing)|abolish(?:es|ed|ing)?|discontinu(?:e|es|ed|ing)|annul(?:s|led|ling)?"
     r"|retract(?:s|ed|ing)?|scrap(?:s|ped|ping)?|suspend(?:s|ed|ing)?|sunset(?:s|ted|ting)?"
+    r"|waiv(?:e|es|ed|ing)|overrid(?:e|es|den|ing)|overrode"
 )
 _WITHDRAWING_NOUN = (
     r"(?:replacement|withdrawal|retirement|revocation|rescission|repeal|deprecation|cancell?ation|removal"
-    r"|deletion|abolition|discontinuation|annulment|retraction|suspension)\s+(?:of|for)|in\s+place\s+of|instead\s+of"
+    r"|deletion|abolition|discontinuation|annulment|retraction|suspension|waiver|override)\s+(?:of|for)|in\s+place\s+of"
+    r"|instead\s+of"
 )
 _OBJECT_MARKS = r"[\s*_`'\"\[\]():]*"
 _WITHDRAWING = (
@@ -615,6 +616,53 @@ _WITHDRAWING = (
 def _withdrawing(requirement: str) -> str:
     """A pattern for a sentence that names ``requirement`` as what it withdraws or replaces."""
     return rf"{_WITHDRAWING}(?<![\w-]){re.escape(requirement)}(?![\w-])"
+
+
+# The same verbs in the passive, said of a subject: ``SEC-4 was dropped``, ``SEC-3 and SEC-4 have
+# been revoked``, ``The SEC-4 rule is hereby waived``, ``This requirement is overridden by SEC-9``.
+# The subject must open the sentence or a clause (after a mark, a dash, or "that", "but", "since",
+# ...), so ``Requests that skip SEC-4 are dropped`` doesn't match. A negation between the subject
+# and the verb (``SEC-4 must never be waived``, ``SEC-4 is not removed``) doesn't match either.
+_PARTICIPLE = (
+    r"replaced|withdrawn|retired|revoked|rescinded|repealed|deprecated|obsoleted|cancell?ed|voided|dropped"
+    r"|removed|deleted|abolished|discontinued|annulled|retracted|scrapped|suspended|sunset(?:ted)?|waived"
+    r"|overridden"
+)
+_PASSIVE_LEAD = (
+    r"(?:^|[,:;(\[]|\s[\-\u2013\u2014]\s"
+    r"|\b(?:that|but|so|then|now|when|once|since|because|after|until)\s)[\s>*_`#+\-\[\]()]*"
+)
+_REQUIREMENT_WORD = r"(?:requirements?|rules?|controls?|clauses?)"
+_ID = r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+"
+_LIST_SEPARATOR = rf"{_OBJECT_MARKS}(?:,\s*(?:and|or)\b|,|&|/|\band\b|\bor\b){_OBJECT_MARKS}"
+_ADVERB = r"(?:now|hereby|since|also|already|just|thereby|\w+ly)"
+_PASSIVE = (
+    rf"(?:{_OBJECT_MARKS}{_REQUIREMENT_WORD}\b)?(?:{_OBJECT_MARKS}\([^()]{{0,80}}\))?(?:{_OBJECT_MARKS},[^,;]{{1,80}}?,)?"
+    rf"{_OBJECT_MARKS}(?:(?:has|have|had|will|shall|would|should|must|may|might|is|are|was|were|to|{_ADVERB})\s+){{0,3}}"
+    rf"(?:is|are|was|were|be|been|being|gets?|got|gotten|getting)\s+(?:{_ADVERB}\s+){{0,2}}"
+    rf"(?:{_PARTICIPLE}|{_STATE})(?![\w-])"
+)
+
+
+def _withdrawn_passive(subject: str) -> str:
+    """A pattern for a sentence or clause whose ``subject`` the passive says is withdrawn."""
+    return (
+        rf"{_PASSIVE_LEAD}(?:the\s+)?(?:(?:old|former|previous|existing)\s+)?(?:{_REQUIREMENT_WORD}\s+)?"
+        rf"{_OBJECT_MARKS}(?:{subject}){_PASSIVE}"
+    )
+
+
+def _subject_in_list(requirement: str) -> str:
+    """``requirement`` as the subject, alone or in a list of ids (``SEC-3, SEC-4 and SEC-5``).
+
+    At most eight other ids on each side, which keeps the search linear in a long list. A link
+    target (``[SEC-4](#sec-4)``) reads as a bracketed note, and the one before it as a lead.
+    """
+    own = rf"(?<![\w-]){re.escape(requirement)}(?![\w-])"
+    return rf"(?:{_ID}{_LIST_SEPARATOR}){{0,8}}{own}(?:{_LIST_SEPARATOR}{_ID}){{0,8}}"
+
+
+_SELF_WITHDRAWN = re.compile(rf"{_SELF}{_WITHDRAWS}|{_withdrawn_passive(_SELF)}", re.IGNORECASE)
 
 
 def _heading_level(unit: str) -> int:
@@ -694,7 +742,11 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
       that withdraws the requirement by its id (``SEC-4 no longer applies``) or the
       document itself (``This contract has been withdrawn``), and one that names the
       id as what it withdraws or replaces, whatever its subject (``SEC-9 replaces
-      SEC-4``, ``We dropped SEC-4``, ``Obsoletes: SEC-4``; see ``_WITHDRAWING``).
+      SEC-4``, ``We dropped SEC-4``, ``Obsoletes: SEC-4``; see ``_WITHDRAWING``), or that
+      says in the passive that the id, "this requirement" or the document is withdrawn
+      (``SEC-4 was dropped``, ``This requirement is overridden by SEC-9``; see
+      ``_withdrawn_passive``). The label's own line counts there too, with the id as
+      its subject (``## SEC-4 was dropped``).
 
     The values are the folded lines that tripped each one, for the handoff.
     """
@@ -715,8 +767,11 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
             found.setdefault("superseded", []).append(_fold(line))
 
     token = re.compile(rf"(?<![\w-]){re.escape(requirement)}(?![\w-])", re.IGNORECASE)
+    passive = re.compile(_withdrawn_passive(_subject_in_list(requirement)), re.IGNORECASE)
     withdrawn = re.compile(
-        rf"(?:{token.pattern}|{_THIS_REQUIREMENT}){_WITHDRAWS}|{_withdrawing(requirement)}", re.IGNORECASE
+        rf"(?:{token.pattern}|{_THIS_REQUIREMENT}){_WITHDRAWS}|{_withdrawing(requirement)}"
+        rf"|{_withdrawn_passive(_THIS_REQUIREMENT)}|{passive.pattern}",
+        re.IGNORECASE,
     )
     own: set[int] = set()
     for index, body in _labels(units, requirement):
@@ -733,7 +788,8 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
         # the label's own text, and the rest of its section, saying it no longer applies
         for i in _section(units, index, requirement):
             text = after_id if i == index else units[i]
-            if _withdrawal(text, withdrawn, leads=i != index, no_longer=True):
+            # the label's own line read whole too, so ``## SEC-4 is withdrawn`` has the id as its subject
+            if _withdrawal(text, withdrawn, leads=i != index, no_longer=True) or (i == index and _withdrawal(label, passive)):
                 found.setdefault("prose", []).append(units[i])
         # the heading of each enclosing level above the label (a heading label's own title is its text)
         need = _heading_level(label) if label.startswith("#") else 7

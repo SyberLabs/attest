@@ -7,7 +7,7 @@ Unless a case supplies its own ``source``, ``diagnose`` and ``_cli`` give every
 document the request's protected texts are checked against (the authority
 reference's path, else source_doc) a text that labels each requirement with the
 first protected text the request submits for it, so cases about other checks are
-not blocked by the source check. RS-AB-10 to RS-AB-15 and RS-CTRL-01 supply their
+not blocked by the source check. RS-AB-10 to RS-AB-16 and RS-CTRL-01 supply their
 own documents.
 """
 
@@ -469,6 +469,28 @@ def test_text_matched_where_another_note_names_it_as_withdrawn_blocks(rt_case, t
     ready = diagnose(_contract_request(i["governing_requirements"]["SEC-4"]), source=i["governing"]).model_dump()
     assert ready["handoff_state"] == "ready"
     ready["conflicts"][0]["source_not_governing"] = [named["shows"]]
+    with pytest.raises(ValidationError):
+        ReconcileHandoff.model_validate(ready)
+
+
+@case("RS-AB-16")
+def test_text_matched_where_a_passive_note_or_a_waiver_withdraws_it_blocks(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    # a governing contract that negates the passive ("SEC-4 must never be waived", "SEC-4 is not removed"),
+    # names SEC-4 inside another clause ("Requests that skip SEC-4 are dropped", "Unlike SEC-3, SEC-4 accounts
+    # are suspended"), names longer ids (SEC-40, SEC-4a), names another id as dropped or waived beside SEC-4,
+    # or drops requests that violate "this policy" is still ready
+    _assert_governing_ready_and_variants_blocked(rt_case, tmp_path)
+
+    # the API path blocks the same way, and a ready JSON that lists such a line does not load
+    passive = i["variants"]["changelog_dropped"]
+    handoff = diagnose(_contract_request(i["protected_text"]), source=passive["document"])
+    assert handoff.handoff_state == x["handoff_state"] and handoff.source_state == x["source_state"]
+    assert handoff.blocking_reasons == [x["reason_prefix"] + "prose"]
+    assert handoff.conflicts[0].source_not_governing == [passive["shows"]]
+    ready = diagnose(_contract_request(i["governing_requirements"]["SEC-4"]), source=i["governing"]).model_dump()
+    assert ready["handoff_state"] == "ready"
+    ready["conflicts"][0]["source_not_governing"] = [passive["shows"]]
     with pytest.raises(ValidationError):
         ReconcileHandoff.model_validate(ready)
 
