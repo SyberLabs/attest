@@ -266,8 +266,8 @@ def resume_app_workflow(
     """Validate the approved candidate with fresh Kane evidence against the whole spec, optionally promote."""
     from .pipeline import execute
     from .workflow import (
-        WorkflowError, _kane_pack_bindings, _kane_run_bindings, _observation_build_failures, _observation_run_failures,
-        _seal_validation, _validation_digest,
+        WorkflowError, _approval_disagreement, _kane_pack_bindings, _kane_run_bindings, _observation_build_failures, _observation_run_failures,
+        _reused_kane_runs, _seal_validation, _validation_digest,
     )
 
     record = store.get(workflow_id)
@@ -284,6 +284,8 @@ def resume_app_workflow(
         raise WorkflowError(f"workflow is {record.state}; only an approved workflow can be resumed")
     try:
         verify_approval(record)
+        if problem := _approval_disagreement(store, record):
+            raise WorkflowError(problem)
         _check_identity(record.proposal)
         files = _candidate_files(store, record.proposal)
         claims = [Claim.model_validate(x) for x in json.loads(store.get_artifact(record.proposal["artifact_digests"]["spec_claims"]))]
@@ -322,7 +324,7 @@ def resume_app_workflow(
         # The same bindings as Maintain Docs validation: a fresh Kane run per browser claim,
         # named by its observation, on the spec build approval recorded.
         kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
-        kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs)
+        kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs, record.approval)
         validation["spec_build_digest"] = record.proposal["spec_build_digest"]
         validation["kane_runs"] = kane_runs
         validation["kane_packs"] = kane_packs
@@ -331,6 +333,7 @@ def resume_app_workflow(
             *_observation_run_failures(claims, evidence, kane_runs),
             *_observation_build_failures(claims, evidence, record.proposal["spec_build_digest"]),
             *unbacked,
+            *(f"{claim_id}:kane_run_reused" for claim_id, _ in _reused_kane_runs(store, workflow_id, None, kane_runs)),
         ]
         if unbound:
             validation["successful"] = False
@@ -369,8 +372,8 @@ def resume_app_workflow(
 def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> WorkflowRecord:
     """Write the approved, validated candidate's changed files into the original app, or nothing."""
     from .workflow import (
-        WorkflowError, _refuse_unbacked_browser_evidence, _refuse_unbound_browser_evidence, _refuse_unproven_claims,
-        _refuse_unsealed_validation,
+        WorkflowError, _refuse_reused_kane_runs, _refuse_unbacked_browser_evidence, _refuse_unbound_browser_evidence,
+        _refuse_unproven_claims, _refuse_unrecorded_approval, _refuse_unsealed_validation,
     )
 
     record = store.get(workflow_id)
@@ -380,6 +383,7 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
     verify_approval(record)
+    _refuse_unrecorded_approval(store, record)
     validation = record.validation
     if (
         not validation.get("successful")
@@ -402,7 +406,8 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     _refuse_unbound_browser_evidence(validation, [c.id for c in browser], proposal["spec_build_digest"])
     _refuse_unproven_claims(validation, claims)
     _refuse_unsealed_validation(store, record)
-    _refuse_unbacked_browser_evidence(validation, browser)
+    _refuse_unbacked_browser_evidence(validation, browser, record.approval)
+    _refuse_reused_kane_runs(store, record)
     if tree_digest(base) != proposal.get("base_digest") or tree_digest(source) != proposal.get("source_digest"):
         raise WorkflowError("baseline tree digest mismatch; --apply refused")
     candidate_manifest = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}

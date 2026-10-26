@@ -9,6 +9,7 @@ import shutil
 import stat
 import tempfile
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,7 @@ from .approvals import ApprovalError, verify_approval
 from .compiler import _validate_compiled_claims, compile_doc
 from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest_text, sha256_of
-from .kane import PACK_WORDING, pack_disagreement
+from .kane import PACK_BEFORE_APPROVAL, PACK_WORDING, pack_disagreement
 from .models import BrowserObservation, Claim
 from .policy import MaintainDocsPolicy
 from .pipeline import execute
@@ -137,10 +138,55 @@ def _observation_run_failures(claims: list[Claim], evidence: dict, kane_runs: di
     return failures
 
 
-def _pack_read_back(pack: dict | None, claim: Claim, run_id: str | None) -> tuple[str, str] | None:
+def _approved_at(approval: dict | None) -> datetime | None:
+    """When the human approved the workflow (``approved_at``, which the approval digest covers); None if unreadable."""
+    try:
+        approved_at = datetime.fromisoformat(str((approval or {})["approved_at"]))
+    except (KeyError, ValueError):
+        return None
+    return approved_at if approved_at.tzinfo else None
+
+
+APPROVAL_NOT_RECORDED = "approval is not the one its approval event recorded"
+APPROVAL_BEFORE_PROPOSAL = "approval is dated before the workflow was put up for approval"
+
+
+def _approval_disagreement(store: SQLiteWorkflowStore, record: WorkflowRecord) -> str | None:
+    """Why the stored approval is not the one the human gave, by the store's own events; None when it is.
+
+    Each pack's run is read against ``approved_at``. The approval digest covers it, but a
+    writer can backdate it and recompute the digest. ``approve_workflow`` writes the approval
+    and, in the same transaction, an event naming its digest, and it only runs once the
+    workflow is ``awaiting_approval``. So the approval must be the one its only approval event
+    names, dated no earlier than the event that put the workflow up for approval. Both times
+    are this host's clock, compared with no tolerance.
+    """
+    events = store.events(record.workflow_id)
+    approval = record.approval or {}
+    recorded = [e["payload"].get("approval_digest") for e in events if (e["from_state"], e["to_state"]) == ("awaiting_approval", "validating")]
+    if recorded != [approval.get("approval_digest")]:
+        return APPROVAL_NOT_RECORDED
+    try:
+        put_up = [datetime.fromisoformat(str(e["created_at"])) for e in events if e["to_state"] == "awaiting_approval"]
+    except ValueError:
+        put_up = []
+    approved_at = _approved_at(approval)
+    if approved_at is None or len(put_up) != 1 or put_up[0].tzinfo is None or approved_at < put_up[0]:
+        return APPROVAL_BEFORE_PROPOSAL
+    return None
+
+
+def _refuse_unrecorded_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """Promotion: the approval is the one its approval event recorded, dated after the workflow was put up for it."""
+    if problem := _approval_disagreement(store, record):
+        raise WorkflowError(f"{problem}; --apply refused")
+
+
+def _pack_read_back(pack: dict | None, claim: Claim, run_id: str | None, approval: dict | None) -> tuple[str, str] | None:
     """Read a claim's Kane evidence pack back from disk: (failure code, detail), or None when it backs the claim.
 
-    The pack's step must also be the wording Attest writes for this (approved) claim.
+    The pack's step must also be the wording Attest writes for this (approved) claim, and its
+    run must have started no earlier than the approval: validation only runs Kane after it.
     """
     if not isinstance(pack, dict) or not pack.get("path") or not pack.get("sha256"):
         return "kane_pack_missing", "names no Kane evidence pack"
@@ -150,19 +196,25 @@ def _pack_read_back(pack: dict | None, claim: Claim, run_id: str | None) -> tupl
         return "kane_pack_missing", "its Kane evidence pack is missing"
     if hashlib.sha256(data).hexdigest() != pack["sha256"]:
         return "kane_pack_mismatch", "its Kane evidence pack is not the one the Kane run read"
-    detail = pack_disagreement(data, claim.id, run_id, claim)
+    approved_at = _approved_at(approval)
+    if approved_at is None:
+        return "kane_pack_before_approval", "the approval records no time to read the pack's run against"
+    detail = pack_disagreement(data, claim.id, run_id, claim, not_before=approved_at)
     if detail == PACK_WORDING:
         return "kane_pack_wording", detail
+    if detail == PACK_BEFORE_APPROVAL:
+        return "kane_pack_before_approval", detail
     return ("kane_pack_mismatch", detail) if detail else None
 
 
 def _kane_pack_bindings(
-    runner, claims: list[Claim], evidence: dict, kane_runs: dict[str, str | None]
+    runner, claims: list[Claim], evidence: dict, kane_runs: dict[str, str | None], approval: dict | None
 ) -> tuple[dict[str, dict | None], list[str]]:
     """Name the evidence pack behind each bound browser claim (the runner's record), and read it back.
 
     A passed observation is Kane's word only while its pack is still there, unchanged since
-    the run read it, and shows the claim's own step passing in the bound run.
+    the run read it, and shows the claim's own step passing in the bound run, a run that
+    started after ``approval``.
     """
     recorded = getattr(runner, "packs", None) or {}
     packs: dict[str, dict | None] = {}
@@ -173,9 +225,71 @@ def _kane_pack_bindings(
         if claim.kind != "browser" or ev is None or ev.observation is None or run_id is None:
             continue  # no binding is already stale_kane_run
         packs[claim.id] = recorded.get(claim.id)
-        if ev.observation.status == "passed" and (problem := _pack_read_back(packs[claim.id], claim, run_id)):
+        if ev.observation.status == "passed" and (problem := _pack_read_back(packs[claim.id], claim, run_id, approval)):
             failures.append(f"{claim.id}:{problem[0]}")
     return packs, failures
+
+
+def _sealed_elsewhere(store: SQLiteWorkflowStore, workflow_id: str, own_receipt: str | None) -> dict[str, str]:
+    """The Kane sessions another sealed validation in the store binds: session id -> whose.
+
+    "Another" is any other workflow's stored record, and any receipt artifact validation
+    sealed except ``own_receipt`` (this record's own): another workflow's, which stays when an
+    unresolved transition overwrites its record, or one from an earlier attempt at this
+    workflow's validation that stopped before its transition. The pack needs no key of its
+    own: since #54 it has to name the session it backs.
+    """
+    sealed: dict[str, str] = {}
+
+    def note(validation: Any, whose: str) -> None:
+        runs = validation.get("kane_runs") if isinstance(validation, dict) else None
+        for run_id in runs.values() if isinstance(runs, dict) else ():
+            if isinstance(run_id, str):
+                sealed.setdefault(run_id, whose)
+
+    for other_id, validation in store.validations():
+        if other_id != workflow_id:
+            note(validation, f"workflow {other_id}'s validation record")
+    for artifact_digest, content in store.artifacts_containing(b'"receipt_digest":'):
+        if artifact_digest == own_receipt:
+            continue
+        try:
+            receipt = json.loads(content)
+        except ValueError:
+            continue
+        if isinstance(receipt, dict) and "receipt_digest" in receipt and "workflow_id" in receipt:
+            note(receipt, f"validation receipt {artifact_digest[:12]} of workflow {receipt['workflow_id']}")
+    return sealed
+
+
+def _reused_kane_runs(store: SQLiteWorkflowStore, workflow_id: str, own_receipt: str | None, kane_runs: dict) -> list[tuple[str, str]]:
+    """(claim id, detail) for each bound browser claim whose Kane session another sealed validation binds.
+
+    Each validation starts its own Kane runs after the approval, so a run another validation
+    in this store already bound (another workflow's, or an earlier attempt at this one's) is
+    not this validation's, even when its pack is of the approved wording and started after
+    the approval.
+    """
+    sealed = _sealed_elsewhere(store, workflow_id, own_receipt)
+    return [
+        (claim_id, f"Kane session {run_id} is bound by {sealed[run_id]}")
+        for claim_id, run_id in kane_runs.items()
+        if isinstance(run_id, str) and run_id in sealed
+    ]
+
+
+def _refuse_reused_kane_runs(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """Promotion: no browser claim's Kane run is one another sealed validation in the store binds.
+
+    Checked last: a record that passes every other check names packs of the approved wording
+    from runs started after the approval, and this is what tells this validation's runs from
+    another's.
+    """
+    validation = record.validation or {}
+    reused = _reused_kane_runs(store, record.workflow_id, validation.get("receipt_artifact_digest"), validation.get("kane_runs") or {})
+    if reused:
+        claim_id, detail = reused[0]
+        raise WorkflowError(f"validation browser evidence for {claim_id} is from another validation's Kane run ({detail}); --apply refused")
 
 
 def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[str], build_digest: str | None) -> None:
@@ -199,18 +313,19 @@ def _refuse_unbound_browser_evidence(validation: dict[str, Any], browser: list[s
         raise WorkflowError("validation browser evidence is simulated, unbound or not passed; --apply refused")
 
 
-def _refuse_unbacked_browser_evidence(validation: dict[str, Any], browser: list[Claim]) -> None:
+def _refuse_unbacked_browser_evidence(validation: dict[str, Any], browser: list[Claim], approval: dict | None) -> None:
     """Promotion: each approved browser claim's Kane evidence pack, read back from disk, is
     the one validation read and shows the claim's step, in the claim's wording, passing in
-    its bound run.
+    its bound run, which started after ``approval``.
 
     The pack lives outside the store, so a record rewritten with its artifact and event still
-    has to name a pack Kane wrote for the run it binds, from a test file worded as approved.
+    has to name a pack Kane wrote for the run it binds, from a test file worded as approved,
+    run after the human approved this workflow.
     """
     packs = validation.get("kane_packs") or {}
     kane_runs = validation.get("kane_runs") or {}
     for claim in browser:
-        problem = _pack_read_back(packs.get(claim.id), claim, kane_runs.get(claim.id))
+        problem = _pack_read_back(packs.get(claim.id), claim, kane_runs.get(claim.id), approval)
         if problem:
             raise WorkflowError(
                 f"validation browser evidence for {claim.id} is not backed by its Kane evidence pack ({problem[1]}); --apply refused"
@@ -296,6 +411,8 @@ def resume_workflow(
         verify_approval(record)
     except ApprovalError as exc:
         return _unresolved(store, record, str(exc))
+    if problem := _approval_disagreement(store, record):
+        return _unresolved(store, record, problem)
 
     proposal = record.proposal
     if proposal_digest(proposal) != proposal.get("proposal_digest"):
@@ -379,7 +496,7 @@ def resume_workflow(
             }
             validation_data["evidence_digest"] = _validation_digest(evidence_payload)
             kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
-            kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs)
+            kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs, record.approval)
             validation_data["build_digest"] = proposal["build_digest"]
             validation_data["kane_runs"] = kane_runs
             validation_data["kane_packs"] = kane_packs
@@ -388,6 +505,7 @@ def resume_workflow(
                 *_observation_run_failures(claims, evidence, kane_runs),
                 *_observation_build_failures(claims, evidence, proposal["build_digest"]),
                 *unbacked,
+                *(f"{claim_id}:kane_run_reused" for claim_id, _ in _reused_kane_runs(store, workflow_id, None, kane_runs)),
             ]
             if unbound:
                 validation_data["successful"] = False
@@ -438,6 +556,7 @@ def promote_workflow(
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
     verify_approval(record)
+    _refuse_unrecorded_approval(store, record)
     if not record.validation.get("successful") or record.validation.get("runner") != "kane":
         raise WorkflowError("--apply is disabled after failed, incomplete, or simulated validation")
     proposal = record.proposal
@@ -469,7 +588,8 @@ def promote_workflow(
         raise WorkflowError("candidate is not UTF-8; --apply refused") from exc
     if ungrounded:
         raise WorkflowError(f"validation record's claims are not the approved candidate's ({ungrounded[0]}); --apply refused")
-    _refuse_unbacked_browser_evidence(record.validation, [c for c in validated if c.kind == "browser"])
+    _refuse_unbacked_browser_evidence(record.validation, [c for c in validated if c.kind == "browser"], record.approval)
+    _refuse_reused_kane_runs(store, record)
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])
