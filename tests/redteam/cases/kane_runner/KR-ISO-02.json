@@ -8,7 +8,7 @@
   "status": "active",
   "theme": "no_port_kill",
   "title": "No code kills whatever process owns a port",
-  "closed": "#34 removes ShellSession._kill_listener. No attest/ or scripts/ source matches the port-owner kill patterns; close() only stops processes this session started.",
+  "closed": "ShellSession.close() kills only the process trees it started (terminate_process_tree). _kill_listener, which read netstat for the announced port and taskkilled every listening PID, is gone (#34's b15868b, applied here to attest/shell.py only).",
   "input": {
     "patterns": [
       "fuser\\s+-k",
@@ -18,14 +18,22 @@
       "taskkill\\b[^\\n]*/IM",
       "kill\\s+\\$\\(lsof",
       "npx\\s+kill-port",
-      "\\bnetstat\\b"
+      "\\bnetstat\\b",
+      "\\b_kill_listener\\b",
+      "\\btaskkill\\b"
     ],
     "roots": [
       "attest",
       "scripts"
-    ]
+    ],
+    "isolation": {
+      "platform": "win32"
+    }
   },
   "expected": {
-    "matches": []
+    "matches": [],
+    "close_subprocess_calls": [],
+    "owned_server_alive": false,
+    "port_owner_alive": true
   }
 }

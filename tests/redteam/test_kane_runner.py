@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import signal
+import subprocess
 import sys
 import time
 import zipfile
@@ -40,6 +41,7 @@ from attest.kane import test_file_text as make_test_file
 from attest.models import BrowserObservation, Claim, Evidence, Span
 from attest.receipts import ReceiptEvidence, RunReceipt
 from attest.runner import FakeBrowserRunner
+from attest.shell import RunningProcess, ShellSession
 from attest.snapshots import SourceVersion
 from attest.verdict import Rules, judge
 
@@ -354,7 +356,7 @@ def test_symlink_and_zip_slip_members_never_land_outside(rt_case, tmp_path):
 
 
 @case("KR-ISO-02")
-def test_no_code_kills_a_port_owner(rt_case):
+def test_no_code_kills_a_port_owner(rt_case, tmp_path, monkeypatch):
     i, x = rt_case["input"], rt_case["expected"]
     pattern = re.compile("|".join(f"(?:{p})" for p in i["patterns"]))
     matches = []
@@ -365,6 +367,36 @@ def test_no_code_kills_a_port_owner(rt_case):
                     if pattern.search(line):
                         matches.append(f"{path.relative_to(REPO)}:{n}")
     assert matches == x["matches"]
+
+    # Behaviour: a server ShellSession started announced a port that another process owns.
+    # close() must stop the server and look up nothing by port, on the platform where the
+    # removed branch ran (forced here so the check runs on every host).
+    py = [sys.executable, "-c"]
+    owner = subprocess.Popen(
+        [*py, "import socket, time\ns = socket.socket(); s.bind(('127.0.0.1', 0)); s.listen()\n"
+              "print(s.getsockname()[1], flush=True); time.sleep(60)"],
+        stdout=subprocess.PIPE, text=True,
+    )
+    group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    server = subprocess.Popen([*py, "import time; time.sleep(60)"], **group)
+    try:
+        port = int(owner.stdout.readline())
+        session = ShellSession(workdir=tmp_path, recipes_only=False)
+        session.servers.append(RunningProcess("c01", server, f"http://127.0.0.1:{port}/"))
+        calls = []
+        with monkeypatch.context() as m:
+            m.setattr(sys, "platform", i["isolation"]["platform"])
+            m.setattr(subprocess, "run", lambda argv, *a, **k: (
+                calls.append(argv), subprocess.CompletedProcess(argv, 0, "", ""))[1])
+            session.close()
+        assert calls == x["close_subprocess_calls"]
+        assert (server.poll() is None) is x["owned_server_alive"]
+        assert (owner.poll() is None) is x["port_owner_alive"]
+    finally:
+        for proc in (server, owner):
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
 
 
 @case("KR-ISO-03")
