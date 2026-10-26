@@ -66,6 +66,27 @@ def _validation_digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def _kane_run_bindings(runner, runs_before: int, claims: list[Claim], evidence: dict) -> tuple[dict[str, str | None], list[str]]:
+    """Bind each browser claim's evidence to the Kane run that produced it during this validation.
+
+    An observation the runner cached from an earlier run, or one no evidence pack backs,
+    is stale: it says nothing about the candidate being validated now.
+    """
+    runs = list(getattr(runner, "runs", None) or [])
+    fresh = {run.session_id for run in runs[runs_before:] if getattr(run, "session_id", None)}
+    produced = getattr(runner, "run_ids", None) or {}
+    bindings: dict[str, str | None] = {}
+    stale: list[str] = []
+    for claim in claims:
+        if claim.kind != "browser" or claim.id not in evidence:
+            continue
+        run_id = produced.get(claim.id)
+        bindings[claim.id] = run_id
+        if run_id is None or run_id not in fresh:
+            stale.append(f"{claim.id}:stale_kane_run")
+    return bindings, stale
+
+
 def resume_workflow(
     store: SQLiteWorkflowStore,
     workflow_id: str,
@@ -129,6 +150,7 @@ def resume_workflow(
         return _unresolved(store, record, "build identity changed after approval; promotion refused")
 
     doc = ingest_text(candidate_text, source=str(source_path))
+    runs_before = len(getattr(runner, "runs", None) or [])
     try:
         claims = compile_doc(doc, llm=llm, use_cache=False)
         complete, detail = _compile_complete(original_claims, claims, proposal["target_claim_id"])
@@ -168,6 +190,12 @@ def resume_workflow(
                 "validated_claims": [claim.model_dump(mode="json") for claim in claims],
             }
             validation_data["evidence_digest"] = _validation_digest(evidence_payload)
+            kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
+            validation_data["build_digest"] = proposal["build_digest"]
+            validation_data["kane_runs"] = kane_runs
+            if stale_runs:
+                validation_data["successful"] = False
+                validation_data["failed_claims"] = [*validation_data["failed_claims"], *stale_runs]
             validation_data["receipt_digest"] = _validation_digest(validation_data)
             validation_data["receipt_artifact_digest"] = store.put_artifact(canonical_json(validation_data))
         finally:
@@ -175,6 +203,8 @@ def resume_workflow(
                 session.close()
             if scratch.exists():
                 shutil.rmtree(scratch, ignore_errors=True)
+        if current_build_digest(source_path, proposal["source_digest"]) != proposal.get("build_digest"):
+            return _unresolved(store, record, "build identity changed during validation; promotion refused")
         if not validation_data["successful"]:
             return store.transition(
                 workflow_id,
@@ -214,6 +244,12 @@ def promote_workflow(
     if not record.validation.get("successful") or record.validation.get("runner") != "kane":
         raise WorkflowError("--apply is disabled after failed, incomplete, or simulated validation")
     proposal = record.proposal
+    if record.validation.get("build_digest") != proposal.get("build_digest"):
+        raise WorkflowError("validation evidence is not bound to the approved app/build version; --apply refused")
+    kane_runs = record.validation.get("kane_runs") or {}
+    browser = [c.get("id") for c in record.validation.get("validated_claims") or [] if c.get("kind") == "browser"]
+    if any(not kane_runs.get(claim_id) for claim_id in browser):
+        raise WorkflowError("validation browser evidence is not bound to a fresh Kane run; --apply refused")
     if policy.digest != proposal.get("policy_digest"):
         raise WorkflowError("policy changed after validation; --apply refused")
     path = Path(proposal["source_path"])

@@ -28,6 +28,10 @@ class ReceiptEvidence(BaseModel):
     content_sha256: str = Field(pattern=SHA256_PATTERN)
     complete: bool = False
     simulated: bool = False
+    # App/build identity the evidence was observed against (proposals.current_build_digest).
+    build_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    # Kane session id of the run that produced browser evidence.
+    kane_run_id: str | None = Field(default=None, min_length=1)
 
 
 class RunReceipt(BaseModel):
@@ -45,6 +49,9 @@ class RunReceipt(BaseModel):
     evidence_state: EvidenceState
     repair_state: RepairState
     evidence: tuple[ReceiptEvidence, ...] = ()
+    build_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    # Kane runs this receipt's run started; browser evidence must come from one of them.
+    kane_run_ids: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def _evidence_is_consistent(self) -> "RunReceipt":
@@ -53,6 +60,8 @@ class RunReceipt(BaseModel):
             evidence=self.evidence,
             source_version_id=self.source_version_id,
             content_sha256=self.content_sha256,
+            build_digest=self.build_digest,
+            kane_run_ids=self.kane_run_ids,
         )
         return self
 
@@ -72,13 +81,19 @@ def validate_receipt_evidence(
     evidence: tuple[ReceiptEvidence, ...],
     source_version_id: UUID,
     content_sha256: str,
+    build_digest: str | None = None,
+    kane_run_ids: tuple[str, ...] = (),
 ) -> None:
-    """Check receipt evidence shape and bind each record to the receipt content."""
+    """Check receipt evidence shape and bind each record to the receipt content, build and Kane runs."""
     for item in evidence:
         if item.source_version_id != source_version_id:
             raise ValueError("receipt evidence belongs to a different source version")
         if item.content_sha256 != content_sha256:
             raise ValueError("receipt evidence belongs to different content")
+        if item.build_digest is not None and item.build_digest != build_digest:
+            raise ValueError("receipt evidence belongs to a different app/build version")
+        if item.kane_run_id is not None and item.kane_run_id not in kane_run_ids:
+            raise ValueError("receipt evidence belongs to a Kane run this receipt did not start")
 
     if evidence_state == EvidenceState.MISSING:
         if evidence:
@@ -115,4 +130,12 @@ def validate_verified_receipt(receipt: RunReceipt) -> None:
         evidence=receipt.evidence,
         source_version_id=receipt.source_version_id,
         content_sha256=receipt.content_sha256,
+        build_digest=receipt.build_digest,
+        kane_run_ids=receipt.kane_run_ids,
     )
+    if receipt.build_digest is None:
+        raise ValueError("verified receipts require an app/build version")
+    if any(item.build_digest is None for item in receipt.evidence):
+        raise ValueError("verified receipts require every evidence record to name its app/build version")
+    if any(item.kind == "browser" and item.kane_run_id is None for item in receipt.evidence):
+        raise ValueError("verified receipts require browser evidence bound to a fresh Kane run id")
