@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sys
 import textwrap
@@ -7,7 +8,7 @@ from typer.testing import CliRunner
 
 from attest.cli import app
 from attest.pipeline import prove
-from attest.reconcile_spec import ReconcileRequest, ReconcileSpec, write_handoff
+from attest.reconcile_spec import ReconcileRequest, ReconcileSpec, SourceDocument, protected_document, write_handoff
 from attest.runner import FakeBrowserRunner
 from attest.verdict import Rules
 
@@ -43,9 +44,15 @@ def _request(**overrides):
     }
 
 
+def _sources(request: ReconcileRequest) -> dict[str, SourceDocument]:
+    text = "".join(f"{c.protected_requirement_id}: {c.protected_text}\n" for c in request.conflicts)
+    document = SourceDocument(text, hashlib.sha256(text.encode("utf-8")).hexdigest())
+    return {protected_document(c, request.source_doc): document for c in request.conflicts}
+
+
 def test_reconcile_spec_writes_handoff_with_evidence_pointers(tmp_path):
     request = ReconcileRequest.model_validate(_request())
-    handoff = ReconcileSpec().diagnose(request)
+    handoff = ReconcileSpec().diagnose(request, sources=_sources(request))
     markdown, machine_json = write_handoff(handoff, tmp_path / "handoff")
 
     data = json.loads(machine_json.read_text(encoding="utf-8"))
@@ -55,6 +62,8 @@ def test_reconcile_spec_writes_handoff_with_evidence_pointers(tmp_path):
     assert data["authority_state"] == "present"
     assert data["evidence_state"] == "provided"
     assert data["repair_state"] == "handoff"
+    assert data["source_state"] == "matched"
+    assert data["handoff_state"] == "ready"
     assert data["conflicts"][0]["claim_id"] == "c01"
     assert data["conflicts"][0]["candidate_side"] == "app_wrong"
     assert data["conflicts"][0]["recommended_owner"] == "application owner"
@@ -91,7 +100,7 @@ def test_kane_receipt_is_observation_not_reconciliation_authority():
         )
     )
 
-    result = ReconcileSpec().diagnose(request)
+    result = ReconcileSpec().diagnose(request, sources=_sources(request))
     serialized = result.model_dump()
 
     assert result.execution_state == "external_observation"

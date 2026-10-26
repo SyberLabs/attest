@@ -1,0 +1,142 @@
+{
+  "id": "RS-AB-11",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "missing_or_conflicting_authority",
+  "title": "A protected document Attest cannot read, or that does not state the requirement once, blocks the handoff (exit 3); paths outside the source root are never read",
+  "input": {
+    "protected_text": "The application must require multi-factor authentication for every administrator sign-in.",
+    "outside_text": "## SEC-4\n\nThe application must require multi-factor authentication for every administrator sign-in.\n",
+    "variants": {
+      "missing_file": {
+        "reference": "contracts/security.md#SEC-4",
+        "setup": "none"
+      },
+      "parent_escape": {
+        "reference": "../outside/security.md#SEC-4",
+        "setup": "outside"
+      },
+      "absolute_path": {
+        "reference": "{outside}#SEC-4",
+        "setup": "outside"
+      },
+      "symlink_escape": {
+        "reference": "contracts/security.md#SEC-4",
+        "setup": "symlink_to_outside"
+      },
+      "url": {
+        "reference": "https://example.invalid/contracts/security.md#SEC-4",
+        "setup": "none"
+      },
+      "directory": {
+        "reference": "contracts/security.md#SEC-4",
+        "setup": "directory"
+      },
+      "not_utf8": {
+        "reference": "contracts/security.md#SEC-4",
+        "setup": "latin1"
+      },
+      "too_large": {
+        "reference": "contracts/security.md#SEC-4",
+        "setup": "too_large"
+      },
+      "fragment_only_falls_back_to_missing_source_doc": {
+        "reference": "#SEC-4",
+        "setup": "none"
+      },
+      "requirement_only_mentioned": {
+        "reference": "contracts/security.md#SEC-4",
+        "setup": "mention_only"
+      },
+      "requirement_stated_twice": {
+        "reference": "contracts/security.md#SEC-4",
+        "setup": "twice"
+      }
+    },
+    "documents": {
+      "latin1": "## SEC-4\n\nThe application must require multi-factor authentication for every administrator sign-in. \u00a7\n",
+      "mention_only": "# Security contract\n\nSee SEC-4 for the multi-factor rule, owned by the identity team.\n",
+      "twice": "## SEC-4\n\nThe application must require multi-factor authentication for every administrator sign-in.\n\n## Appendix: earlier draft\n\n- SEC-4: The application should offer multi-factor authentication.\n"
+    },
+    "too_large_bytes": 2097153
+  },
+  "expected": {
+    "exit_code": 3,
+    "stderr_contains": "blocked:",
+    "handoff_state": "blocked",
+    "repair_state": "handoff",
+    "variants": {
+      "missing_file": {
+        "reason": "c01:source_unreadable:not_found",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "parent_escape": {
+        "reason": "c01:source_unreadable:outside_root",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "absolute_path": {
+        "reason": "c01:source_unreadable:outside_root",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "symlink_escape": {
+        "reason": "c01:source_unreadable:outside_root",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "url": {
+        "reason": "c01:source_unreadable:outside_root",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "directory": {
+        "reason": "c01:source_unreadable:not_a_file",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "not_utf8": {
+        "reason": "c01:source_unreadable:not_utf8",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "too_large": {
+        "reason": "c01:source_unreadable:too_large",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "fragment_only_falls_back_to_missing_source_doc": {
+        "reason": "c01:source_unreadable:not_found",
+        "source_state": "unreadable",
+        "authority_state": "missing"
+      },
+      "requirement_only_mentioned": {
+        "reason": "c01:requirement_not_in_source",
+        "source_state": "mismatch",
+        "authority_state": "missing"
+      },
+      "requirement_stated_twice": {
+        "reason": "c01:requirement_ambiguous_in_source",
+        "source_state": "mismatch",
+        "authority_state": "conflicting"
+      }
+    },
+    "api_without_sources": {
+      "reason": "request:source_not_checked",
+      "source_state": "not_checked",
+      "authority_state": "missing"
+    },
+    "api_document_not_read": {
+      "reason": "c01:source_not_checked",
+      "source_state": "not_checked",
+      "authority_state": "missing"
+    }
+  }
+}

@@ -203,7 +203,8 @@
       "two_protected_texts": {
         "authority_state": "conflicting",
         "blocking_reasons": [
-          "SEC-4:protected_text_conflict"
+          "SEC-4:protected_text_conflict",
+          "c02:protected_text_not_in_source"
         ]
       },
       "two_authority_references": {
