@@ -308,13 +308,27 @@ def find_pack(evidence_dir: Path, session_id: str | None) -> Path | None:
     return next((p for p in packs if session_id in pack_sessions(p)), None)
 
 
-def pack_disagreement(data: bytes, claim_id: str, session_id: str | None) -> str | None:
+PACK_WORDING = "pack's step for the claim is not the approved claim's wording"
+
+
+def _front_url(test_md: str) -> str | None:
+    """The start URL in a ``_test.md``'s front matter, which ``step_body`` retargeted local URLs to."""
+    m = re.match(r"---\n(.*?)\n---\n", test_md, re.S)
+    front = yaml.safe_load(m.group(1)) if m else None
+    url = front.get("url") if isinstance(front, dict) else None
+    return url if isinstance(url, str) else None
+
+
+def pack_disagreement(data: bytes, claim_id: str, session_id: str | None, claim: Claim | None = None) -> str | None:
     """Why a pack's own record doesn't show this claim's step passing in this Kane session; None if it does.
 
     Read in memory, nothing extracted: exactly one test in the pack names the session in
     ``external_id.session_id``, its ``test.md`` is the definition ``result.yaml`` digests, it
     has one ``## <claim_id>`` step, and the last of that step's actions (``id: <index>-<n>``,
-    0-based like the pack's step directories) passed.
+    0-based like the pack's step directories) passed. With ``claim``, that step's text must
+    also be the ``step_body`` Attest writes for it, local URLs pointed at the file's own
+    start URL: a pack Kane sealed for other wording (an earlier doc, an edited test file)
+    is not this claim's evidence.
     """
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
@@ -336,10 +350,14 @@ def pack_disagreement(data: bytes, claim_id: str, session_id: str | None) -> str
                 return "pack has no test file"
         if definition.get("sha256") != "sha256:" + hashlib.sha256(test_md).hexdigest():
             return "pack's test file is not the definition Kane ran"
-        headings = re.findall(r"^## (.+?)[ \t]*$", test_md.decode("utf-8", "replace"), re.M)
+        text = test_md.decode("utf-8", "replace")
+        sections = re.split(r"^## (.+?)[ \t]*$", text, flags=re.M)  # [preamble, heading, body, heading, body, ...]
+        headings = sections[1::2]
         if headings.count(claim_id) != 1:
             return "pack has no step for the claim"
         index = str(headings.index(claim_id))
+        if claim is not None and sections[2 + 2 * int(index)].strip() != step_body(claim, _front_url(text)):
+            return PACK_WORDING
         actions = [a for a in result.get("steps") or [] if isinstance(a, dict) and str(a.get("id", "")).split("-")[0] == index]
         if not actions or max(actions, key=lambda a: int(a.get("ordinal") or 0)).get("status") != "passed":
             return "pack does not show the claim's step passed"

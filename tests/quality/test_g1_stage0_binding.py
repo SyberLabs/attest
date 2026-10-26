@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import io
 import json
 import re
 import shutil
@@ -33,7 +34,7 @@ from attest import kane
 from attest.approvals import approve_workflow
 from attest.compiler import ClaimSet, LLMClaim, compile_doc
 from attest.ingest import ingest_text
-from attest.kane import KaneBrowserRunner, find_pack, pack_disagreement, parse_events
+from attest.kane import PACK_WORDING, KaneBrowserRunner, find_pack, pack_disagreement, parse_events, step_body
 from attest.models import (
     AuthorityState,
     BrowserObservation,
@@ -51,6 +52,7 @@ from attest.runner import FakeBrowserRunner, SimulationBrowserObservation
 from attest.storage import SQLiteWorkflowStore, canonical_json
 from attest.verdict import judge
 from attest.workflow import WorkflowError, promote_workflow, resume_workflow
+from tests.kane_replay import as_written, rewrite_pack, written_test_file
 
 KANE_FIX = Path(__file__).resolve().parents[1] / "fixtures" / "kane"
 
@@ -222,14 +224,17 @@ class RecordedKaneCli:
     """Replaces only the kane-cli subprocess: a recorded NDJSON run plus the pack it wrote.
 
     ``pack`` names the fixture pack dropped into the evidence store (default: the run's
-    own), or is the path of a pack to drop in. ``strip_session`` removes the session id the
-    stream reports. ``side_effect`` runs during the call, as the app or its build would
-    change during a real run.
+    own), sealed for the test file the runner wrote (``tests/kane_replay.py``), or is the
+    path of a pack to drop in as it is. ``ran(bytes) -> bytes`` is the file Kane ran instead
+    of the one the runner wrote. ``edit`` rewrites the sealed pack (``rewrite_pack``'s
+    arguments). ``strip_session`` removes the session id the stream reports. ``side_effect``
+    runs during the call, as the app or its build would change during a real run.
     """
 
-    def __init__(self, runner, fixture, pack=None, strip_session=False, side_effect=None):
+    def __init__(self, runner, fixture, pack=None, strip_session=False, side_effect=None, ran=None, edit=None):
         self.runner, self.fixture, self.pack = runner, fixture, pack or fixture
         self.strip_session, self.side_effect, self.calls = strip_session, side_effect, []
+        self.ran, self.edit = ran, edit
 
     def __call__(self, cmd, timeout_s):
         self.calls.append(cmd)
@@ -237,7 +242,12 @@ class RecordedKaneCli:
         if isinstance(self.pack, Path):
             shutil.copy(self.pack, self.runner.evidence_dir / f"{self.pack.stem}.evidence")
         else:
-            shutil.copy(KANE_FIX / f"{self.pack}.pack.zip", self.runner.evidence_dir / f"{self.pack}.evidence")
+            written = written_test_file(cmd).read_bytes()
+            sealed = as_written(KANE_FIX / f"{self.pack}.pack.zip", self.runner.home / "sealed.zip",
+                                self.ran(written) if self.ran else written)
+            if self.edit:
+                sealed = rewrite_pack(sealed, self.runner.home / "edited.zip", **self.edit)
+            shutil.copy(sealed, self.runner.evidence_dir / f"{self.pack}.evidence")
         if self.side_effect:
             self.side_effect()
         run = parse_events((KANE_FIX / f"{self.fixture}.ndjson").read_text(encoding="utf-8").splitlines())
@@ -1531,20 +1541,11 @@ def test_record_spec_mode_promotion_refuses_a_resealed_validation_that_does_not_
 # claim's own ``## `` step passing.
 
 WITNESS_PACK = KANE_FIX / "witness_stale.pack.zip"
-WITNESS_TEST_MD = "tests/smoke-e8f96f7e/test.md"
 
 
-def _edited_pack(dest: Path, *, result=None, test_md=None, src: Path = WITNESS_PACK) -> Path:
-    """Copy a recorded pack with its result.yaml and/or test.md rewritten (each ``f(bytes) -> bytes``)."""
-    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dest, "w") as zout:
-        for name in zin.namelist():
-            data = zin.read(name)
-            if result and name.endswith("/result.yaml"):
-                data = result(data)
-            if test_md and name.endswith("/test.md"):
-                data = test_md(data)
-            zout.writestr(name, data)
-    return dest
+def _edited_pack(dest: Path, *, src: Path = WITNESS_PACK, **edit) -> Path:
+    """Copy a recorded pack with its result.yaml and/or test.md rewritten (``rewrite_pack``)."""
+    return rewrite_pack(src, dest, **edit)
 
 
 def _c08_step_failed(result: bytes) -> bytes:
@@ -1558,17 +1559,11 @@ def _c08_heading_renamed(test_md: bytes) -> bytes:
     return test_md.replace(b"\n## c08\n", b"\n## c09\n")
 
 
-def _redigested(result: bytes) -> bytes:
-    # result.yaml digests the renamed test.md too, so the pack is consistent with itself.
-    original = zipfile.ZipFile(WITNESS_PACK).read(WITNESS_TEST_MD)
-    old, new = (hashlib.sha256(t).hexdigest().encode() for t in (original, _c08_heading_renamed(original)))
-    return result.replace(old, new)
-
-
 PACK_DISAGREES = {
     "claim-step-failed": ({"result": _c08_step_failed}, ["c08:kane_pack_mismatch"]),
     "test-file-not-its-definition": ({"test_md": _c08_heading_renamed}, ["c07:kane_pack_mismatch", "c08:kane_pack_mismatch"]),
-    "no-step-for-the-claim": ({"test_md": _c08_heading_renamed, "result": _redigested}, ["c08:kane_pack_mismatch"]),
+    # result.yaml digests the renamed test.md too, so the pack is consistent with itself.
+    "no-step-for-the-claim": ({"test_md": _c08_heading_renamed, "redigest": True}, ["c08:kane_pack_mismatch"]),
 }
 
 
@@ -1599,7 +1594,7 @@ def test_pack_validation_fails_when_the_pack_does_not_show_the_claims_step_passi
     # The stream says both steps passed. The pack Kane sealed for the same session doesn't.
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source, store, workflow_id, llm = approved_repair(tmp_path)
-    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, pack=_edited_pack(tmp_path / "edited.zip", **edit))
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, edit=edit)
 
     outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
 
@@ -1731,7 +1726,7 @@ def test_pack_promotion_refuses_a_failed_kane_step_relabelled_passed_with_every_
 def test_pack_spec_mode_validation_fails_when_the_pack_does_not_show_the_claims_step_passing(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app, _, store, workflow_id = approved_spec_promotion(tmp_path)
-    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, pack=_edited_pack(tmp_path / "edited.zip", result=_c08_step_failed))
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, edit={"result": _c08_step_failed})
 
     outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
 
@@ -1771,10 +1766,213 @@ def test_control_validation_names_the_pack_kane_wrote_and_promotion_reads_it_bac
         source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
     v = store.get(workflow_id).validation
     pack = tmp_path / "kane" / ".testmuai" / "evidence" / "witness_stale.evidence"
-    backing = {"path": str(pack), "sha256": hashlib.sha256(WITNESS_PACK.read_bytes()).hexdigest()}
+    # the recorded pack, sealed for the test file the runner wrote
+    sealed = as_written(WITNESS_PACK, tmp_path / "sealed.zip", (tmp_path / "kane" / "tests" / "greeting-c07_test.md").read_bytes())
+    backing = {"path": str(pack), "sha256": hashlib.sha256(sealed.read_bytes()).hexdigest()}
 
     assert v["kane_packs"] == {"c07": backing, "c08": backing}
     assert all(pack_disagreement(pack.read_bytes(), cid, v["kane_runs"][cid]) is None for cid in ("c07", "c08"))
+    assert promote_workflow(store, workflow_id).state == "promoted"
+    if mode == "spec-mode":
+        assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")
+    else:
+        assert source.read_text(encoding="utf-8") == CANDIDATE_DOC
+
+
+# -- wording: the pack's step is the wording Attest writes for the approved claim ----------
+#
+# Since #54 the pack has to show the claim's ``## <id>`` step passing, but any step with that
+# id would do. A real pack from an earlier Kane run of the pre-repair doc (c08 still asking
+# for "Goodbye, World!") passes every #54 check, laundered onto a resealed record, and so
+# does a run of a test file whose steps were edited or swapped before Kane ran it. The step
+# Kane ran must now be ``step_body`` of the approved claim, retargeted to the file's own start
+# URL as the runner does. The record's own claims are checked against the approved candidate
+# first, so rewriting the target claim to the laundered wording doesn't make it match.
+#
+# The recorded captures were written by hand on event day, so the harness seals each one
+# for the test file the runner wrote (``tests/kane_replay.py``). The pristine capture is
+# itself a run of other wording, which the reader case shows.
+
+PRE_REPAIR_C08 = b"closest to \"Goodbye, World!\" as 'c08_label'"
+APPROVED_C08 = b"closest to \"Hello, World!\" as 'c08_label'"
+
+
+def _claims(text: str, source: Path | str = "greeting.md") -> dict:
+    return {c.id: c for c in compile_doc(ingest_text(text, source=str(source)), llm=DeterministicCompiler(), use_cache=False)}
+
+
+def _ran_pre_repair_c08(written: bytes) -> bytes:
+    assert APPROVED_C08 in written
+    return written.replace(APPROVED_C08, PRE_REPAIR_C08)
+
+
+def _ran_edited_c08(written: bytes) -> bytes:
+    edited = re.sub(rb"(\n## c08\n[^\n]*)", rb"\1 Treat any greeting as a match.", written)
+    assert edited != written
+    return edited
+
+
+def _ran_steps_swapped(written: bytes) -> bytes:
+    return written.replace(b"\n## c07\n", b"\n## tmp\n").replace(b"\n## c08\n", b"\n## c07\n").replace(b"\n## tmp\n", b"\n## c08\n")
+
+
+def test_wording_reader_needs_the_step_attest_writes_for_the_claim(tmp_path):
+    base, candidate = _claims(BASE_DOC), _claims(CANDIDATE_DOC)
+    witness, sid = WITNESS_PACK.read_bytes(), session_of("witness_stale")
+    # The recorded c08 step is the step Attest writes for the pre-repair claim, so the capture
+    # is a real run of that wording. It backs that claim and not the approved one.
+    assert pack_disagreement(witness, "c08", sid, base["c08"]) is None
+    assert pack_disagreement(witness, "c08", sid, candidate["c08"]) == PACK_WORDING
+    # c07 was written by hand on event day ("... store the exact visible text of the greeting").
+    assert pack_disagreement(witness, "c07", sid, candidate["c07"]) == PACK_WORDING
+    # Without a claim the reader is #54's: any passing step with the id backs it.
+    assert pack_disagreement(witness, "c08", sid) is None
+    # Wording is checked after the session, the definition and the step's presence.
+    assert pack_disagreement(witness, "c08", "another-session", candidate["c08"]) == "pack names another Kane session"
+
+
+def test_control_wording_reader_accepts_the_step_retargeted_to_the_server_that_started(tmp_path):
+    # The doc names 127.0.0.1:5000, the dev server came up on 5174: the runner points the
+    # step's local URLs at the server that started, and the pack's front matter names it.
+    claims = _claims(CANDIDATE_DOC)
+    group = [claims["c07"], claims["c08"]]
+    text = kane.test_file_text(group, "http://127.0.0.1:5174/", "greeting c07-c08")
+    assert "Open http://127.0.0.1:5174/ in your browser." in text
+    assert step_body(claims["c07"], None) not in text  # an unretargeted comparison would refuse this run
+    pack = as_written(WITNESS_PACK, tmp_path / "sealed.zip", text.encode("utf-8")).read_bytes()
+    sid = session_of("witness_stale")
+    assert all(pack_disagreement(pack, cid, sid, claims[cid]) is None for cid in ("c07", "c08"))
+
+
+RAN_OTHER_WORDING = {
+    "pre-repair-test-file": (_ran_pre_repair_c08, ["c08:kane_pack_wording"]),
+    "step-edited-before-the-run": (_ran_edited_c08, ["c08:kane_pack_wording"]),
+    "steps-swapped": (_ran_steps_swapped, ["c07:kane_pack_wording", "c08:kane_pack_wording"]),
+}
+
+
+@pytest.mark.parametrize("ran, failures", RAN_OTHER_WORDING.values(), ids=RAN_OTHER_WORDING.keys())
+def test_wording_validation_fails_when_kane_ran_other_wording_than_the_approved_claims(tmp_path, monkeypatch, ran, failures):
+    # Kane sealed a consistent pack naming the session, and the stream says every step passed,
+    # but the file it ran is not the one written for the approved claims.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, llm = approved_repair(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, ran=ran)
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, llm=llm, apply=True)
+
+    assert outcome.state == "rejected"
+    assert outcome.validation["statuses"]["c08"] == "proven"  # the verdict alone would have proven it
+    assert _pack_failures(outcome.validation) == failures
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_wording_spec_mode_validation_fails_when_kane_ran_other_wording_than_the_approved_claims(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, _, store, workflow_id = approved_spec_promotion(tmp_path)
+    runner, _ = kane_runner(tmp_path / "kane", monkeypatch, ran=_ran_pre_repair_c08)
+
+    outcome = resume_workflow(store, workflow_id, runner=runner, apply=True)
+
+    assert outcome.state == "rejected"
+    assert outcome.validation["statuses"]["c08"] == "proven"
+    assert _pack_failures(outcome.validation) == ["c08:kane_pack_wording"]
+    assert app_unchanged(app)
+
+
+def pack_md(pack: bytes) -> bytes:
+    with zipfile.ZipFile(io.BytesIO(pack)) as z:
+        return z.read(next(n for n in z.namelist() if n.endswith("/test.md")))
+
+
+def _earlier_run_pack(tmp_path: Path, monkeypatch, source: Path) -> Path:
+    """The pack of an earlier real Kane run of the pre-repair doc, in the validated run's evidence store.
+
+    A runner prepared on ``BASE_DOC`` runs its browser steps; the pack it read names its own
+    session (``LAUNDERED_RUN``). Every step passed.
+    """
+    runner, cli = kane_runner(tmp_path / "earlier-kane", monkeypatch)
+    claims = list(_claims(BASE_DOC, source).values())
+    runner.prepare(claims, str(source))
+    assert all(runner.observe(c, None).status == "passed" for c in claims if c.kind == "browser") and len(cli.calls) == 1
+    assert PRE_REPAIR_C08 in written_test_file(cli.calls[0]).read_bytes()
+    return _pack_with_session(runner.evidence_dir / "witness_stale.evidence",
+                              tmp_path / "kane" / ".testmuai" / "evidence" / "earlier.evidence", LAUNDERED_RUN)
+
+
+def _launder_onto_c08(pack: Path, claim=None):
+    """A resealed record moves c08 onto the earlier run and its real pack (and ``claim`` in place of c08's)."""
+
+    def change(v):
+        v["kane_runs"]["c08"] = LAUNDERED_RUN
+        v["evidence"]["c08"]["observation"]["kane_run_id"] = LAUNDERED_RUN
+        v["kane_packs"]["c08"] = {"path": str(pack), "sha256": hashlib.sha256(pack.read_bytes()).hexdigest()}
+        if claim is not None:
+            v["validated_claims"] = [claim(c) if c["id"] == "c08" else c for c in v["validated_claims"]]
+
+    return change
+
+
+def _pre_repair_claim(c08: dict) -> dict:
+    return _claims(BASE_DOC)["c08"].model_dump(mode="json")
+
+
+def _expects_reworded(c08: dict) -> dict:
+    # span still the candidate's line; objective and expected text the pre-repair wording
+    return c08 | {"objective": c08["objective"].replace("Hello, World!", "Goodbye, World!"), "expects": "Goodbye, World!"}
+
+
+# (rewrite of c08's validated claim, the refusal promotion gives)
+LAUNDERED_WORDING = {
+    "earlier-run-of-the-pre-repair-doc": (None, "evidence for c08 is not backed by its Kane evidence pack (" + PACK_WORDING + ")"),
+    "and-its-claim": (_pre_repair_claim, "claims are not the approved candidate's (c08: span text does not match the current source)"),
+    "and-its-expected-text": (_expects_reworded,
+                              "claims are not the approved candidate's (c08: expected browser text is not present in the source)"),
+}
+
+
+@pytest.mark.parametrize("claim, refusal", LAUNDERED_WORDING.values(), ids=LAUNDERED_WORDING.keys())
+def test_wording_promotion_refuses_a_resealed_record_laundering_an_earlier_run_of_other_wording(tmp_path, monkeypatch, claim, refusal):
+    # Every store-side seal rewritten. The pack is a real one: it names its session, it is its
+    # own definition, and its c08 step passed, so #54's read-back accepts it. Its c08 step asks
+    # for the pre-repair greeting. Rewriting the record's c08 claim to that wording doesn't help.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+    pack = _earlier_run_pack(tmp_path, monkeypatch, source)
+    assert pack_disagreement(pack.read_bytes(), "c08", LAUNDERED_RUN) is None
+    _reseal(store, workflow_id, _launder_onto_c08(pack, claim))
+
+    with pytest.raises(WorkflowError, match=re.escape(refusal)):
+        promote_workflow(store, workflow_id)
+    assert source.read_text(encoding="utf-8") == BASE_DOC
+
+
+def test_wording_spec_mode_promotion_refuses_a_resealed_record_laundering_an_earlier_run_of_other_wording(tmp_path, monkeypatch):
+    # Spec mode reads the approved spec claims from their artifact, never from the record.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app, spec, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+    pack = _earlier_run_pack(tmp_path, monkeypatch, spec)
+    _reseal(store, workflow_id, _launder_onto_c08(pack))
+
+    with pytest.raises(WorkflowError, match=re.escape(f"evidence for c08 is not backed by its Kane evidence pack ({PACK_WORDING})")):
+        promote_workflow(store, workflow_id)
+    assert app_unchanged(app)
+
+
+@pytest.mark.parametrize("mode", ["maintain-docs", "spec-mode"])
+def test_control_wording_validated_packs_carry_the_approved_claims_steps_and_promote(tmp_path, monkeypatch, mode):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    if mode == "spec-mode":
+        app, spec, store, workflow_id = validated_spec_promotion(tmp_path, monkeypatch)
+        approved = _claims(CANDIDATE_DOC, spec)
+    else:
+        source, store, workflow_id, _ = validated_repair(tmp_path, monkeypatch)
+        approved = _claims(CANDIDATE_DOC, source)
+    v = store.get(workflow_id).validation
+    pack = (tmp_path / "kane" / ".testmuai" / "evidence" / "witness_stale.evidence").read_bytes()
+
+    assert all(pack_disagreement(pack, cid, v["kane_runs"][cid], approved[cid]) is None for cid in ("c07", "c08"))
+    assert APPROVED_C08 in pack_md(pack) and PRE_REPAIR_C08 not in pack_md(pack)
     assert promote_workflow(store, workflow_id).state == "promoted"
     if mode == "spec-mode":
         assert "render(greeting)" in (app / "app.js").read_text(encoding="utf-8")

@@ -398,8 +398,8 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     # Browser claims come from the approved spec claims, never from the validation record.
     if "spec_build_digest" not in validation or validation["spec_build_digest"] != proposal["spec_build_digest"]:
         raise WorkflowError("validation evidence is not bound to the approved app/build version; --apply refused")
-    browser = [c.id for c in claims if c.kind == "browser"]
-    _refuse_unbound_browser_evidence(validation, browser, proposal["spec_build_digest"])
+    browser = [c for c in claims if c.kind == "browser"]
+    _refuse_unbound_browser_evidence(validation, [c.id for c in browser], proposal["spec_build_digest"])
     _refuse_unproven_claims(validation, claims)
     _refuse_unsealed_validation(store, record)
     _refuse_unbacked_browser_evidence(validation, browser)
