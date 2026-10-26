@@ -2,9 +2,11 @@
 #
 # runvil-docs and runvil are checked out read-only at pinned commits beside this repo; the
 # gateway and runvil-docs-host are built from the runvil checkout; both guides run as books
-# with no model call. The report under .attest/ is uploaded whatever the verdicts, and the
-# verdict summary is printed. The prove steps do not fail the job here: drift in Runvil's
-# docs is not a defect of this repo. In a fork of runvil-docs the same steps gate its PRs.
+# with no model call, each gated against its committed baseline under ci/runvil-docs/: the
+# job fails only on a claim that is newly stale or broken, so a change to Attest that loses
+# a proof, or a bump of the pins that brings in drift, shows up here with its root causes.
+# The report under .attest/ is uploaded whatever the verdicts. In a fork of runvil-docs the
+# same steps gate its pull requests.
 name: runvil-docs
 
 on:
@@ -52,7 +54,6 @@ jobs:
           echo "RUSTUP_HOME=$HOME/.rustup" >> "$GITHUB_ENV"
           echo "CARGO_HOME=$HOME/.cargo" >> "$GITHUB_ENV"
       - name: Prove the Gateway guide
-        continue-on-error: true
         env:
           GATEWAY_KEY: secret-key
           HOME: ${{ github.workspace }}/gateway-home
@@ -61,15 +62,15 @@ jobs:
           export PATH="$PWD/tools/bin:$PATH"
           cp attest/ci/runvil-docs/gateway.toml attest/ci/runvil-docs/gateway.cli.yaml runvil-docs/src/gateway/
           cd runvil-docs/src/gateway
-          attest prove $(ls [01]*.md | sort) --cli-config gateway.cli.yaml --substitute --runner none --home "$GITHUB_WORKSPACE/.attest/gateway"
+          attest prove $(ls [01]*.md | sort) --cli-config gateway.cli.yaml --substitute --runner none --home "$GITHUB_WORKSPACE/.attest/gateway" --baseline "$GITHUB_WORKSPACE/attest/ci/runvil-docs/gateway.baseline.json"
       - name: Prove the Language guide
-        continue-on-error: true
+        if: always()
         env:
           ATTEST_RUNVIL_HOST: ${{ github.workspace }}/runvil/target/release/runvil-docs-host
         run: |
           cp attest/ci/runvil-docs/language.cli.yaml runvil-docs/src/language/
           cd runvil-docs/src/language
-          attest prove $(ls [01]*.md | sort) --cli-config language.cli.yaml --runner none --prompt-runner runvil --home "$GITHUB_WORKSPACE/.attest/language"
+          attest prove $(ls [01]*.md | sort) --cli-config language.cli.yaml --runner none --prompt-runner runvil --home "$GITHUB_WORKSPACE/.attest/language" --baseline "$GITHUB_WORKSPACE/attest/ci/runvil-docs/language.baseline.json"
       - name: Show every claim that did not prove, with its output tail
         if: always()
         run: |

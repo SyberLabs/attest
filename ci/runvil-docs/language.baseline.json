@@ -1,0 +1,4061 @@
+{
+ "schema": "attest.baseline/v0",
+ "created_at": "2026-10-26T10:38:35+00:00",
+ "entries": {
+  "01-what-a-prompt-is.md::assert::0cbe253f7181#1": {
+   "status": "unverifiable",
+   "line": 241,
+   "preview": "not a runvil prompt: no runvil version"
+  },
+  "01-what-a-prompt-is.md::assert::2cf24dba5fb0#1": {
+   "status": "unverifiable",
+   "line": 626,
+   "preview": "hello"
+  },
+  "01-what-a-prompt-is.md::assert::5da3a4c7f117#1": {
+   "status": "unverifiable",
+   "line": 505,
+   "preview": "nil"
+  },
+  "01-what-a-prompt-is.md::assert::8b47045eb7b8#1": {
+   "status": "unverifiable",
+   "line": 522,
+   "preview": "cancelled"
+  },
+  "01-what-a-prompt-is.md::assert::a4c3ed04a95a#1": {
+   "status": "unverifiable",
+   "line": 168,
+   "preview": "done"
+  },
+  "01-what-a-prompt-is.md::assert::d655e737a0bc#1": {
+   "status": "unverifiable",
+   "line": 320,
+   "preview": "HI THERE"
+  },
+  "01-what-a-prompt-is.md::assert::d655e737a0bc#2": {
+   "status": "unverifiable",
+   "line": 415,
+   "preview": "HI THERE"
+  },
+  "01-what-a-prompt-is.md::prompt::greet#1": {
+   "status": "unverifiable",
+   "line": 251,
+   "preview": "greet"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#2": {
+   "status": "proven",
+   "line": 80,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#3": {
+   "status": "proven",
+   "line": 124,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#4": {
+   "status": "proven",
+   "line": 144,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#5": {
+   "status": "proven",
+   "line": 176,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#6": {
+   "status": "proven",
+   "line": 200,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#7": {
+   "status": "proven",
+   "line": 376,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#8": {
+   "status": "proven",
+   "line": 433,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::greeter#9": {
+   "status": "proven",
+   "line": 532,
+   "preview": "greeter"
+  },
+  "01-what-a-prompt-is.md::prompt::hello#1": {
+   "status": "unverifiable",
+   "line": 346,
+   "preview": "hello"
+  },
+  "01-what-a-prompt-is.md::prompt::no-io#1": {
+   "status": "proven",
+   "line": 567,
+   "preview": "no-io"
+  },
+  "01-what-a-prompt-is.md::prompt::run-inputs#1": {
+   "status": "proven",
+   "line": 477,
+   "preview": "run-inputs"
+  },
+  "02-file-structure.md::assert::0464f47febc8#1": {
+   "status": "unverifiable",
+   "line": 1216,
+   "preview": "an H2 section heading must not be empty"
+  },
+  "02-file-structure.md::assert::0cbe253f7181#1": {
+   "status": "unverifiable",
+   "line": 464,
+   "preview": "not a runvil prompt: no runvil version"
+  },
+  "02-file-structure.md::assert::10f8c7362612#1": {
+   "status": "unverifiable",
+   "line": 746,
+   "preview": "duplicate {key kind} `{key}`: contract map keys must be uniq"
+  },
+  "02-file-structure.md::assert::17093b1c6f26#1": {
+   "status": "unverifiable",
+   "line": 192,
+   "preview": "file must begin with a --- frontmatter delimiter"
+  },
+  "02-file-structure.md::assert::2ea3c06ee47f#1": {
+   "status": "unverifiable",
+   "line": 790,
+   "preview": "invalid type: {found}, expected a map of {key kind} keys to "
+  },
+  "02-file-structure.md::assert::312b439a2814#1": {
+   "status": "unverifiable",
+   "line": 297,
+   "preview": "invalid frontmatter: {detail}"
+  },
+  "02-file-structure.md::assert::4dffa0ec8961#1": {
+   "status": "unverifiable",
+   "line": 682,
+   "preview": "the run completed without writing its declared output file `"
+  },
+  "02-file-structure.md::assert::5d897f36ae8a#1": {
+   "status": "unverifiable",
+   "line": 824,
+   "preview": "tools.adhoc name \"{name}\" is already registered"
+  },
+  "02-file-structure.md::assert::6abc1acdae4f#1": {
+   "status": "unverifiable",
+   "line": 1269,
+   "preview": "duplicate sibling section name `S`: first declared at line 8"
+  },
+  "02-file-structure.md::assert::72077f1083e0#1": {
+   "status": "unverifiable",
+   "line": 832,
+   "preview": "tools.adhoc name \"{name}\" has the id adhoc/{lower}, which \"{"
+  },
+  "02-file-structure.md::assert::8ccd6c6a9e20#1": {
+   "status": "unverifiable",
+   "line": 783,
+   "preview": "invalid model role label `{key}`: expected [A-Za-z][A-Za-z0-"
+  },
+  "02-file-structure.md::assert::9c78af59aedd#1": {
+   "status": "unverifiable",
+   "line": 708,
+   "preview": "[A-Za-z][A-Za-z0-9_-]{0,63}"
+  },
+  "02-file-structure.md::assert::c5f944f0d942#1": {
+   "status": "unverifiable",
+   "line": 810,
+   "preview": "tools.adhoc: invalid name \"{name}\": expected [A-Za-z][A-Za-z"
+  },
+  "02-file-structure.md::assert::cc02fd33f04c#1": {
+   "status": "unverifiable",
+   "line": 802,
+   "preview": "invalid alias \"{alias}\": expected [A-Za-z][A-Za-z0-9_-]{0,63"
+  },
+  "02-file-structure.md::assert::f8fa85a0edd4#1": {
+   "status": "unverifiable",
+   "line": 777,
+   "preview": "invalid {key kind} `{key}`: expected [A-Za-z][A-Za-z0-9_-]{0"
+  },
+  "02-file-structure.md::prompt::analyst_example#1": {
+   "status": "unverifiable",
+   "line": 217,
+   "preview": "analyst_example"
+  },
+  "02-file-structure.md::prompt::analyst_example#2": {
+   "status": "unverifiable",
+   "line": 239,
+   "preview": "analyst_example"
+  },
+  "02-file-structure.md::prompt::containers#1": {
+   "status": "proven",
+   "line": 1159,
+   "preview": "containers"
+  },
+  "02-file-structure.md::prompt::contract_names#1": {
+   "status": "proven",
+   "line": 690,
+   "preview": "contract_names"
+  },
+  "02-file-structure.md::prompt::deep#1": {
+   "status": "proven",
+   "line": 1110,
+   "preview": "deep"
+  },
+  "02-file-structure.md::prompt::empty-h1#1": {
+   "status": "proven",
+   "line": 884,
+   "preview": "empty-h1"
+  },
+  "02-file-structure.md::prompt::files#1": {
+   "status": "stale",
+   "line": 591,
+   "preview": "files"
+  },
+  "02-file-structure.md::prompt::frontmatter-only#1": {
+   "status": "proven",
+   "line": 113,
+   "preview": "frontmatter-only"
+  },
+  "02-file-structure.md::prompt::greeter#1": {
+   "status": "proven",
+   "line": 315,
+   "preview": "greeter"
+  },
+  "02-file-structure.md::prompt::greeter#2": {
+   "status": "broken",
+   "line": 390,
+   "preview": "greeter"
+  },
+  "02-file-structure.md::prompt::greeter#3": {
+   "status": "broken",
+   "line": 551,
+   "preview": "greeter"
+  },
+  "02-file-structure.md::prompt::greeter#4": {
+   "status": "broken",
+   "line": 572,
+   "preview": "greeter"
+  },
+  "02-file-structure.md::prompt::h1_only#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "h1_only"
+  },
+  "02-file-structure.md::prompt::hello#1": {
+   "status": "proven",
+   "line": 255,
+   "preview": "hello"
+  },
+  "02-file-structure.md::prompt::layout#1": {
+   "status": "proven",
+   "line": 36,
+   "preview": "layout"
+  },
+  "02-file-structure.md::prompt::minimal#1": {
+   "status": "proven",
+   "line": 129,
+   "preview": "minimal"
+  },
+  "02-file-structure.md::prompt::missing_h1#1": {
+   "status": "proven",
+   "line": 981,
+   "preview": "missing_h1"
+  },
+  "02-file-structure.md::prompt::nesting#1": {
+   "status": "proven",
+   "line": 1044,
+   "preview": "nesting"
+  },
+  "02-file-structure.md::prompt::only-a-title#1": {
+   "status": "proven",
+   "line": 924,
+   "preview": "only-a-title"
+  },
+  "02-file-structure.md::prompt::orphan#1": {
+   "status": "proven",
+   "line": 1188,
+   "preview": "orphan"
+  },
+  "02-file-structure.md::prompt::require_library#1": {
+   "status": "proven",
+   "line": 1297,
+   "preview": "require_library"
+  },
+  "02-file-structure.md::prompt::reserved#1": {
+   "status": "proven",
+   "line": 759,
+   "preview": "reserved"
+  },
+  "02-file-structure.md::prompt::siblings#1": {
+   "status": "proven",
+   "line": 1224,
+   "preview": "siblings"
+  },
+  "02-file-structure.md::prompt::steps#1": {
+   "status": "proven",
+   "line": 75,
+   "preview": "steps"
+  },
+  "02-file-structure.md::prompt::t#1": {
+   "status": "proven",
+   "line": 999,
+   "preview": "t"
+  },
+  "02-file-structure.md::prompt::t#2": {
+   "status": "proven",
+   "line": 1024,
+   "preview": "t"
+  },
+  "02-file-structure.md::prompt::title_demo#1": {
+   "status": "proven",
+   "line": 842,
+   "preview": "title_demo"
+  },
+  "02-file-structure.md::prompt::tree#1": {
+   "status": "proven",
+   "line": 1080,
+   "preview": "tree"
+  },
+  "02-file-structure.md::prompt::unclosed#1": {
+   "status": "proven",
+   "line": 198,
+   "preview": "unclosed"
+  },
+  "02-file-structure.md::prompt::version-zero#1": {
+   "status": "proven",
+   "line": 405,
+   "preview": "version-zero"
+  },
+  "02-file-structure.md::prompt::version-zero#2": {
+   "status": "proven",
+   "line": 474,
+   "preview": "version-zero"
+  },
+  "02-file-structure.md::prompt::with-notes#1": {
+   "status": "proven",
+   "line": 940,
+   "preview": "with-notes"
+  },
+  "03-blocks-and-prose.md::assert::1a4ae7c62cee#1": {
+   "status": "unverifiable",
+   "line": 2543,
+   "preview": "section heading `### deep` not found; available sections: ##"
+  },
+  "03-blocks-and-prose.md::assert::3f823de534ea#1": {
+   "status": "unverifiable",
+   "line": 1274,
+   "preview": "section `{name}` epilog `lua` fence is not closed"
+  },
+  "03-blocks-and-prose.md::assert::692d5b8661a9#1": {
+   "status": "unverifiable",
+   "line": 1606,
+   "preview": "- kid-one - kid-two"
+  },
+  "03-blocks-and-prose.md::assert::79d31e7f6137#1": {
+   "status": "unverifiable",
+   "line": 2362,
+   "preview": "## Top ## Grand ### Uncle #### Cousin ### Parent #### Siblin"
+  },
+  "03-blocks-and-prose.md::assert::98e7ae0c4bc1#1": {
+   "status": "unverifiable",
+   "line": 1537,
+   "preview": "section `Items` is a list section, not a worker template"
+  },
+  "03-blocks-and-prose.md::assert::999c530dfeca#1": {
+   "status": "unverifiable",
+   "line": 2294,
+   "preview": "Mood is bright."
+  },
+  "03-blocks-and-prose.md::assert::a4d0777e60bd#1": {
+   "status": "unverifiable",
+   "line": 2551,
+   "preview": "require takes a section heading string such as '## helpers',"
+  },
+  "03-blocks-and-prose.md::assert::cb1f9762cbae#1": {
+   "status": "unverifiable",
+   "line": 769,
+   "preview": "prose is read-only: assign to `var` or a section global inst"
+  },
+  "03-blocks-and-prose.md::assert::d25331abf5a9#1": {
+   "status": "unverifiable",
+   "line": 2836,
+   "preview": "jump is unavailable while a library loads: return a value fr"
+  },
+  "03-blocks-and-prose.md::assert::d2ae1359c609#1": {
+   "status": "unverifiable",
+   "line": 2887,
+   "preview": "Lua library load started: ## helpers Lua library load succee"
+  },
+  "03-blocks-and-prose.md::assert::e3045d0ae106#1": {
+   "status": "unverifiable",
+   "line": 2790,
+   "preview": "section `lib` prologue:19: load fault"
+  },
+  "03-blocks-and-prose.md::prompt::belowbreak#1": {
+   "status": "proven",
+   "line": 853,
+   "preview": "belowbreak"
+  },
+  "03-blocks-and-prose.md::prompt::block_returns#1": {
+   "status": "proven",
+   "line": 1982,
+   "preview": "block_returns"
+  },
+  "03-blocks-and-prose.md::prompt::boundary#1": {
+   "status": "proven",
+   "line": 547,
+   "preview": "boundary"
+  },
+  "03-blocks-and-prose.md::prompt::caller_prose#1": {
+   "status": "proven",
+   "line": 2249,
+   "preview": "caller_prose"
+  },
+  "03-blocks-and-prose.md::prompt::closer#1": {
+   "status": "proven",
+   "line": 1185,
+   "preview": "closer"
+  },
+  "03-blocks-and-prose.md::prompt::empty_item#1": {
+   "status": "proven",
+   "line": 1501,
+   "preview": "empty_item"
+  },
+  "03-blocks-and-prose.md::prompt::empty_reads#1": {
+   "status": "proven",
+   "line": 1856,
+   "preview": "empty_reads"
+  },
+  "03-blocks-and-prose.md::prompt::exact#1": {
+   "status": "proven",
+   "line": 1009,
+   "preview": "exact"
+  },
+  "03-blocks-and-prose.md::prompt::explain#1": {
+   "status": "proven",
+   "line": 1037,
+   "preview": "explain"
+  },
+  "03-blocks-and-prose.md::prompt::fences#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "fences"
+  },
+  "03-blocks-and-prose.md::prompt::flaky_library#1": {
+   "status": "proven",
+   "line": 2688,
+   "preview": "flaky_library"
+  },
+  "03-blocks-and-prose.md::prompt::greet_library#1": {
+   "status": "proven",
+   "line": 1896,
+   "preview": "greet_library"
+  },
+  "03-blocks-and-prose.md::prompt::greeting#1": {
+   "status": "proven",
+   "line": 110,
+   "preview": "greeting"
+  },
+  "03-blocks-and-prose.md::prompt::greeting#2": {
+   "status": "proven",
+   "line": 323,
+   "preview": "greeting"
+  },
+  "03-blocks-and-prose.md::prompt::h1_reads#1": {
+   "status": "proven",
+   "line": 1731,
+   "preview": "h1_reads"
+  },
+  "03-blocks-and-prose.md::prompt::hello#1": {
+   "status": "proven",
+   "line": 479,
+   "preview": "hello"
+  },
+  "03-blocks-and-prose.md::prompt::house_style#1": {
+   "status": "proven",
+   "line": 2155,
+   "preview": "house_style"
+  },
+  "03-blocks-and-prose.md::prompt::instructions#1": {
+   "status": "proven",
+   "line": 783,
+   "preview": "instructions"
+  },
+  "03-blocks-and-prose.md::prompt::item_text#1": {
+   "status": "proven",
+   "line": 1360,
+   "preview": "item_text"
+  },
+  "03-blocks-and-prose.md::prompt::keep#1": {
+   "status": "proven",
+   "line": 741,
+   "preview": "keep"
+  },
+  "03-blocks-and-prose.md::prompt::kid_list#1": {
+   "status": "proven",
+   "line": 1410,
+   "preview": "kid_list"
+  },
+  "03-blocks-and-prose.md::prompt::kid_reader#1": {
+   "status": "proven",
+   "line": 1772,
+   "preview": "kid_reader"
+  },
+  "03-blocks-and-prose.md::prompt::label#1": {
+   "status": "proven",
+   "line": 1118,
+   "preview": "label"
+  },
+  "03-blocks-and-prose.md::prompt::later_fault#1": {
+   "status": "proven",
+   "line": 2798,
+   "preview": "later_fault"
+  },
+  "03-blocks-and-prose.md::prompt::library_cache#1": {
+   "status": "proven",
+   "line": 2559,
+   "preview": "library_cache"
+  },
+  "03-blocks-and-prose.md::prompt::library_closure#1": {
+   "status": "proven",
+   "line": 2208,
+   "preview": "library_closure"
+  },
+  "03-blocks-and-prose.md::prompt::library_environment#1": {
+   "status": "proven",
+   "line": 2024,
+   "preview": "library_environment"
+  },
+  "03-blocks-and-prose.md::prompt::library_fault#1": {
+   "status": "proven",
+   "line": 2748,
+   "preview": "library_fault"
+  },
+  "03-blocks-and-prose.md::prompt::library_walk#1": {
+   "status": "proven",
+   "line": 2606,
+   "preview": "library_walk"
+  },
+  "03-blocks-and-prose.md::prompt::list_break#1": {
+   "status": "proven",
+   "line": 1464,
+   "preview": "list_break"
+  },
+  "03-blocks-and-prose.md::prompt::livetext#1": {
+   "status": "proven",
+   "line": 919,
+   "preview": "livetext"
+  },
+  "03-blocks-and-prose.md::prompt::lookalike#1": {
+   "status": "proven",
+   "line": 1211,
+   "preview": "lookalike"
+  },
+  "03-blocks-and-prose.md::prompt::mixed_markers#1": {
+   "status": "proven",
+   "line": 1325,
+   "preview": "mixed_markers"
+  },
+  "03-blocks-and-prose.md::prompt::nested_library#1": {
+   "status": "proven",
+   "line": 2650,
+   "preview": "nested_library"
+  },
+  "03-blocks-and-prose.md::prompt::notes#1": {
+   "status": "proven",
+   "line": 577,
+   "preview": "notes"
+  },
+  "03-blocks-and-prose.md::prompt::once#1": {
+   "status": "proven",
+   "line": 645,
+   "preview": "once"
+  },
+  "03-blocks-and-prose.md::prompt::own_helpers#1": {
+   "status": "proven",
+   "line": 2452,
+   "preview": "own_helpers"
+  },
+  "03-blocks-and-prose.md::prompt::pairs#1": {
+   "status": "proven",
+   "line": 673,
+   "preview": "pairs"
+  },
+  "03-blocks-and-prose.md::prompt::phases#1": {
+   "status": "proven",
+   "line": 223,
+   "preview": "phases"
+  },
+  "03-blocks-and-prose.md::prompt::plan#1": {
+   "status": "proven",
+   "line": 46,
+   "preview": "plan"
+  },
+  "03-blocks-and-prose.md::prompt::prologue_epilog_library#1": {
+   "status": "proven",
+   "line": 2065,
+   "preview": "prologue_epilog_library"
+  },
+  "03-blocks-and-prose.md::prompt::prompt_reads#1": {
+   "status": "proven",
+   "line": 1545,
+   "preview": "prompt_reads"
+  },
+  "03-blocks-and-prose.md::prompt::quiet#1": {
+   "status": "proven",
+   "line": 251,
+   "preview": "quiet"
+  },
+  "03-blocks-and-prose.md::prompt::raw_rules#1": {
+   "status": "proven",
+   "line": 1615,
+   "preview": "raw_rules"
+  },
+  "03-blocks-and-prose.md::prompt::read_args_library#1": {
+   "status": "proven",
+   "line": 2116,
+   "preview": "read_args_library"
+  },
+  "03-blocks-and-prose.md::prompt::read_misses#1": {
+   "status": "proven",
+   "line": 1818,
+   "preview": "read_misses"
+  },
+  "03-blocks-and-prose.md::prompt::reader#1": {
+   "status": "proven",
+   "line": 406,
+   "preview": "reader"
+  },
+  "03-blocks-and-prose.md::prompt::require_cycle#1": {
+   "status": "proven",
+   "line": 2846,
+   "preview": "require_cycle"
+  },
+  "03-blocks-and-prose.md::prompt::require_miss#1": {
+   "status": "proven",
+   "line": 2502,
+   "preview": "require_miss"
+  },
+  "03-blocks-and-prose.md::prompt::require_position#1": {
+   "status": "proven",
+   "line": 2398,
+   "preview": "require_position"
+  },
+  "03-blocks-and-prose.md::prompt::require_reach#1": {
+   "status": "proven",
+   "line": 2312,
+   "preview": "require_reach"
+  },
+  "03-blocks-and-prose.md::prompt::retry#1": {
+   "status": "proven",
+   "line": 707,
+   "preview": "retry"
+  },
+  "03-blocks-and-prose.md::prompt::save#1": {
+   "status": "unverifiable",
+   "line": 355,
+   "preview": "save"
+  },
+  "03-blocks-and-prose.md::prompt::search_library#1": {
+   "status": "proven",
+   "line": 1943,
+   "preview": "search_library"
+  },
+  "03-blocks-and-prose.md::prompt::stepnotes#1": {
+   "status": "proven",
+   "line": 817,
+   "preview": "stepnotes"
+  },
+  "03-blocks-and-prose.md::prompt::steps#1": {
+   "status": "proven",
+   "line": 436,
+   "preview": "steps"
+  },
+  "03-blocks-and-prose.md::prompt::summary#1": {
+   "status": "proven",
+   "line": 889,
+   "preview": "summary"
+  },
+  "03-blocks-and-prose.md::prompt::teach#1": {
+   "status": "proven",
+   "line": 1071,
+   "preview": "teach"
+  },
+  "03-blocks-and-prose.md::prompt::tides#1": {
+   "status": "proven",
+   "line": 166,
+   "preview": "tides"
+  },
+  "03-blocks-and-prose.md::prompt::tilde#1": {
+   "status": "proven",
+   "line": 1150,
+   "preview": "tilde"
+  },
+  "03-blocks-and-prose.md::prompt::topic_list#1": {
+   "status": "proven",
+   "line": 1284,
+   "preview": "topic_list"
+  },
+  "03-blocks-and-prose.md::prompt::tour#1": {
+   "status": "proven",
+   "line": 281,
+   "preview": "tour"
+  },
+  "03-blocks-and-prose.md::prompt::transform#1": {
+   "status": "broken",
+   "line": 142,
+   "preview": "transform"
+  },
+  "03-blocks-and-prose.md::prompt::twoquestions#1": {
+   "status": "proven",
+   "line": 509,
+   "preview": "twoquestions"
+  },
+  "03-blocks-and-prose.md::prompt::twotitles#1": {
+   "status": "proven",
+   "line": 984,
+   "preview": "twotitles"
+  },
+  "03-blocks-and-prose.md::prompt::unclosed#1": {
+   "status": "proven",
+   "line": 1253,
+   "preview": "unclosed"
+  },
+  "03-blocks-and-prose.md::prompt::visible_reads#1": {
+   "status": "proven",
+   "line": 1667,
+   "preview": "visible_reads"
+  },
+  "03-blocks-and-prose.md::prompt::word#1": {
+   "status": "proven",
+   "line": 618,
+   "preview": "word"
+  },
+  "04-how-a-prompt-runs.md::assert::14a427d44001#1": {
+   "status": "unverifiable",
+   "line": 374,
+   "preview": "the environment cannot satisfy this prompt: - user-input nee"
+  },
+  "04-how-a-prompt-runs.md::assert::25b285f85ec1#1": {
+   "status": "unverifiable",
+   "line": 487,
+   "preview": "- role '{label}': requires a context of at least {min_contex"
+  },
+  "04-how-a-prompt-runs.md::assert::6e969708b8a8#1": {
+   "status": "unverifiable",
+   "line": 1064,
+   "preview": "b-ran"
+  },
+  "04-how-a-prompt-runs.md::assert::755d1af6dc38#1": {
+   "status": "unverifiable",
+   "line": 493,
+   "preview": "- role '{label}': requires '{keyword}'; the current model's "
+  },
+  "04-how-a-prompt-runs.md::assert::842f3a362d27#1": {
+   "status": "unverifiable",
+   "line": 160,
+   "preview": "the environment cannot satisfy this prompt: - missing requir"
+  },
+  "04-how-a-prompt-runs.md::assert::8eb65576ec16#1": {
+   "status": "unverifiable",
+   "line": 260,
+   "preview": "the environment cannot satisfy this prompt: - missing requir"
+  },
+  "04-how-a-prompt-runs.md::prompt::analysis#1": {
+   "status": "unverifiable",
+   "line": 442,
+   "preview": "analysis"
+  },
+  "04-how-a-prompt-runs.md::prompt::ask_research#1": {
+   "status": "proven",
+   "line": 1072,
+   "preview": "ask_research"
+  },
+  "04-how-a-prompt-runs.md::prompt::children-wait#1": {
+   "status": "proven",
+   "line": 755,
+   "preview": "children-wait"
+  },
+  "04-how-a-prompt-runs.md::prompt::count_blocks#1": {
+   "status": "proven",
+   "line": 1184,
+   "preview": "count_blocks"
+  },
+  "04-how-a-prompt-runs.md::prompt::deep-analysis#1": {
+   "status": "unverifiable",
+   "line": 509,
+   "preview": "deep-analysis"
+  },
+  "04-how-a-prompt-runs.md::prompt::discarded#1": {
+   "status": "proven",
+   "line": 725,
+   "preview": "discarded"
+  },
+  "04-how-a-prompt-runs.md::prompt::early_exit#1": {
+   "status": "proven",
+   "line": 1280,
+   "preview": "early_exit"
+  },
+  "04-how-a-prompt-runs.md::prompt::entry#1": {
+   "status": "proven",
+   "line": 658,
+   "preview": "entry"
+  },
+  "04-how-a-prompt-runs.md::prompt::fallback#1": {
+   "status": "proven",
+   "line": 869,
+   "preview": "fallback"
+  },
+  "04-how-a-prompt-runs.md::prompt::first_wins#1": {
+   "status": "proven",
+   "line": 1014,
+   "preview": "first_wins"
+  },
+  "04-how-a-prompt-runs.md::prompt::fresh#1": {
+   "status": "proven",
+   "line": 694,
+   "preview": "fresh"
+  },
+  "04-how-a-prompt-runs.md::prompt::gated#1": {
+   "status": "unverifiable",
+   "line": 1383,
+   "preview": "gated"
+  },
+  "04-how-a-prompt-runs.md::prompt::h1_ids#1": {
+   "status": "proven",
+   "line": 1352,
+   "preview": "h1_ids"
+  },
+  "04-how-a-prompt-runs.md::prompt::h1_jump#1": {
+   "status": "proven",
+   "line": 1244,
+   "preview": "h1_jump"
+  },
+  "04-how-a-prompt-runs.md::prompt::h1_only#1": {
+   "status": "proven",
+   "line": 1322,
+   "preview": "h1_only"
+  },
+  "04-how-a-prompt-runs.md::prompt::h1_tone#1": {
+   "status": "proven",
+   "line": 1152,
+   "preview": "h1_tone"
+  },
+  "04-how-a-prompt-runs.md::prompt::hand_off#1": {
+   "status": "proven",
+   "line": 980,
+   "preview": "hand_off"
+  },
+  "04-how-a-prompt-runs.md::prompt::handoff#1": {
+   "status": "proven",
+   "line": 80,
+   "preview": "handoff"
+  },
+  "04-how-a-prompt-runs.md::prompt::hello#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "hello"
+  },
+  "04-how-a-prompt-runs.md::prompt::loop#1": {
+   "status": "proven",
+   "line": 1618,
+   "preview": "loop"
+  },
+  "04-how-a-prompt-runs.md::prompt::needs-context#1": {
+   "status": "unverifiable",
+   "line": 48,
+   "preview": "needs-context"
+  },
+  "04-how-a-prompt-runs.md::prompt::needs-web#1": {
+   "status": "unverifiable",
+   "line": 313,
+   "preview": "needs-web"
+  },
+  "04-how-a-prompt-runs.md::prompt::nested-lib#1": {
+   "status": "proven",
+   "line": 795,
+   "preview": "nested-lib"
+  },
+  "04-how-a-prompt-runs.md::prompt::no-requirements#1": {
+   "status": "proven",
+   "line": 222,
+   "preview": "no-requirements"
+  },
+  "04-how-a-prompt-runs.md::prompt::no_return#1": {
+   "status": "proven",
+   "line": 1497,
+   "preview": "no_return"
+  },
+  "04-how-a-prompt-runs.md::prompt::plain#1": {
+   "status": "proven",
+   "line": 1473,
+   "preview": "plain"
+  },
+  "04-how-a-prompt-runs.md::prompt::prose_only#1": {
+   "status": "proven",
+   "line": 1539,
+   "preview": "prose_only"
+  },
+  "04-how-a-prompt-runs.md::prompt::roles#1": {
+   "status": "unverifiable",
+   "line": 406,
+   "preview": "roles"
+  },
+  "04-how-a-prompt-runs.md::prompt::say_hi#1": {
+   "status": "proven",
+   "line": 895,
+   "preview": "say_hi"
+  },
+  "04-how-a-prompt-runs.md::prompt::second_fails#1": {
+   "status": "broken",
+   "line": 1586,
+   "preview": "second_fails"
+  },
+  "04-how-a-prompt-runs.md::prompt::stop_early#1": {
+   "status": "proven",
+   "line": 1105,
+   "preview": "stop_early"
+  },
+  "04-how-a-prompt-runs.md::prompt::sub-chain#1": {
+   "status": "proven",
+   "line": 833,
+   "preview": "sub-chain"
+  },
+  "04-how-a-prompt-runs.md::prompt::t#1": {
+   "status": "proven",
+   "line": 125,
+   "preview": "t"
+  },
+  "04-how-a-prompt-runs.md::prompt::walk#1": {
+   "status": "proven",
+   "line": 619,
+   "preview": "walk"
+  },
+  "05-lua-environment.md::assert::0efc7c3f68c2#1": {
+   "status": "unverifiable",
+   "line": 1801,
+   "preview": "unknown sys field '<name>'"
+  },
+  "05-lua-environment.md::assert::14a427d44001#1": {
+   "status": "unverifiable",
+   "line": 2447,
+   "preview": "the environment cannot satisfy this prompt: - user-input nee"
+  },
+  "05-lua-environment.md::assert::373513356113#1": {
+   "status": "unverifiable",
+   "line": 851,
+   "preview": "attempt to call a table value (metamethod '__pairs')"
+  },
+  "05-lua-environment.md::assert::483c0d1df0ab#1": {
+   "status": "unverifiable",
+   "line": 1822,
+   "preview": "sys is read-only; cannot set '{field}'"
+  },
+  "05-lua-environment.md::assert::6a419cfd44e1#1": {
+   "status": "unverifiable",
+   "line": 1228,
+   "preview": "{path} is too large to store"
+  },
+  "05-lua-environment.md::assert::6eeccb9b0e17#1": {
+   "status": "unverifiable",
+   "line": 2352,
+   "preview": "lua log event budget exceeded lua log cumulative byte budget"
+  },
+  "05-lua-environment.md::assert::75356c9d311f#1": {
+   "status": "unverifiable",
+   "line": 857,
+   "preview": "bad argument #1 to 'pairs' (table expected, got nil)"
+  },
+  "05-lua-environment.md::assert::7ee722425632#1": {
+   "status": "unverifiable",
+   "line": 1244,
+   "preview": "the `var` global was reassigned; write `var.<field>` instead"
+  },
+  "05-lua-environment.md::assert::91bedd46d4e3#1": {
+   "status": "unverifiable",
+   "line": 1647,
+   "preview": "json.encode: value is too large to encode"
+  },
+  "05-lua-environment.md::assert::92c412a015fb#1": {
+   "status": "unverifiable",
+   "line": 1218,
+   "preview": "{path} must be JSON data, got {type}"
+  },
+  "05-lua-environment.md::assert::b3dd6fd983db#1": {
+   "status": "unverifiable",
+   "line": 322,
+   "preview": "attempt to index a nil value (global 'input')"
+  },
+  "05-lua-environment.md::assert::b3e9fd321dce#1": {
+   "status": "unverifiable",
+   "line": 512,
+   "preview": "invalid value (boolean) at index 3 in table for 'concat'"
+  },
+  "05-lua-environment.md::assert::dbf0c6583ba0#1": {
+   "status": "unverifiable",
+   "line": 312,
+   "preview": "input is read-only: Pack `user-input` defines it; cannot set"
+  },
+  "05-lua-environment.md::assert::eb5eb86bcb49#1": {
+   "status": "unverifiable",
+   "line": 1484,
+   "preview": "json.encode: value cannot be read (sys is sealed); copy the "
+  },
+  "05-lua-environment.md::assert::feaa786296ac#1": {
+   "status": "unverifiable",
+   "line": 1106,
+   "preview": "{ \"n\": 1, \"s\": \"x\", \"t\": { \"a\": [1, 2] }, \"b\": true }"
+  },
+  "05-lua-environment.md::prompt::arm-task#1": {
+   "status": "proven",
+   "line": 1761,
+   "preview": "arm-task"
+  },
+  "05-lua-environment.md::prompt::ask-check#1": {
+   "status": "unverifiable",
+   "line": 274,
+   "preview": "ask-check"
+  },
+  "05-lua-environment.md::prompt::ask-once#1": {
+   "status": "unverifiable",
+   "line": 2398,
+   "preview": "ask-once"
+  },
+  "05-lua-environment.md::prompt::ask-safely#1": {
+   "status": "unverifiable",
+   "line": 2510,
+   "preview": "ask-safely"
+  },
+  "05-lua-environment.md::prompt::broken-check#1": {
+   "status": "proven",
+   "line": 2990,
+   "preview": "broken-check"
+  },
+  "05-lua-environment.md::prompt::called-ids#1": {
+   "status": "proven",
+   "line": 2023,
+   "preview": "called-ids"
+  },
+  "05-lua-environment.md::prompt::careful-read#1": {
+   "status": "proven",
+   "line": 2721,
+   "preview": "careful-read"
+  },
+  "05-lua-environment.md::prompt::characters#1": {
+   "status": "proven",
+   "line": 532,
+   "preview": "characters"
+  },
+  "05-lua-environment.md::prompt::checked#1": {
+   "status": "broken",
+   "line": 2811,
+   "preview": "checked"
+  },
+  "05-lua-environment.md::prompt::clear-ahead#1": {
+   "status": "proven",
+   "line": 772,
+   "preview": "clear-ahead"
+  },
+  "05-lua-environment.md::prompt::counting#1": {
+   "status": "proven",
+   "line": 36,
+   "preview": "counting"
+  },
+  "05-lua-environment.md::prompt::custom-pairs#1": {
+   "status": "proven",
+   "line": 808,
+   "preview": "custom-pairs"
+  },
+  "05-lua-environment.md::prompt::debug-dump#1": {
+   "status": "proven",
+   "line": 1549,
+   "preview": "debug-dump"
+  },
+  "05-lua-environment.md::prompt::decoded-types#1": {
+   "status": "proven",
+   "line": 1294,
+   "preview": "decoded-types"
+  },
+  "05-lua-environment.md::prompt::empty-list#1": {
+   "status": "proven",
+   "line": 1388,
+   "preview": "empty-list"
+  },
+  "05-lua-environment.md::prompt::encode-refused#1": {
+   "status": "proven",
+   "line": 1494,
+   "preview": "encode-refused"
+  },
+  "05-lua-environment.md::prompt::encode-var#1": {
+   "status": "proven",
+   "line": 1432,
+   "preview": "encode-var"
+  },
+  "05-lua-environment.md::prompt::executions#1": {
+   "status": "proven",
+   "line": 1029,
+   "preview": "executions"
+  },
+  "05-lua-environment.md::prompt::greet#1": {
+   "status": "proven",
+   "line": 1067,
+   "preview": "greet"
+  },
+  "05-lua-environment.md::prompt::greeting#1": {
+   "status": "proven",
+   "line": 920,
+   "preview": "greeting"
+  },
+  "05-lua-environment.md::prompt::guarded#1": {
+   "status": "proven",
+   "line": 1193,
+   "preview": "guarded"
+  },
+  "05-lua-environment.md::prompt::host-model#1": {
+   "status": "proven",
+   "line": 1945,
+   "preview": "host-model"
+  },
+  "05-lua-environment.md::prompt::joined#1": {
+   "status": "proven",
+   "line": 470,
+   "preview": "joined"
+  },
+  "05-lua-environment.md::prompt::json-round-trip#1": {
+   "status": "proven",
+   "line": 1254,
+   "preview": "json-round-trip"
+  },
+  "05-lua-environment.md::prompt::lib-fault#1": {
+   "status": "proven",
+   "line": 3047,
+   "preview": "lib-fault"
+  },
+  "05-lua-environment.md::prompt::lifetimes#1": {
+   "status": "proven",
+   "line": 89,
+   "preview": "lifetimes"
+  },
+  "05-lua-environment.md::prompt::log-checkpoints#1": {
+   "status": "stale",
+   "line": 2241,
+   "preview": "log-checkpoints"
+  },
+  "05-lua-environment.md::prompt::mixed-ids#1": {
+   "status": "proven",
+   "line": 2091,
+   "preview": "mixed-ids"
+  },
+  "05-lua-environment.md::prompt::mixed-order#1": {
+   "status": "proven",
+   "line": 681,
+   "preview": "mixed-order"
+  },
+  "05-lua-environment.md::prompt::model-id#1": {
+   "status": "unverifiable",
+   "line": 1895,
+   "preview": "model-id"
+  },
+  "05-lua-environment.md::prompt::no-print#1": {
+   "status": "proven",
+   "line": 573,
+   "preview": "no-print"
+  },
+  "05-lua-environment.md::prompt::notes#1": {
+   "status": "proven",
+   "line": 211,
+   "preview": "notes"
+  },
+  "05-lua-environment.md::prompt::null-check#1": {
+   "status": "proven",
+   "line": 1352,
+   "preview": "null-check"
+  },
+  "05-lua-environment.md::prompt::numbered#1": {
+   "status": "proven",
+   "line": 1979,
+   "preview": "numbered"
+  },
+  "05-lua-environment.md::prompt::order#1": {
+   "status": "proven",
+   "line": 653,
+   "preview": "order"
+  },
+  "05-lua-environment.md::prompt::own-require#1": {
+   "status": "proven",
+   "line": 626,
+   "preview": "own-require"
+  },
+  "05-lua-environment.md::prompt::phases#1": {
+   "status": "proven",
+   "line": 997,
+   "preview": "phases"
+  },
+  "05-lua-environment.md::prompt::progress#1": {
+   "status": "stale",
+   "line": 2194,
+   "preview": "progress"
+  },
+  "05-lua-environment.md::prompt::read-error#1": {
+   "status": "proven",
+   "line": 2548,
+   "preview": "read-error"
+  },
+  "05-lua-environment.md::prompt::rows#1": {
+   "status": "proven",
+   "line": 1587,
+   "preview": "rows"
+  },
+  "05-lua-environment.md::prompt::shout#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "shout"
+  },
+  "05-lua-environment.md::prompt::shout#2": {
+   "status": "proven",
+   "line": 342,
+   "preview": "shout"
+  },
+  "05-lua-environment.md::prompt::started#1": {
+   "status": "proven",
+   "line": 1832,
+   "preview": "started"
+  },
+  "05-lua-environment.md::prompt::step#1": {
+   "status": "proven",
+   "line": 867,
+   "preview": "step"
+  },
+  "05-lua-environment.md::prompt::strings#1": {
+   "status": "proven",
+   "line": 434,
+   "preview": "strings"
+  },
+  "05-lua-environment.md::prompt::task-ids#1": {
+   "status": "proven",
+   "line": 2149,
+   "preview": "task-ids"
+  },
+  "05-lua-environment.md::prompt::title-demo#1": {
+   "status": "proven",
+   "line": 1739,
+   "preview": "title-demo"
+  },
+  "05-lua-environment.md::prompt::tone-default#1": {
+   "status": "proven",
+   "line": 3089,
+   "preview": "tone-default"
+  },
+  "05-lua-environment.md::prompt::trail#1": {
+   "status": "proven",
+   "line": 947,
+   "preview": "trail"
+  },
+  "05-lua-environment.md::prompt::two-sections#1": {
+   "status": "proven",
+   "line": 1704,
+   "preview": "two-sections"
+  },
+  "05-lua-environment.md::prompt::types#1": {
+   "status": "proven",
+   "line": 396,
+   "preview": "types"
+  },
+  "05-lua-environment.md::prompt::verify-answer#1": {
+   "status": "proven",
+   "line": 2918,
+   "preview": "verify-answer"
+  },
+  "05-lua-environment.md::prompt::where-am-i#1": {
+   "status": "proven",
+   "line": 1663,
+   "preview": "where-am-i"
+  },
+  "06-arguments.md::assert::0ea9876b891b#1": {
+   "status": "unverifiable",
+   "line": 522,
+   "preview": "the default has type `number`, which does not match the decl"
+  },
+  "06-arguments.md::assert::2a7b0675f575#1": {
+   "status": "unverifiable",
+   "line": 451,
+   "preview": "duplicate arg name `{name}`: contract map keys must be uniqu"
+  },
+  "06-arguments.md::assert::2e1cfa82b035#1": {
+   "status": "unverifiable",
+   "line": 840,
+   "preview": "empty"
+  },
+  "06-arguments.md::assert::361adff40645#1": {
+   "status": "unverifiable",
+   "line": 351,
+   "preview": "{ \"name\": \"topic\", \"type\": \"string\", \"optional\": false, \"def"
+  },
+  "06-arguments.md::assert::4eb8dd8462bf#1": {
+   "status": "unverifiable",
+   "line": 1438,
+   "preview": "argv is frozen outside H1: cannot set field {field}"
+  },
+  "06-arguments.md::assert::63ad0d1ada5e#1": {
+   "status": "unverifiable",
+   "line": 155,
+   "preview": "invalid arg name `{key}`: expected [A-Za-z][A-Za-z0-9_-]{0,6"
+  },
+  "06-arguments.md::assert::6f1d8e7e7ef9#1": {
+   "status": "unverifiable",
+   "line": 509,
+   "preview": "the default has type `string`, which does not match the decl"
+  },
+  "06-arguments.md::assert::802151349275#1": {
+   "status": "unverifiable",
+   "line": 494,
+   "preview": "the default has type `integer`, which does not match the dec"
+  },
+  "06-arguments.md::assert::898908ab1e8e#1": {
+   "status": "unverifiable",
+   "line": 431,
+   "preview": "invalid frontmatter: args.use_mcp: unknown field `tipe`, exp"
+  },
+  "06-arguments.md::assert::96db5dae5e89#1": {
+   "status": "unverifiable",
+   "line": 479,
+   "preview": "the default has type `{yaml type}`, which does not match the"
+  },
+  "06-arguments.md::assert::9a3739920020#1": {
+   "status": "unverifiable",
+   "line": 469,
+   "preview": "unknown variant `{value}`, expected one of `string`, `boolea"
+  },
+  "06-arguments.md::assert::a9d550403b47#1": {
+   "status": "unverifiable",
+   "line": 321,
+   "preview": "Results for papers, no limit sent"
+  },
+  "06-arguments.md::assert::afb5202fb45e#1": {
+   "status": "unverifiable",
+   "line": 445,
+   "preview": "invalid type: {found}, expected a map of arg name keys to de"
+  },
+  "06-arguments.md::assert::d7838c932448#1": {
+   "status": "unverifiable",
+   "line": 1258,
+   "preview": "argv is frozen outside H1: assign it in H1 only"
+  },
+  "06-arguments.md::assert::d7838c932448#2": {
+   "status": "unverifiable",
+   "line": 1416,
+   "preview": "argv is frozen outside H1: assign it in H1 only"
+  },
+  "06-arguments.md::assert::ddd8728300fb#1": {
+   "status": "unverifiable",
+   "line": 1181,
+   "preview": "argv must be JSON data, got {type}"
+  },
+  "06-arguments.md::assert::ddd8728300fb#2": {
+   "status": "unverifiable",
+   "line": 1270,
+   "preview": "argv must be JSON data, got {type}"
+  },
+  "06-arguments.md::assert::e7858970e874#1": {
+   "status": "unverifiable",
+   "line": 537,
+   "preview": "the default has type `sequence`, which does not match the de"
+  },
+  "06-arguments.md::assert::f55e50422a70#1": {
+   "status": "unverifiable",
+   "line": 461,
+   "preview": "unknown field `{key}`, expected one of `type`, `optional`, `"
+  },
+  "06-arguments.md::prompt::brief#1": {
+   "status": "proven",
+   "line": 959,
+   "preview": "brief"
+  },
+  "06-arguments.md::prompt::early#1": {
+   "status": "proven",
+   "line": 616,
+   "preview": "early"
+  },
+  "06-arguments.md::prompt::echo#1": {
+   "status": "proven",
+   "line": 545,
+   "preview": "echo"
+  },
+  "06-arguments.md::prompt::echo#2": {
+   "status": "proven",
+   "line": 850,
+   "preview": "echo"
+  },
+  "06-arguments.md::prompt::echo#3": {
+   "status": "proven",
+   "line": 999,
+   "preview": "echo"
+  },
+  "06-arguments.md::prompt::greeter#1": {
+   "status": "proven",
+   "line": 80,
+   "preview": "greeter"
+  },
+  "06-arguments.md::prompt::greeter#2": {
+   "status": "proven",
+   "line": 585,
+   "preview": "greeter"
+  },
+  "06-arguments.md::prompt::greeter#3": {
+   "status": "proven",
+   "line": 929,
+   "preview": "greeter"
+  },
+  "06-arguments.md::prompt::listing#1": {
+   "status": "proven",
+   "line": 729,
+   "preview": "listing"
+  },
+  "06-arguments.md::prompt::notes#1": {
+   "status": "proven",
+   "line": 810,
+   "preview": "notes"
+  },
+  "06-arguments.md::prompt::reader#1": {
+   "status": "proven",
+   "line": 644,
+   "preview": "reader"
+  },
+  "06-arguments.md::prompt::research#1": {
+   "status": "proven",
+   "line": 894,
+   "preview": "research"
+  },
+  "06-arguments.md::prompt::search#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#10": {
+   "status": "proven",
+   "line": 1135,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#11": {
+   "status": "proven",
+   "line": 1199,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#12": {
+   "status": "broken",
+   "line": 1282,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#13": {
+   "status": "proven",
+   "line": 1313,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#14": {
+   "status": "proven",
+   "line": 1360,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#15": {
+   "status": "proven",
+   "line": 1482,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#2": {
+   "status": "proven",
+   "line": 120,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#3": {
+   "status": "proven",
+   "line": 217,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#4": {
+   "status": "proven",
+   "line": 285,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#5": {
+   "status": "proven",
+   "line": 398,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#6": {
+   "status": "proven",
+   "line": 683,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#7": {
+   "status": "proven",
+   "line": 768,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#8": {
+   "status": "proven",
+   "line": 1039,
+   "preview": "search"
+  },
+  "06-arguments.md::prompt::search#9": {
+   "status": "proven",
+   "line": 1098,
+   "preview": "search"
+  },
+  "07-substitution.md::assert::13ae92e92d37#1": {
+   "status": "unverifiable",
+   "line": 550,
+   "preview": "Value: {\"query\":\"x\"}"
+  },
+  "07-substitution.md::assert::98bc88c4637a#1": {
+   "status": "unverifiable",
+   "line": 1390,
+   "preview": "lua | missing {{ var.missing }} [MissingKey at byte 9]"
+  },
+  "07-substitution.md::assert::dc99e61d5cec#1": {
+   "status": "unverifiable",
+   "line": 1215,
+   "preview": "Insert a value with `{{ var.name }}`."
+  },
+  "07-substitution.md::prompt::caught#1": {
+   "status": "proven",
+   "line": 1351,
+   "preview": "caught"
+  },
+  "07-substitution.md::prompt::cell#1": {
+   "status": "proven",
+   "line": 161,
+   "preview": "cell"
+  },
+  "07-substitution.md::prompt::chains#1": {
+   "status": "proven",
+   "line": 595,
+   "preview": "chains"
+  },
+  "07-substitution.md::prompt::escapes#1": {
+   "status": "proven",
+   "line": 1167,
+   "preview": "escapes"
+  },
+  "07-substitution.md::prompt::full_name#1": {
+   "status": "proven",
+   "line": 247,
+   "preview": "full_name"
+  },
+  "07-substitution.md::prompt::gate#1": {
+   "status": "unverifiable",
+   "line": 1443,
+   "preview": "gate"
+  },
+  "07-substitution.md::prompt::ghost#1": {
+   "status": "broken",
+   "line": 137,
+   "preview": "ghost"
+  },
+  "07-substitution.md::prompt::globals#1": {
+   "status": "proven",
+   "line": 815,
+   "preview": "globals"
+  },
+  "07-substitution.md::prompt::greet#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "greet"
+  },
+  "07-substitution.md::prompt::guarded#1": {
+   "status": "proven",
+   "line": 522,
+   "preview": "guarded"
+  },
+  "07-substitution.md::prompt::lazy#1": {
+   "status": "proven",
+   "line": 995,
+   "preview": "lazy"
+  },
+  "07-substitution.md::prompt::literal#1": {
+   "status": "proven",
+   "line": 61,
+   "preview": "literal"
+  },
+  "07-substitution.md::prompt::no_item#1": {
+   "status": "broken",
+   "line": 791,
+   "preview": "no_item"
+  },
+  "07-substitution.md::prompt::not_data#1": {
+   "status": "broken",
+   "line": 903,
+   "preview": "not_data"
+  },
+  "07-substitution.md::prompt::offset#1": {
+   "status": "proven",
+   "line": 1404,
+   "preview": "offset"
+  },
+  "07-substitution.md::prompt::original#1": {
+   "status": "proven",
+   "line": 649,
+   "preview": "original"
+  },
+  "07-substitution.md::prompt::outline#1": {
+   "status": "proven",
+   "line": 1123,
+   "preview": "outline"
+  },
+  "07-substitution.md::prompt::pairs#1": {
+   "status": "proven",
+   "line": 728,
+   "preview": "pairs"
+  },
+  "07-substitution.md::prompt::pairs_of_fences#1": {
+   "status": "proven",
+   "line": 1046,
+   "preview": "pairs_of_fences"
+  },
+  "07-substitution.md::prompt::paper#1": {
+   "status": "proven",
+   "line": 302,
+   "preview": "paper"
+  },
+  "07-substitution.md::prompt::payload#1": {
+   "status": "proven",
+   "line": 1227,
+   "preview": "payload"
+  },
+  "07-substitution.md::prompt::plan#1": {
+   "status": "proven",
+   "line": 339,
+   "preview": "plan"
+  },
+  "07-substitution.md::prompt::query#1": {
+   "status": "proven",
+   "line": 447,
+   "preview": "query"
+  },
+  "07-substitution.md::prompt::raw#1": {
+   "status": "proven",
+   "line": 416,
+   "preview": "raw"
+  },
+  "07-substitution.md::prompt::recursion#1": {
+   "status": "proven",
+   "line": 1320,
+   "preview": "recursion"
+  },
+  "07-substitution.md::prompt::render#1": {
+   "status": "proven",
+   "line": 935,
+   "preview": "render"
+  },
+  "07-substitution.md::prompt::repaired#1": {
+   "status": "proven",
+   "line": 560,
+   "preview": "repaired"
+  },
+  "07-substitution.md::prompt::spaced#1": {
+   "status": "proven",
+   "line": 207,
+   "preview": "spaced"
+  },
+  "07-substitution.md::prompt::style#1": {
+   "status": "proven",
+   "line": 860,
+   "preview": "style"
+  },
+  "07-substitution.md::prompt::subject#1": {
+   "status": "proven",
+   "line": 87,
+   "preview": "subject"
+  },
+  "07-substitution.md::prompt::topics#1": {
+   "status": "proven",
+   "line": 680,
+   "preview": "topics"
+  },
+  "07-substitution.md::prompt::unclosed#1": {
+   "status": "broken",
+   "line": 1261,
+   "preview": "unclosed"
+  },
+  "07-substitution.md::prompt::unread#1": {
+   "status": "proven",
+   "line": 1089,
+   "preview": "unread"
+  },
+  "07-substitution.md::prompt::wrapped#1": {
+   "status": "proven",
+   "line": 488,
+   "preview": "wrapped"
+  },
+  "08-jump-and-call.md::assert::019f8a5d3a9c#1": {
+   "status": "unverifiable",
+   "line": 772,
+   "preview": "jump is unavailable inside an adhoc tool handler: return a v"
+  },
+  "08-jump-and-call.md::assert::71574e2e4a93#1": {
+   "status": "unverifiable",
+   "line": 392,
+   "preview": "section heading `{heading}` not found; available sections: {"
+  },
+  "08-jump-and-call.md::assert::7ee722425632#1": {
+   "status": "unverifiable",
+   "line": 1279,
+   "preview": "the `var` global was reassigned; write `var.<field>` instead"
+  },
+  "08-jump-and-call.md::assert::9518f28bb4bb#1": {
+   "status": "unverifiable",
+   "line": 696,
+   "preview": "x-value"
+  },
+  "08-jump-and-call.md::assert::d0cde9dcfe99#1": {
+   "status": "unverifiable",
+   "line": 1585,
+   "preview": "the environment cannot satisfy this prompt: - the H1 gate fa"
+  },
+  "08-jump-and-call.md::assert::d25331abf5a9#1": {
+   "status": "unverifiable",
+   "line": 826,
+   "preview": "jump is unavailable while a library loads: return a value fr"
+  },
+  "08-jump-and-call.md::assert::f51daf8a6af1#1": {
+   "status": "unverifiable",
+   "line": 179,
+   "preview": "section heading `## Worker` not found; available sections: #"
+  },
+  "08-jump-and-call.md::prompt::answer-once#1": {
+   "status": "proven",
+   "line": 1461,
+   "preview": "answer-once"
+  },
+  "08-jump-and-call.md::prompt::arm-jump#1": {
+   "status": "proven",
+   "line": 1596,
+   "preview": "arm-jump"
+  },
+  "08-jump-and-call.md::prompt::arm-reach#1": {
+   "status": "proven",
+   "line": 1666,
+   "preview": "arm-reach"
+  },
+  "08-jump-and-call.md::prompt::call-chain#1": {
+   "status": "proven",
+   "line": 908,
+   "preview": "call-chain"
+  },
+  "08-jump-and-call.md::prompt::call-child#1": {
+   "status": "proven",
+   "line": 68,
+   "preview": "call-child"
+  },
+  "08-jump-and-call.md::prompt::call-later-child#1": {
+   "status": "proven",
+   "line": 998,
+   "preview": "call-later-child"
+  },
+  "08-jump-and-call.md::prompt::call-twice#1": {
+   "status": "proven",
+   "line": 964,
+   "preview": "call-twice"
+  },
+  "08-jump-and-call.md::prompt::caught-cap#1": {
+   "status": "proven",
+   "line": 1385,
+   "preview": "caught-cap"
+  },
+  "08-jump-and-call.md::prompt::caught-jump#1": {
+   "status": "proven",
+   "line": 706,
+   "preview": "caught-jump"
+  },
+  "08-jump-and-call.md::prompt::chain-argv#1": {
+   "status": "proven",
+   "line": 1187,
+   "preview": "chain-argv"
+  },
+  "08-jump-and-call.md::prompt::child-reach#1": {
+   "status": "proven",
+   "line": 298,
+   "preview": "child-reach"
+  },
+  "08-jump-and-call.md::prompt::child-stays-put#1": {
+   "status": "proven",
+   "line": 107,
+   "preview": "child-stays-put"
+  },
+  "08-jump-and-call.md::prompt::child-walk#1": {
+   "status": "proven",
+   "line": 571,
+   "preview": "child-walk"
+  },
+  "08-jump-and-call.md::prompt::h1-ids#1": {
+   "status": "proven",
+   "line": 1541,
+   "preview": "h1-ids"
+  },
+  "08-jump-and-call.md::prompt::h1-jump#1": {
+   "status": "proven",
+   "line": 1503,
+   "preview": "h1-jump"
+  },
+  "08-jump-and-call.md::prompt::inherit-input#1": {
+   "status": "proven",
+   "line": 1147,
+   "preview": "inherit-input"
+  },
+  "08-jump-and-call.md::prompt::jump-and-call#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "jump-and-call"
+  },
+  "08-jump-and-call.md::prompt::jump-ends#1": {
+   "status": "proven",
+   "line": 495,
+   "preview": "jump-ends"
+  },
+  "08-jump-and-call.md::prompt::jump-in-call#1": {
+   "status": "proven",
+   "line": 1051,
+   "preview": "jump-in-call"
+  },
+  "08-jump-and-call.md::prompt::levels#1": {
+   "status": "proven",
+   "line": 145,
+   "preview": "levels"
+  },
+  "08-jump-and-call.md::prompt::library-jump#1": {
+   "status": "proven",
+   "line": 834,
+   "preview": "library-jump"
+  },
+  "08-jump-and-call.md::prompt::missing-call#1": {
+   "status": "proven",
+   "line": 360,
+   "preview": "missing-call"
+  },
+  "08-jump-and-call.md::prompt::nested-walk#1": {
+   "status": "proven",
+   "line": 630,
+   "preview": "nested-walk"
+  },
+  "08-jump-and-call.md::prompt::ping-pong#1": {
+   "status": "proven",
+   "line": 1349,
+   "preview": "ping-pong"
+  },
+  "08-jump-and-call.md::prompt::pipeline#1": {
+   "status": "proven",
+   "line": 1108,
+   "preview": "pipeline"
+  },
+  "08-jump-and-call.md::prompt::redraft#1": {
+   "status": "proven",
+   "line": 462,
+   "preview": "redraft"
+  },
+  "08-jump-and-call.md::prompt::refused-jump#1": {
+   "status": "proven",
+   "line": 786,
+   "preview": "refused-jump"
+  },
+  "08-jump-and-call.md::prompt::research#1": {
+   "status": "proven",
+   "line": 873,
+   "preview": "research"
+  },
+  "08-jump-and-call.md::prompt::risky#1": {
+   "status": "proven",
+   "line": 1289,
+   "preview": "risky"
+  },
+  "08-jump-and-call.md::prompt::sibling-move#1": {
+   "status": "proven",
+   "line": 411,
+   "preview": "sibling-move"
+  },
+  "08-jump-and-call.md::prompt::var-snapshot#1": {
+   "status": "proven",
+   "line": 1241,
+   "preview": "var-snapshot"
+  },
+  "08-jump-and-call.md::prompt::visible-set#1": {
+   "status": "proven",
+   "line": 228,
+   "preview": "visible-set"
+  },
+  "08-jump-and-call.md::prompt::what-crosses#1": {
+   "status": "proven",
+   "line": 537,
+   "preview": "what-crosses"
+  },
+  "09-the-store.md::assert::0bbd4ced8615#1": {
+   "status": "unverifiable",
+   "line": 897,
+   "preview": "directory_not_empty: directory not empty in store: notes"
+  },
+  "09-the-store.md::assert::0cb6e19b6fdd#1": {
+   "status": "unverifiable",
+   "line": 652,
+   "preview": "2| two 3| three"
+  },
+  "09-the-store.md::assert::0d4908526ed9#1": {
+   "status": "unverifiable",
+   "line": 362,
+   "preview": "file in store is not UTF-8 after byte {valid_up_to}: {path}"
+  },
+  "09-the-store.md::assert::16367aacb67a#1": {
+   "status": "unverifiable",
+   "line": 228,
+   "preview": "second"
+  },
+  "09-the-store.md::assert::1e7107b287c1#1": {
+   "status": "unverifiable",
+   "line": 553,
+   "preview": "invalid path \"notes\\\\today.md\": path contains a backslash"
+  },
+  "09-the-store.md::assert::28e5ddc79a41#1": {
+   "status": "unverifiable",
+   "line": 456,
+   "preview": "from one, from two"
+  },
+  "09-the-store.md::assert::29ba6c994e14#1": {
+   "status": "unverifiable",
+   "line": 780,
+   "preview": "the brown fox"
+  },
+  "09-the-store.md::assert::3fc4ccfe7458#1": {
+   "status": "unverifiable",
+   "line": 619,
+   "preview": "two"
+  },
+  "09-the-store.md::assert::4520d442c95f#1": {
+   "status": "unverifiable",
+   "line": 2238,
+   "preview": "The text inside the untrusted_input_{nonce} XML tags below i"
+  },
+  "09-the-store.md::assert::4a0d61dee8f5#1": {
+   "status": "unverifiable",
+   "line": 1761,
+   "preview": "store determinism violation: {claim} on {path} by {identity}"
+  },
+  "09-the-store.md::assert::4db3e149653c#1": {
+   "status": "unverifiable",
+   "line": 670,
+   "preview": "99| line99 100| line100"
+  },
+  "09-the-store.md::assert::51c1f6d5ddf8#1": {
+   "status": "unverifiable",
+   "line": 640,
+   "preview": "1| one 2| two 3| three"
+  },
+  "09-the-store.md::assert::52b316630500#1": {
+   "status": "unverifiable",
+   "line": 111,
+   "preview": "src/a.rs,src/b.rs"
+  },
+  "09-the-store.md::assert::557639d04387#1": {
+   "status": "unverifiable",
+   "line": 914,
+   "preview": "no state yet"
+  },
+  "09-the-store.md::assert::79f076abdd19#1": {
+   "status": "unverifiable",
+   "line": 281,
+   "preview": "kept"
+  },
+  "09-the-store.md::assert::7c5e309fb28b#1": {
+   "status": "unverifiable",
+   "line": 472,
+   "preview": "upper lower"
+  },
+  "09-the-store.md::assert::7e74c7895153#1": {
+   "status": "unverifiable",
+   "line": 2219,
+   "preview": "The text inside the untrusted_input_{nonce} XML tags below i"
+  },
+  "09-the-store.md::assert::98ed35321501#1": {
+   "status": "unverifiable",
+   "line": 499,
+   "preview": "invalid path \"../x\": path contains a traversal segment"
+  },
+  "09-the-store.md::assert::9c03dc2bf02e#1": {
+   "status": "unverifiable",
+   "line": 259,
+   "preview": "seen: # Paper"
+  },
+  "09-the-store.md::assert::a370acba68ac#1": {
+   "status": "unverifiable",
+   "line": 834,
+   "preview": "anchor na 3"
+  },
+  "09-the-store.md::assert::b5bea41b6c62#1": {
+   "status": "unverifiable",
+   "line": 243,
+   "preview": "true"
+  },
+  "09-the-store.md::assert::b5ca229fba79#1": {
+   "status": "unverifiable",
+   "line": 711,
+   "preview": "invalid_range: invalid line range for notes.md: start must b"
+  },
+  "09-the-store.md::assert::e35a9b7713b7#1": {
+   "status": "unverifiable",
+   "line": 493,
+   "preview": "invalid_path traversal ../x"
+  },
+  "09-the-store.md::prompt::ask_mode#1": {
+   "status": "proven",
+   "line": 2009,
+   "preview": "ask_mode"
+  },
+  "09-the-store.md::prompt::bad_argument#1": {
+   "status": "proven",
+   "line": 1360,
+   "preview": "bad_argument"
+  },
+  "09-the-store.md::prompt::bad_pattern#1": {
+   "status": "proven",
+   "line": 1110,
+   "preview": "bad_pattern"
+  },
+  "09-the-store.md::prompt::briefing#1": {
+   "status": "proven",
+   "line": 2169,
+   "preview": "briefing"
+  },
+  "09-the-store.md::prompt::careful#1": {
+   "status": "proven",
+   "line": 1156,
+   "preview": "careful"
+  },
+  "09-the-store.md::prompt::checklist#1": {
+   "status": "proven",
+   "line": 790,
+   "preview": "checklist"
+  },
+  "09-the-store.md::prompt::cleanup#1": {
+   "status": "proven",
+   "line": 858,
+   "preview": "cleanup"
+  },
+  "09-the-store.md::prompt::configured#1": {
+   "status": "proven",
+   "line": 1592,
+   "preview": "configured"
+  },
+  "09-the-store.md::prompt::context#1": {
+   "status": "proven",
+   "line": 1271,
+   "preview": "context"
+  },
+  "09-the-store.md::prompt::count_arms#1": {
+   "status": "proven",
+   "line": 961,
+   "preview": "count_arms"
+  },
+  "09-the-store.md::prompt::counter#1": {
+   "status": "proven",
+   "line": 1189,
+   "preview": "counter"
+  },
+  "09-the-store.md::prompt::desk#1": {
+   "status": "proven",
+   "line": 1939,
+   "preview": "desk"
+  },
+  "09-the-store.md::prompt::drafts#1": {
+   "status": "proven",
+   "line": 333,
+   "preview": "drafts"
+  },
+  "09-the-store.md::prompt::editor#1": {
+   "status": "proven",
+   "line": 742,
+   "preview": "editor"
+  },
+  "09-the-store.md::prompt::emptied#1": {
+   "status": "proven",
+   "line": 1077,
+   "preview": "emptied"
+  },
+  "09-the-store.md::prompt::encoding#1": {
+   "status": "proven",
+   "line": 2277,
+   "preview": "encoding"
+  },
+  "09-the-store.md::prompt::fields#1": {
+   "status": "proven",
+   "line": 1232,
+   "preview": "fields"
+  },
+  "09-the-store.md::prompt::handoff#1": {
+   "status": "proven",
+   "line": 121,
+   "preview": "handoff"
+  },
+  "09-the-store.md::prompt::has_tags#1": {
+   "status": "proven",
+   "line": 2140,
+   "preview": "has_tags"
+  },
+  "09-the-store.md::prompt::list_sources#1": {
+   "status": "proven",
+   "line": 934,
+   "preview": "list_sources"
+  },
+  "09-the-store.md::prompt::listing#1": {
+   "status": "proven",
+   "line": 1046,
+   "preview": "listing"
+  },
+  "09-the-store.md::prompt::loader#1": {
+   "status": "proven",
+   "line": 2363,
+   "preview": "loader"
+  },
+  "09-the-store.md::prompt::merge_parts#1": {
+   "status": "proven",
+   "line": 1545,
+   "preview": "merge_parts"
+  },
+  "09-the-store.md::prompt::missing#1": {
+   "status": "proven",
+   "line": 374,
+   "preview": "missing"
+  },
+  "09-the-store.md::prompt::mounted#1": {
+   "status": "proven",
+   "line": 1877,
+   "preview": "mounted"
+  },
+  "09-the-store.md::prompt::notebook#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "notebook"
+  },
+  "09-the-store.md::prompt::numbered#1": {
+   "status": "proven",
+   "line": 41,
+   "preview": "numbered"
+  },
+  "09-the-store.md::prompt::order#1": {
+   "status": "proven",
+   "line": 293,
+   "preview": "order"
+  },
+  "09-the-store.md::prompt::paths#1": {
+   "status": "proven",
+   "line": 405,
+   "preview": "paths"
+  },
+  "09-the-store.md::prompt::patterns#1": {
+   "status": "proven",
+   "line": 995,
+   "preview": "patterns"
+  },
+  "09-the-store.md::prompt::plan_mode#1": {
+   "status": "proven",
+   "line": 2037,
+   "preview": "plan_mode"
+  },
+  "09-the-store.md::prompt::presence#1": {
+   "status": "proven",
+   "line": 78,
+   "preview": "presence"
+  },
+  "09-the-store.md::prompt::race#1": {
+   "status": "proven",
+   "line": 1641,
+   "preview": "race"
+  },
+  "09-the-store.md::prompt::report#1": {
+   "status": "proven",
+   "line": 1843,
+   "preview": "report"
+  },
+  "09-the-store.md::prompt::reraise#1": {
+   "status": "broken",
+   "line": 1411,
+   "preview": "reraise"
+  },
+  "09-the-store.md::prompt::research#1": {
+   "status": "proven",
+   "line": 1445,
+   "preview": "research"
+  },
+  "09-the-store.md::prompt::saver#1": {
+   "status": "proven",
+   "line": 2424,
+   "preview": "saver"
+  },
+  "09-the-store.md::prompt::setup#1": {
+   "status": "proven",
+   "line": 155,
+   "preview": "setup"
+  },
+  "09-the-store.md::prompt::slices#1": {
+   "status": "proven",
+   "line": 584,
+   "preview": "slices"
+  },
+  "09-the-store.md::prompt::stock#1": {
+   "status": "proven",
+   "line": 1792,
+   "preview": "stock"
+  },
+  "09-the-store.md::prompt::summarize#1": {
+   "status": "proven",
+   "line": 1488,
+   "preview": "summarize"
+  },
+  "09-the-store.md::prompt::todo#1": {
+   "status": "proven",
+   "line": 193,
+   "preview": "todo"
+  },
+  "09-the-store.md::prompt::uncaught#1": {
+   "status": "broken",
+   "line": 1389,
+   "preview": "uncaught"
+  },
+  "09-the-store.md::prompt::verbatim#1": {
+   "status": "proven",
+   "line": 2105,
+   "preview": "verbatim"
+  },
+  "09-the-store.md::prompt::wrapped#1": {
+   "status": "proven",
+   "line": 2073,
+   "preview": "wrapped"
+  },
+  "09-the-store.md::prompt::wrong_kind#1": {
+   "status": "proven",
+   "line": 1307,
+   "preview": "wrong_kind"
+  },
+  "10-models.md::assert::1626fd49032b#1": {
+   "status": "unverifiable",
+   "line": 1385,
+   "preview": "skipped (internal)"
+  },
+  "10-models.md::assert::2d9b36dad04b#1": {
+   "status": "unverifiable",
+   "line": 446,
+   "preview": "- role '{role}': requires '{required}'; the current model's "
+  },
+  "10-models.md::assert::375ef7976c82#1": {
+   "status": "unverifiable",
+   "line": 186,
+   "preview": "duplicate model role label `{label}`: contract map keys must"
+  },
+  "10-models.md::assert::442356c35aac#1": {
+   "status": "unverifiable",
+   "line": 971,
+   "preview": "frontier|true"
+  },
+  "10-models.md::assert::5a251d52c08e#1": {
+   "status": "unverifiable",
+   "line": 1371,
+   "preview": "the model backend sent a reply that could not be understood:"
+  },
+  "10-models.md::assert::5b9b72c8b269#1": {
+   "status": "unverifiable",
+   "line": 870,
+   "preview": "lua: models.use options must be a table, got string"
+  },
+  "10-models.md::assert::5ebc03acbb0e#1": {
+   "status": "unverifiable",
+   "line": 816,
+   "preview": "true|nil"
+  },
+  "10-models.md::assert::6aa2350f157d#1": {
+   "status": "unverifiable",
+   "line": 592,
+   "preview": "models.default label \"{label}\" is not a bound model role"
+  },
+  "10-models.md::assert::86ffededa527#1": {
+   "status": "unverifiable",
+   "line": 799,
+   "preview": "0.3|256"
+  },
+  "10-models.md::assert::c1bf689e3239#1": {
+   "status": "unverifiable",
+   "line": 488,
+   "preview": "models.use label \"{label}\" is not a bound model role models."
+  },
+  "10-models.md::assert::dfd47f24801f#1": {
+   "status": "unverifiable",
+   "line": 436,
+   "preview": "- role '{role}': requires a context of at least {required} t"
+  },
+  "10-models.md::assert::eb26149b3bfa#1": {
+   "status": "unverifiable",
+   "line": 584,
+   "preview": "models.default is already \"{existing}\": the prompt-wide defa"
+  },
+  "10-models.md::assert::eb67d20bc993#1": {
+   "status": "unverifiable",
+   "line": 988,
+   "preview": "userdata|function|function"
+  },
+  "10-models.md::assert::fb83afe28f01#1": {
+   "status": "unverifiable",
+   "line": 180,
+   "preview": "invalid model role label `{label}`: expected [A-Za-z][A-Za-z"
+  },
+  "10-models.md::prompt::analysis#1": {
+   "status": "unverifiable",
+   "line": 400,
+   "preview": "analysis"
+  },
+  "10-models.md::prompt::ask-role#1": {
+   "status": "unverifiable",
+   "line": 1096,
+   "preview": "ask-role"
+  },
+  "10-models.md::prompt::bakery#1": {
+   "status": "unverifiable",
+   "line": 1220,
+   "preview": "bakery"
+  },
+  "10-models.md::prompt::boiling-point#1": {
+   "status": "unverifiable",
+   "line": 228,
+   "preview": "boiling-point"
+  },
+  "10-models.md::prompt::bread-review#1": {
+   "status": "unverifiable",
+   "line": 1061,
+   "preview": "bread-review"
+  },
+  "10-models.md::prompt::capital#1": {
+   "status": "unverifiable",
+   "line": 553,
+   "preview": "capital"
+  },
+  "10-models.md::prompt::careful#1": {
+   "status": "proven",
+   "line": 1316,
+   "preview": "careful"
+  },
+  "10-models.md::prompt::ghost#1": {
+   "status": "proven",
+   "line": 717,
+   "preview": "ghost"
+  },
+  "10-models.md::prompt::greet-events#1": {
+   "status": "unverifiable",
+   "line": 1399,
+   "preview": "greet-events"
+  },
+  "10-models.md::prompt::haiku#1": {
+   "status": "unverifiable",
+   "line": 499,
+   "preview": "haiku"
+  },
+  "10-models.md::prompt::hello#1": {
+   "status": "unverifiable",
+   "line": 10,
+   "preview": "hello"
+  },
+  "10-models.md::prompt::inspect#1": {
+   "status": "unverifiable",
+   "line": 894,
+   "preview": "inspect"
+  },
+  "10-models.md::prompt::label-check#1": {
+   "status": "proven",
+   "line": 647,
+   "preview": "label-check"
+  },
+  "10-models.md::prompt::labels#1": {
+   "status": "proven",
+   "line": 1189,
+   "preview": "labels"
+  },
+  "10-models.md::prompt::raw-id#1": {
+   "status": "proven",
+   "line": 1131,
+   "preview": "raw-id"
+  },
+  "10-models.md::prompt::research#1": {
+   "status": "unverifiable",
+   "line": 126,
+   "preview": "research"
+  },
+  "10-models.md::prompt::review#1": {
+   "status": "unverifiable",
+   "line": 1037,
+   "preview": "review"
+  },
+  "10-models.md::prompt::second-opinion#1": {
+   "status": "unverifiable",
+   "line": 1000,
+   "preview": "second-opinion"
+  },
+  "10-models.md::prompt::slogan#1": {
+   "status": "unverifiable",
+   "line": 758,
+   "preview": "slogan"
+  },
+  "10-models.md::prompt::tagline#1": {
+   "status": "unverifiable",
+   "line": 604,
+   "preview": "tagline"
+  },
+  "10-models.md::prompt::two-roles#1": {
+   "status": "proven",
+   "line": 327,
+   "preview": "two-roles"
+  },
+  "10-models.md::prompt::unread#1": {
+   "status": "proven",
+   "line": 458,
+   "preview": "unread"
+  },
+  "10-models.md::prompt::unselected#1": {
+   "status": "proven",
+   "line": 67,
+   "preview": "unselected"
+  },
+  "10-models.md::prompt::word#1": {
+   "status": "proven",
+   "line": 97,
+   "preview": "word"
+  },
+  "11-conversations.md::assert::0198f58e5978#1": {
+   "status": "unverifiable",
+   "line": 1103,
+   "preview": "records read from messages are read-only; rewrite history wi"
+  },
+  "11-conversations.md::assert::028672a35b06#1": {
+   "status": "unverifiable",
+   "line": 870,
+   "preview": "userdata|hi|false"
+  },
+  "11-conversations.md::assert::03ebdde405fa#1": {
+   "status": "unverifiable",
+   "line": 83,
+   "preview": "messages is the section's conversation and cannot be reassig"
+  },
+  "11-conversations.md::assert::0b289841a353#1": {
+   "status": "unverifiable",
+   "line": 901,
+   "preview": "role,content,tool_calls|role,content,tool_call_id,meta"
+  },
+  "11-conversations.md::assert::128160af5e23#1": {
+   "status": "unverifiable",
+   "line": 248,
+   "preview": "4|first reply|second reply"
+  },
+  "11-conversations.md::assert::1388243a6a92#1": {
+   "status": "unverifiable",
+   "line": 1177,
+   "preview": "2: user, assistant"
+  },
+  "11-conversations.md::assert::1639e611678c#1": {
+   "status": "unverifiable",
+   "line": 792,
+   "preview": "user,assistant,tool,assistant|web_search:one|call_1|nil|true"
+  },
+  "11-conversations.md::assert::1817ca71acf6#1": {
+   "status": "unverifiable",
+   "line": 89,
+   "preview": "messages cannot be assigned to by index; add records with ap"
+  },
+  "11-conversations.md::assert::1ad046f37524#1": {
+   "status": "unverifiable",
+   "line": 326,
+   "preview": "table|2|look"
+  },
+  "11-conversations.md::assert::1b5c08960d18#1": {
+   "status": "unverifiable",
+   "line": 1942,
+   "preview": "the model replied with no text and no tool calls"
+  },
+  "11-conversations.md::assert::1bf09a864e62#1": {
+   "status": "unverifiable",
+   "line": 2484,
+   "preview": "attempt to call a number value"
+  },
+  "11-conversations.md::assert::1c0852ab9781#1": {
+   "status": "unverifiable",
+   "line": 828,
+   "preview": "3|6"
+  },
+  "11-conversations.md::assert::208583ffa7a8#1": {
+   "status": "unverifiable",
+   "line": 1401,
+   "preview": "models.loop takes (compactor?); call handle:loop(compactor?)"
+  },
+  "11-conversations.md::assert::22074227d846#1": {
+   "status": "unverifiable",
+   "line": 1202,
+   "preview": "1|2"
+  },
+  "11-conversations.md::assert::270a2988fa6d#1": {
+   "status": "unverifiable",
+   "line": 2256,
+   "preview": "3|What were the notes about?"
+  },
+  "11-conversations.md::assert::2a8b5ed8c645#1": {
+   "status": "unverifiable",
+   "line": 1632,
+   "preview": "tool-call loop did not converge"
+  },
+  "11-conversations.md::assert::2af10f820934#1": {
+   "status": "unverifiable",
+   "line": 988,
+   "preview": "u1 a2"
+  },
+  "11-conversations.md::assert::2e15c097b80b#1": {
+   "status": "unverifiable",
+   "line": 361,
+   "preview": "2|call_1|clock|table"
+  },
+  "11-conversations.md::assert::31951bac98b9#1": {
+   "status": "unverifiable",
+   "line": 615,
+   "preview": "messages[4] is a system message after a non-system message; "
+  },
+  "11-conversations.md::assert::321743c7ce5d#1": {
+   "status": "unverifiable",
+   "line": 1530,
+   "preview": "call_1|tool|call_1"
+  },
+  "11-conversations.md::assert::321bf910bda0#1": {
+   "status": "unverifiable",
+   "line": 968,
+   "preview": "replace works only inside a compactor; rewrite history with "
+  },
+  "11-conversations.md::assert::380a773a9891#1": {
+   "status": "unverifiable",
+   "line": 1030,
+   "preview": "s summary"
+  },
+  "11-conversations.md::assert::43a45645f285#1": {
+   "status": "unverifiable",
+   "line": 1407,
+   "preview": "call loop on a model handle with a colon: handle:loop(compac"
+  },
+  "11-conversations.md::assert::4b227777d4dd#1": {
+   "status": "unverifiable",
+   "line": 158,
+   "preview": "4"
+  },
+  "11-conversations.md::assert::4b227777d4dd#2": {
+   "status": "unverifiable",
+   "line": 1330,
+   "preview": "4"
+  },
+  "11-conversations.md::assert::4cc955773963#1": {
+   "status": "unverifiable",
+   "line": 2476,
+   "preview": "replaced: precheck"
+  },
+  "11-conversations.md::assert::4e0393ad6d52#1": {
+   "status": "unverifiable",
+   "line": 2293,
+   "preview": "false|lua:messages must not be empty|0"
+  },
+  "11-conversations.md::assert::4e07408562be#1": {
+   "status": "unverifiable",
+   "line": 104,
+   "preview": "3"
+  },
+  "11-conversations.md::assert::5106fbcaae09#1": {
+   "status": "unverifiable",
+   "line": 1948,
+   "preview": "the model replied with no text and no tool calls: reasoning "
+  },
+  "11-conversations.md::assert::585b9e493915#1": {
+   "status": "unverifiable",
+   "line": 1763,
+   "preview": "messages[N] is a system message with content parts; only pla"
+  },
+  "11-conversations.md::assert::5bb19880f9b6#1": {
+   "status": "unverifiable",
+   "line": 391,
+   "preview": "4|tool|call_2"
+  },
+  "11-conversations.md::assert::5bc29f0d1a1f#1": {
+   "status": "unverifiable",
+   "line": 771,
+   "preview": "nil|nil|nil|nil|a1"
+  },
+  "11-conversations.md::assert::6002499dc9ed#1": {
+   "status": "unverifiable",
+   "line": 1975,
+   "preview": "2|partial answer"
+  },
+  "11-conversations.md::assert::62b71828119a#1": {
+   "status": "unverifiable",
+   "line": 1425,
+   "preview": "compactor must be a function, got integer"
+  },
+  "11-conversations.md::assert::64568f68e34f#1": {
+   "status": "unverifiable",
+   "line": 1137,
+   "preview": "replace({first}, {last}) is out of bounds on a list of {n} r"
+  },
+  "11-conversations.md::assert::67c97d9190ef#1": {
+   "status": "unverifiable",
+   "line": 2398,
+   "preview": "context exhausted: the request precheck overflowed the model"
+  },
+  "11-conversations.md::assert::6b86b273ff34#1": {
+   "status": "unverifiable",
+   "line": 1004,
+   "preview": "1"
+  },
+  "11-conversations.md::assert::715746955dcb#1": {
+   "status": "unverifiable",
+   "line": 1743,
+   "preview": "system 's1', system 's2', user '', user 'hi', assistant '', "
+  },
+  "11-conversations.md::assert::79283589f28c#1": {
+   "status": "unverifiable",
+   "line": 1749,
+   "preview": "system 's1\\n\\ns2', user 'hi', assistant 'answer', user 'next"
+  },
+  "11-conversations.md::assert::7b279168512d#1": {
+   "status": "unverifiable",
+   "line": 1816,
+   "preview": "messages[2] tool call \"call_1\" has no tool result"
+  },
+  "11-conversations.md::assert::82c1b72fd223#1": {
+   "status": "unverifiable",
+   "line": 2366,
+   "preview": "compactors.clear works only inside a compactor; empty messag"
+  },
+  "11-conversations.md::assert::8a5419ef1877#1": {
+   "status": "unverifiable",
+   "line": 1057,
+   "preview": "one two three u"
+  },
+  "11-conversations.md::assert::8ba6e98e6984#1": {
+   "status": "unverifiable",
+   "line": 1143,
+   "preview": "replace(2, 5) is out of bounds on a list of 4 records: it ne"
+  },
+  "11-conversations.md::assert::916e00e73217#1": {
+   "status": "unverifiable",
+   "line": 543,
+   "preview": "3|system|records"
+  },
+  "11-conversations.md::assert::929882bfb32c#1": {
+   "status": "unverifiable",
+   "line": 419,
+   "preview": "form|true|nil"
+  },
+  "11-conversations.md::assert::98eefaca7961#1": {
+   "status": "unverifiable",
+   "line": 851,
+   "preview": "1:u1 2:a1 3:u2b"
+  },
+  "11-conversations.md::assert::9987030504d6#1": {
+   "status": "unverifiable",
+   "line": 1456,
+   "preview": "messages must not be empty"
+  },
+  "11-conversations.md::assert::a10008bc9653#1": {
+   "status": "unverifiable",
+   "line": 664,
+   "preview": "messages[2] must be a JSON-representable message table: unsu"
+  },
+  "11-conversations.md::assert::a8f40fc552c5#1": {
+   "status": "unverifiable",
+   "line": 1413,
+   "preview": "models.loop takes (compactor?)"
+  },
+  "11-conversations.md::assert::acfd64e69224#1": {
+   "status": "unverifiable",
+   "line": 440,
+   "preview": "nil|u2"
+  },
+  "11-conversations.md::assert::b1f4be4e41bf#1": {
+   "status": "unverifiable",
+   "line": 1719,
+   "preview": "{ \"role\": \"system\", \"content\": \"be terse\" }"
+  },
+  "11-conversations.md::assert::c77037ecc1c7#1": {
+   "status": "unverifiable",
+   "line": 1920,
+   "preview": "nil|4|tool|assistant:"
+  },
+  "11-conversations.md::assert::d3e533cbc83b#1": {
+   "status": "unverifiable",
+   "line": 525,
+   "preview": "3|call_1"
+  },
+  "11-conversations.md::assert::d72effe3458b#1": {
+   "status": "unverifiable",
+   "line": 2360,
+   "preview": "2|second topic"
+  },
+  "11-conversations.md::assert::dfafe67bcdc7#1": {
+   "status": "unverifiable",
+   "line": 1954,
+   "preview": "empty model reply"
+  },
+  "11-conversations.md::assert::e38689c14055#1": {
+   "status": "unverifiable",
+   "line": 2313,
+   "preview": "gave up|1|100000"
+  },
+  "11-conversations.md::assert::e4a4aff19e35#1": {
+   "status": "unverifiable",
+   "line": 1419,
+   "preview": "handle:loop takes (compactor?)"
+  },
+  "11-conversations.md::assert::eb32616f62e0#1": {
+   "status": "unverifiable",
+   "line": 1433,
+   "preview": "a loop or a compactor is already running in this section; as"
+  },
+  "11-conversations.md::assert::ef2d127de37b#1": {
+   "status": "unverifiable",
+   "line": 1692,
+   "preview": "5"
+  },
+  "11-conversations.md::assert::f8fc446dfa80#1": {
+   "status": "unverifiable",
+   "line": 919,
+   "preview": "2|u"
+  },
+  "11-conversations.md::assert::fa0de7728a34#1": {
+   "status": "unverifiable",
+   "line": 1160,
+   "preview": "messages[2] content must be a string or a non-empty array of"
+  },
+  "11-conversations.md::prompt::builders#1": {
+   "status": "proven",
+   "line": 454,
+   "preview": "builders"
+  },
+  "11-conversations.md::prompt::draft-and-refine#1": {
+   "status": "unverifiable",
+   "line": 201,
+   "preview": "draft-and-refine"
+  },
+  "11-conversations.md::prompt::edit-list#1": {
+   "status": "proven",
+   "line": 935,
+   "preview": "edit-list"
+  },
+  "11-conversations.md::prompt::first-chat#1": {
+   "status": "unverifiable",
+   "line": 10,
+   "preview": "first-chat"
+  },
+  "11-conversations.md::prompt::first-chat#2": {
+   "status": "unverifiable",
+   "line": 118,
+   "preview": "first-chat"
+  },
+  "11-conversations.md::prompt::first-chat#3": {
+   "status": "unverifiable",
+   "line": 1659,
+   "preview": "first-chat"
+  },
+  "11-conversations.md::prompt::first-chat#4": {
+   "status": "stale",
+   "line": 1848,
+   "preview": "first-chat"
+  },
+  "11-conversations.md::prompt::fresh-lists#1": {
+   "status": "proven",
+   "line": 50,
+   "preview": "fresh-lists"
+  },
+  "11-conversations.md::prompt::long-notes#1": {
+   "status": "stale",
+   "line": 1995,
+   "preview": "long-notes"
+  },
+  "11-conversations.md::prompt::long-notes#2": {
+   "status": "unverifiable",
+   "line": 2187,
+   "preview": "long-notes"
+  },
+  "11-conversations.md::prompt::read-records#1": {
+   "status": "proven",
+   "line": 714,
+   "preview": "read-records"
+  },
+  "11-conversations.md::prompt::records#1": {
+   "status": "proven",
+   "line": 258,
+   "preview": "records"
+  },
+  "11-conversations.md::prompt::search-chat#1": {
+   "status": "unverifiable",
+   "line": 1476,
+   "preview": "search-chat"
+  },
+  "11-conversations.md::prompt::search-chat#2": {
+   "status": "unverifiable",
+   "line": 1578,
+   "preview": "search-chat"
+  },
+  "11-conversations.md::prompt::second-opinion#1": {
+   "status": "unverifiable",
+   "line": 1247,
+   "preview": "second-opinion"
+  },
+  "11-conversations.md::prompt::second-opinion#2": {
+   "status": "unverifiable",
+   "line": 1280,
+   "preview": "second-opinion"
+  },
+  "11-conversations.md::prompt::summarize#1": {
+   "status": "unverifiable",
+   "line": 174,
+   "preview": "summarize"
+  },
+  "11-conversations.md::prompt::system-first#1": {
+   "status": "proven",
+   "line": 591,
+   "preview": "system-first"
+  },
+  "11-conversations.md::prompt::translate#1": {
+   "status": "unverifiable",
+   "line": 559,
+   "preview": "translate"
+  },
+  "12-tools.md::assert::019f8a5d3a9c#1": {
+   "status": "unverifiable",
+   "line": 2008,
+   "preview": "jump is unavailable inside an adhoc tool handler: return a v"
+  },
+  "12-tools.md::assert::03971c3d3ced#1": {
+   "status": "unverifiable",
+   "line": 914,
+   "preview": "tools.offer: \"<id>\" is not a tool in this run"
+  },
+  "12-tools.md::assert::05f8e1356618#1": {
+   "status": "unverifiable",
+   "line": 1217,
+   "preview": "structured tool \"{alias}\" returned invalid JSON: {detail}"
+  },
+  "12-tools.md::assert::0cbaa1be5138#1": {
+   "status": "unverifiable",
+   "line": 155,
+   "preview": "invalid frontmatter: invalid uses entry `acme/web/fetch`: a "
+  },
+  "12-tools.md::assert::0f0ae476292d#1": {
+   "status": "unverifiable",
+   "line": 551,
+   "preview": "4|adhoc:0,subagents:0,user-input:1*,web:2"
+  },
+  "12-tools.md::assert::31870c17de25#1": {
+   "status": "unverifiable",
+   "line": 1870,
+   "preview": "cannot return a table as a result"
+  },
+  "12-tools.md::assert::35c858708ac7#1": {
+   "status": "unverifiable",
+   "line": 2432,
+   "preview": "[\"echo\"] (a catalog tool that was not offered in this sectio"
+  },
+  "12-tools.md::assert::36930cb99843#1": {
+   "status": "unverifiable",
+   "line": 937,
+   "preview": "tools.offer: the web Pack is unavailable in this run: web ne"
+  },
+  "12-tools.md::assert::3789dd38551a#1": {
+   "status": "unverifiable",
+   "line": 95,
+   "preview": "- {pack} is unavailable: {reason} - {pack} needs {service}, "
+  },
+  "12-tools.md::assert::3ddda0acfa20#1": {
+   "status": "unverifiable",
+   "line": 2118,
+   "preview": "tool call arguments were not a JSON object"
+  },
+  "12-tools.md::assert::3fb6fe2a7e18#1": {
+   "status": "unverifiable",
+   "line": 1036,
+   "preview": "tools.call: \"web_fetch\" is not a tool id"
+  },
+  "12-tools.md::assert::4340147953c9#1": {
+   "status": "unverifiable",
+   "line": 1203,
+   "preview": "typed|0"
+  },
+  "12-tools.md::assert::495b0894aec8#1": {
+   "status": "unverifiable",
+   "line": 439,
+   "preview": "tools.get takes a tool id, got integer tools.get takes a too"
+  },
+  "12-tools.md::assert::51f65dfbc35a#1": {
+   "status": "unverifiable",
+   "line": 138,
+   "preview": "expected a Pack id, such as `web`, or vendor/name, such as `"
+  },
+  "12-tools.md::assert::674dc0abef4c#1": {
+   "status": "unverifiable",
+   "line": 2357,
+   "preview": "out_of_scope_tool|rogue|tool \"rogue\" is not in this section'"
+  },
+  "12-tools.md::assert::6c7cdc8825ff#1": {
+   "status": "unverifiable",
+   "line": 2617,
+   "preview": "var is read-only inside a Pack prelude; cannot set 'mode'"
+  },
+  "12-tools.md::assert::6ce5c9511a32#1": {
+   "status": "unverifiable",
+   "line": 952,
+   "preview": "lua|tools.offer: \"web/serch\" is not a tool in this run"
+  },
+  "12-tools.md::assert::6de0df3b27f9#1": {
+   "status": "unverifiable",
+   "line": 929,
+   "preview": "tools.offer: no Pack named \"<x>\" in this run; declare it und"
+  },
+  "12-tools.md::assert::73a89fda51cb#1": {
+   "status": "unverifiable",
+   "line": 457,
+   "preview": "tools.call takes a tool id or a tool object, got {type} tool"
+  },
+  "12-tools.md::assert::741991e9c66f#1": {
+   "status": "unverifiable",
+   "line": 2641,
+   "preview": "A prelude only defines functions; it must not call tools whi"
+  },
+  "12-tools.md::assert::74a266ee0239#1": {
+   "status": "unverifiable",
+   "line": 807,
+   "preview": "tools.offer: the section's tool list is fixed at its first m"
+  },
+  "12-tools.md::assert::74a266ee0239#2": {
+   "status": "unverifiable",
+   "line": 906,
+   "preview": "tools.offer: the section's tool list is fixed at its first m"
+  },
+  "12-tools.md::assert::842f3a362d27#1": {
+   "status": "unverifiable",
+   "line": 86,
+   "preview": "the environment cannot satisfy this prompt: - missing requir"
+  },
+  "12-tools.md::assert::8b980e6860cf#1": {
+   "status": "unverifiable",
+   "line": 2337,
+   "preview": "false|tool|tool call failure: web_fetch: missing url argumen"
+  },
+  "12-tools.md::assert::98c61bdb8f1f#1": {
+   "status": "unverifiable",
+   "line": 2106,
+   "preview": "tools.call: \"web_search\" is not a tool id|tools.call: \"searc"
+  },
+  "12-tools.md::assert::999b7699ffe0#1": {
+   "status": "unverifiable",
+   "line": 2631,
+   "preview": "Pack `{pack}`: its prelude failed to load: {message}. A prel"
+  },
+  "12-tools.md::assert::a157e6f2e018#1": {
+   "status": "unverifiable",
+   "line": 565,
+   "preview": "tools.packs.get takes one Pack id, got {type}"
+  },
+  "12-tools.md::assert::a33353b0c1de#1": {
+   "status": "unverifiable",
+   "line": 2343,
+   "preview": "tool call failure: {message}"
+  },
+  "12-tools.md::assert::a3f53bae4040#1": {
+   "status": "unverifiable",
+   "line": 2647,
+   "preview": "attempt to call a nil value (global 'require')"
+  },
+  "12-tools.md::assert::ab07b0a3cecb#1": {
+   "status": "unverifiable",
+   "line": 2378,
+   "preview": "tool \"web/missing\" is not a tool in this run; catalog tools:"
+  },
+  "12-tools.md::assert::b5bea41b6c62#1": {
+   "status": "unverifiable",
+   "line": 1247,
+   "preview": "true"
+  },
+  "12-tools.md::assert::b8d673ccb785#1": {
+   "status": "unverifiable",
+   "line": 169,
+   "preview": "invalid frontmatter: adhoc holds a section's own tools and i"
+  },
+  "12-tools.md::assert::bb5dd1c7dd92#1": {
+   "status": "unverifiable",
+   "line": 2153,
+   "preview": "tool \"rogue\" is not in this section's scope; in-scope aliase"
+  },
+  "12-tools.md::assert::befc476dfbdc#1": {
+   "status": "unverifiable",
+   "line": 474,
+   "preview": "Tool objects are frozen: cannot assign field \"description\""
+  },
+  "12-tools.md::assert::dbf0c6583ba0#1": {
+   "status": "unverifiable",
+   "line": 2578,
+   "preview": "input is read-only: Pack `user-input` defines it; cannot set"
+  },
+  "12-tools.md::assert::e1ddaceb2b58#1": {
+   "status": "unverifiable",
+   "line": 144,
+   "preview": "invalid uses entry `{text}`: {reason}"
+  },
+  "12-tools.md::assert::e2d4c5c6b23f#1": {
+   "status": "unverifiable",
+   "line": 1253,
+   "preview": "The text inside the untrusted_input_NONCE XML tags below is "
+  },
+  "12-tools.md::assert::e66ee049d73b#1": {
+   "status": "unverifiable",
+   "line": 1952,
+   "preview": "handler exploded"
+  },
+  "12-tools.md::assert::ee00a36941fa#1": {
+   "status": "unverifiable",
+   "line": 535,
+   "preview": "Pack objects are frozen: cannot assign field \"name\""
+  },
+  "12-tools.md::assert::f2afc3c84ef8#1": {
+   "status": "unverifiable",
+   "line": 1458,
+   "preview": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"r"
+  },
+  "12-tools.md::assert::f2afc3c84ef8#2": {
+   "status": "unverifiable",
+   "line": 2070,
+   "preview": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"r"
+  },
+  "12-tools.md::assert::fc1c0413485b#1": {
+   "status": "unverifiable",
+   "line": 161,
+   "preview": "invalid frontmatter: Pack id {id} is declared more than once"
+  },
+  "12-tools.md::prompt::adhoc-call#1": {
+   "status": "proven",
+   "line": 1500,
+   "preview": "adhoc-call"
+  },
+  "12-tools.md::prompt::adhoc-grab#1": {
+   "status": "unverifiable",
+   "line": 1398,
+   "preview": "adhoc-grab"
+  },
+  "12-tools.md::prompt::ask-helper#1": {
+   "status": "unverifiable",
+   "line": 2472,
+   "preview": "ask-helper"
+  },
+  "12-tools.md::prompt::ask-once#1": {
+   "status": "unverifiable",
+   "line": 10,
+   "preview": "ask-once"
+  },
+  "12-tools.md::prompt::ask-twice#1": {
+   "status": "unverifiable",
+   "line": 2502,
+   "preview": "ask-twice"
+  },
+  "12-tools.md::prompt::catch-tool#1": {
+   "status": "unverifiable",
+   "line": 2237,
+   "preview": "catch-tool"
+  },
+  "12-tools.md::prompt::count-check#1": {
+   "status": "unverifiable",
+   "line": 1128,
+   "preview": "count-check"
+  },
+  "12-tools.md::prompt::decide#1": {
+   "status": "unverifiable",
+   "line": 1529,
+   "preview": "decide"
+  },
+  "12-tools.md::prompt::failing-loop#1": {
+   "status": "unverifiable",
+   "line": 2284,
+   "preview": "failing-loop"
+  },
+  "12-tools.md::prompt::fetch-count#1": {
+   "status": "unverifiable",
+   "line": 974,
+   "preview": "fetch-count"
+  },
+  "12-tools.md::prompt::fetch-names#1": {
+   "status": "unverifiable",
+   "line": 177,
+   "preview": "fetch-names"
+  },
+  "12-tools.md::prompt::fetch-undeclared#1": {
+   "status": "broken",
+   "line": 108,
+   "preview": "fetch-undeclared"
+  },
+  "12-tools.md::prompt::grab-jump#1": {
+   "status": "proven",
+   "line": 1970,
+   "preview": "grab-jump"
+  },
+  "12-tools.md::prompt::grab-loop#1": {
+   "status": "unverifiable",
+   "line": 1653,
+   "preview": "grab-loop"
+  },
+  "12-tools.md::prompt::grab-once#1": {
+   "status": "proven",
+   "line": 1624,
+   "preview": "grab-once"
+  },
+  "12-tools.md::prompt::grab-raise#1": {
+   "status": "proven",
+   "line": 1880,
+   "preview": "grab-raise"
+  },
+  "12-tools.md::prompt::grab-raise-loop#1": {
+   "status": "stale",
+   "line": 1911,
+   "preview": "grab-raise-loop"
+  },
+  "12-tools.md::prompt::grab-returns#1": {
+   "status": "unverifiable",
+   "line": 1823,
+   "preview": "grab-returns"
+  },
+  "12-tools.md::prompt::grab-state#1": {
+   "status": "unverifiable",
+   "line": 1771,
+   "preview": "grab-state"
+  },
+  "12-tools.md::prompt::h1-check#1": {
+   "status": "unverifiable",
+   "line": 625,
+   "preview": "h1-check"
+  },
+  "12-tools.md::prompt::handler-calls#1": {
+   "status": "unverifiable",
+   "line": 1703,
+   "preview": "handler-calls"
+  },
+  "12-tools.md::prompt::look-up#1": {
+   "status": "unverifiable",
+   "line": 381,
+   "preview": "look-up"
+  },
+  "12-tools.md::prompt::maybe-web#1": {
+   "status": "unverifiable",
+   "line": 571,
+   "preview": "maybe-web"
+  },
+  "12-tools.md::prompt::mixed-batch#1": {
+   "status": "unverifiable",
+   "line": 2173,
+   "preview": "mixed-batch"
+  },
+  "12-tools.md::prompt::offer-search#1": {
+   "status": "unverifiable",
+   "line": 657,
+   "preview": "offer-search"
+  },
+  "12-tools.md::prompt::owner-check#1": {
+   "status": "unverifiable",
+   "line": 253,
+   "preview": "owner-check"
+  },
+  "12-tools.md::prompt::page-count#1": {
+   "status": "unverifiable",
+   "line": 1083,
+   "preview": "page-count"
+  },
+  "12-tools.md::prompt::plain-result#1": {
+   "status": "unverifiable",
+   "line": 1162,
+   "preview": "plain-result"
+  },
+  "12-tools.md::prompt::scope-check#1": {
+   "status": "stale",
+   "line": 2386,
+   "preview": "scope-check"
+  },
+  "12-tools.md::prompt::scoped-search#1": {
+   "status": "unverifiable",
+   "line": 328,
+   "preview": "scoped-search"
+  },
+  "12-tools.md::prompt::search-loop#1": {
+   "status": "unverifiable",
+   "line": 2032,
+   "preview": "search-loop"
+  },
+  "12-tools.md::prompt::shared-offers#1": {
+   "status": "unverifiable",
+   "line": 861,
+   "preview": "shared-offers"
+  },
+  "12-tools.md::prompt::two-loops#1": {
+   "status": "unverifiable",
+   "line": 815,
+   "preview": "two-loops"
+  },
+  "13-web-fetch-and-search.md::assert::014de045b388#1": {
+   "status": "unverifiable",
+   "line": 680,
+   "preview": "web/fetch | Fetch a web page and return its main content as "
+  },
+  "13-web-fetch-and-search.md::assert::0188cf641f28#1": {
+   "status": "unverifiable",
+   "line": 413,
+   "preview": "url must not contain userinfo"
+  },
+  "13-web-fetch-and-search.md::assert::02448dd4b9e6#1": {
+   "status": "unverifiable",
+   "line": 1060,
+   "preview": "scheme not allowed: http"
+  },
+  "13-web-fetch-and-search.md::assert::03f2c672a0cb#1": {
+   "status": "unverifiable",
+   "line": 1161,
+   "preview": "host internal.example has no allowed address"
+  },
+  "13-web-fetch-and-search.md::assert::09bf9a9c4743#1": {
+   "status": "unverifiable",
+   "line": 112,
+   "preview": "the environment cannot satisfy this prompt: - web is unavail"
+  },
+  "13-web-fetch-and-search.md::assert::1273f607ba66#1": {
+   "status": "unverifiable",
+   "line": 216,
+   "preview": "Maximum number of characters of text to return for this call"
+  },
+  "13-web-fetch-and-search.md::assert::192869826ae9#1": {
+   "status": "unverifiable",
+   "line": 1084,
+   "preview": "port not allowed: 8080"
+  },
+  "13-web-fetch-and-search.md::assert::1ef06ebf85b3#1": {
+   "status": "unverifiable",
+   "line": 952,
+   "preview": "response from https://example.com/data.json exceeds the 8388"
+  },
+  "13-web-fetch-and-search.md::assert::36930cb99843#1": {
+   "status": "unverifiable",
+   "line": 135,
+   "preview": "tools.offer: the web Pack is unavailable in this run: web ne"
+  },
+  "13-web-fetch-and-search.md::assert::374e3a34449c#1": {
+   "status": "unverifiable",
+   "line": 297,
+   "preview": "{\"query\":\"rust\",\"results\":[]}"
+  },
+  "13-web-fetch-and-search.md::assert::490fa1a54227#1": {
+   "status": "unverifiable",
+   "line": 587,
+   "preview": "tool call failure: url must not contain userinfo"
+  },
+  "13-web-fetch-and-search.md::assert::4d48a5ade12c#1": {
+   "status": "unverifiable",
+   "line": 817,
+   "preview": "response from https://example.com/notes declared unknown cha"
+  },
+  "13-web-fetch-and-search.md::assert::52253e663317#1": {
+   "status": "unverifiable",
+   "line": 991,
+   "preview": "request to https://example.com/slow timed out; try again or "
+  },
+  "13-web-fetch-and-search.md::assert::54091c963eb6#1": {
+   "status": "unverifiable",
+   "line": 781,
+   "preview": "content type application/pdf from https://example.com/report"
+  },
+  "13-web-fetch-and-search.md::assert::647804e2064c#1": {
+   "status": "unverifiable",
+   "line": 242,
+   "preview": "Fetch a web page and return its main content as markdown."
+  },
+  "13-web-fetch-and-search.md::assert::7929630e18b0#1": {
+   "status": "unverifiable",
+   "line": 1276,
+   "preview": "redirect from https://example.com/start to https://example.c"
+  },
+  "13-web-fetch-and-search.md::assert::79fd7402df95#1": {
+   "status": "unverifiable",
+   "line": 789,
+   "preview": "response from https://example.com/feed declared no content t"
+  },
+  "13-web-fetch-and-search.md::assert::835243cf7ca0#1": {
+   "status": "unverifiable",
+   "line": 577,
+   "preview": "refused: url must not contain userinfo"
+  },
+  "13-web-fetch-and-search.md::assert::842f3a362d27#1": {
+   "status": "unverifiable",
+   "line": 103,
+   "preview": "the environment cannot satisfy this prompt: - missing requir"
+  },
+  "13-web-fetch-and-search.md::assert::883f7056bc02#1": {
+   "status": "unverifiable",
+   "line": 323,
+   "preview": "{\"query\": \"rust async runtime\", \"count\": 5, \"freshness\": \"pw"
+  },
+  "13-web-fetch-and-search.md::assert::92b2899d65d2#1": {
+   "status": "unverifiable",
+   "line": 1376,
+   "preview": "refused: web_search: count must be between 1 and 20"
+  },
+  "13-web-fetch-and-search.md::assert::996d5084a4e3#1": {
+   "status": "unverifiable",
+   "line": 805,
+   "preview": "url: https://example.com/notes truncated: false extraction: "
+  },
+  "13-web-fetch-and-search.md::assert::a33fb7c66b62#1": {
+   "status": "unverifiable",
+   "line": 368,
+   "preview": "Search the web and return a list of results (title, url, des"
+  },
+  "13-web-fetch-and-search.md::assert::aa087758402a#1": {
+   "status": "unverifiable",
+   "line": 1104,
+   "preview": "ip literal host not allowed: 1.2.3.4"
+  },
+  "13-web-fetch-and-search.md::assert::f9c413bf0480#1": {
+   "status": "unverifiable",
+   "line": 309,
+   "preview": "{\"query\":\"rust\",\"results\":[{\"title\":\"Rust\",\"url\":\"https://ww"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-data#1": {
+   "status": "unverifiable",
+   "line": 692,
+   "preview": "fetch-data"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-field#1": {
+   "status": "unverifiable",
+   "line": 725,
+   "preview": "fetch-field"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-missing#1": {
+   "status": "unverifiable",
+   "line": 378,
+   "preview": "fetch-missing"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-page#1": {
+   "status": "unverifiable",
+   "line": 10,
+   "preview": "fetch-page"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-page#2": {
+   "status": "unverifiable",
+   "line": 143,
+   "preview": "fetch-page"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-page#3": {
+   "status": "unverifiable",
+   "line": 827,
+   "preview": "fetch-page"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-page#4": {
+   "status": "unverifiable",
+   "line": 1132,
+   "preview": "fetch-page"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-page#5": {
+   "status": "unverifiable",
+   "line": 1245,
+   "preview": "fetch-page"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-path#1": {
+   "status": "unverifiable",
+   "line": 1009,
+   "preview": "fetch-path"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-short#1": {
+   "status": "unverifiable",
+   "line": 900,
+   "preview": "fetch-short"
+  },
+  "13-web-fetch-and-search.md::prompt::fetch-undeclared#1": {
+   "status": "broken",
+   "line": 75,
+   "preview": "fetch-undeclared"
+  },
+  "13-web-fetch-and-search.md::prompt::research#1": {
+   "status": "unverifiable",
+   "line": 632,
+   "preview": "research"
+  },
+  "13-web-fetch-and-search.md::prompt::search-web#1": {
+   "status": "unverifiable",
+   "line": 260,
+   "preview": "search-web"
+  },
+  "13-web-fetch-and-search.md::prompt::search-web#2": {
+   "status": "unverifiable",
+   "line": 537,
+   "preview": "search-web"
+  },
+  "13-web-fetch-and-search.md::prompt::search-web#3": {
+   "status": "unverifiable",
+   "line": 1339,
+   "preview": "search-web"
+  },
+  "13-web-fetch-and-search.md::prompt::summarize-page#1": {
+   "status": "unverifiable",
+   "line": 601,
+   "preview": "summarize-page"
+  },
+  "14-fanout.md::assert::0203d6857de0#1": {
+   "status": "unverifiable",
+   "line": 1681,
+   "preview": "## loop UNKNOWN (section incomplete: tool loop exhausted)"
+  },
+  "14-fanout.md::prompt::arm-call#1": {
+   "status": "proven",
+   "line": 893,
+   "preview": "arm-call"
+  },
+  "14-fanout.md::prompt::arm-child-jump#1": {
+   "status": "proven",
+   "line": 843,
+   "preview": "arm-child-jump"
+  },
+  "14-fanout.md::prompt::arm-ids#1": {
+   "status": "proven",
+   "line": 1307,
+   "preview": "arm-ids"
+  },
+  "14-fanout.md::prompt::arm-jump#1": {
+   "status": "proven",
+   "line": 794,
+   "preview": "arm-jump"
+  },
+  "14-fanout.md::prompt::arm-reach#1": {
+   "status": "proven",
+   "line": 745,
+   "preview": "arm-reach"
+  },
+  "14-fanout.md::prompt::arm-return#1": {
+   "status": "proven",
+   "line": 697,
+   "preview": "arm-return"
+  },
+  "14-fanout.md::prompt::arm-view#1": {
+   "status": "proven",
+   "line": 528,
+   "preview": "arm-view"
+  },
+  "14-fanout.md::prompt::break-worker#1": {
+   "status": "proven",
+   "line": 248,
+   "preview": "break-worker"
+  },
+  "14-fanout.md::prompt::called-fanout#1": {
+   "status": "proven",
+   "line": 312,
+   "preview": "called-fanout"
+  },
+  "14-fanout.md::prompt::careful#1": {
+   "status": "proven",
+   "line": 640,
+   "preview": "careful"
+  },
+  "14-fanout.md::prompt::carry-on#1": {
+   "status": "unverifiable",
+   "line": 1622,
+   "preview": "carry-on"
+  },
+  "14-fanout.md::prompt::caught-arm#1": {
+   "status": "proven",
+   "line": 1574,
+   "preview": "caught-arm"
+  },
+  "14-fanout.md::prompt::empty-collection#1": {
+   "status": "proven",
+   "line": 1703,
+   "preview": "empty-collection"
+  },
+  "14-fanout.md::prompt::fanout-basic#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "fanout-basic"
+  },
+  "14-fanout.md::prompt::fanout-epilog#1": {
+   "status": "proven",
+   "line": 94,
+   "preview": "fanout-epilog"
+  },
+  "14-fanout.md::prompt::fanout-rounds#1": {
+   "status": "unverifiable",
+   "line": 49,
+   "preview": "fanout-rounds"
+  },
+  "14-fanout.md::prompt::h1-fanout#1": {
+   "status": "proven",
+   "line": 283,
+   "preview": "h1-fanout"
+  },
+  "14-fanout.md::prompt::keyed-collection#1": {
+   "status": "proven",
+   "line": 461,
+   "preview": "keyed-collection"
+  },
+  "14-fanout.md::prompt::large-fanout#1": {
+   "status": "proven",
+   "line": 1211,
+   "preview": "large-fanout"
+  },
+  "14-fanout.md::prompt::list-collection#1": {
+   "status": "proven",
+   "line": 351,
+   "preview": "list-collection"
+  },
+  "14-fanout.md::prompt::many-members#1": {
+   "status": "proven",
+   "line": 392,
+   "preview": "many-members"
+  },
+  "14-fanout.md::prompt::mixed-members#1": {
+   "status": "proven",
+   "line": 426,
+   "preview": "mixed-members"
+  },
+  "14-fanout.md::prompt::nested-fanout#1": {
+   "status": "proven",
+   "line": 941,
+   "preview": "nested-fanout"
+  },
+  "14-fanout.md::prompt::nested-one-wide#1": {
+   "status": "proven",
+   "line": 982,
+   "preview": "nested-one-wide"
+  },
+  "14-fanout.md::prompt::niece-worker#1": {
+   "status": "broken",
+   "line": 170,
+   "preview": "niece-worker"
+  },
+  "14-fanout.md::prompt::one-at-a-time#1": {
+   "status": "unverifiable",
+   "line": 1153,
+   "preview": "one-at-a-time"
+  },
+  "14-fanout.md::prompt::read-results#1": {
+   "status": "proven",
+   "line": 1029,
+   "preview": "read-results"
+  },
+  "14-fanout.md::prompt::replies#1": {
+   "status": "unverifiable",
+   "line": 593,
+   "preview": "replies"
+  },
+  "14-fanout.md::prompt::safe-store#1": {
+   "status": "proven",
+   "line": 1528,
+   "preview": "safe-store"
+  },
+  "14-fanout.md::prompt::sealed-results#1": {
+   "status": "proven",
+   "line": 1106,
+   "preview": "sealed-results"
+  },
+  "14-fanout.md::prompt::set-limit#1": {
+   "status": "proven",
+   "line": 1254,
+   "preview": "set-limit"
+  },
+  "14-fanout.md::prompt::shared-counter#1": {
+   "status": "proven",
+   "line": 1353,
+   "preview": "shared-counter"
+  },
+  "14-fanout.md::prompt::shared-path#1": {
+   "status": "broken",
+   "line": 1462,
+   "preview": "shared-path"
+  },
+  "14-fanout.md::prompt::shared-worker#1": {
+   "status": "proven",
+   "line": 207,
+   "preview": "shared-worker"
+  },
+  "14-fanout.md::prompt::sibling-worker#1": {
+   "status": "proven",
+   "line": 133,
+   "preview": "sibling-worker"
+  },
+  "14-fanout.md::prompt::tree#1": {
+   "status": "proven",
+   "line": 1395,
+   "preview": "tree"
+  },
+  "15-tasks.md::assert::051050357d75#1": {
+   "status": "unverifiable",
+   "line": 889,
+   "preview": "chain ended with tasks still live: 0.0, 0.1; wait on or canc"
+  },
+  "15-tasks.md::assert::3d5d1b452fc4#1": {
+   "status": "unverifiable",
+   "line": 772,
+   "preview": "task `{task}` was cancelled"
+  },
+  "15-tasks.md::assert::4a0274c7df4d#1": {
+   "status": "unverifiable",
+   "line": 1684,
+   "preview": "0.0 0.2"
+  },
+  "15-tasks.md::assert::5c72f52af809#1": {
+   "status": "unverifiable",
+   "line": 2155,
+   "preview": "task_not_owned|9.9"
+  },
+  "15-tasks.md::assert::69b3579450eb#1": {
+   "status": "unverifiable",
+   "line": 1872,
+   "preview": "`{text}` is not a task id such as `0.1`: invalid chain id `{"
+  },
+  "15-tasks.md::assert::6d220369e284#1": {
+   "status": "unverifiable",
+   "line": 1398,
+   "preview": "lua lua lua task_not_owned"
+  },
+  "15-tasks.md::assert::88cd0b42b97b#1": {
+   "status": "unverifiable",
+   "line": 1707,
+   "preview": "lua lua lua quick"
+  },
+  "15-tasks.md::assert::982cb2f5d14e#1": {
+   "status": "unverifiable",
+   "line": 2124,
+   "preview": "false|lua|section heading `## Missing` not found"
+  },
+  "15-tasks.md::assert::9a2272a54cb4#1": {
+   "status": "unverifiable",
+   "line": 610,
+   "preview": "task `{task}` was already delivered: a task's result is take"
+  },
+  "15-tasks.md::assert::a92357d21d07#1": {
+   "status": "unverifiable",
+   "line": 1650,
+   "preview": "true true grandchild done 0"
+  },
+  "15-tasks.md::assert::b3e2eaa9b758#1": {
+   "status": "unverifiable",
+   "line": 799,
+   "preview": "tasks.pending takes no arguments, got {type}"
+  },
+  "15-tasks.md::assert::c0912ac23b20#1": {
+   "status": "unverifiable",
+   "line": 1061,
+   "preview": "chain ended with tasks still live: {ids}; wait on or cancel "
+  },
+  "15-tasks.md::assert::f2acf9fd4ea7#1": {
+   "status": "unverifiable",
+   "line": 1340,
+   "preview": "running queued false | done true working true | 0.0.0 0.0.1 "
+  },
+  "15-tasks.md::assert::f6276462d60f#1": {
+   "status": "unverifiable",
+   "line": 975,
+   "preview": "task `{task}` is not a task this chain owns"
+  },
+  "15-tasks.md::assert::f87fe4947393#1": {
+   "status": "unverifiable",
+   "line": 493,
+   "preview": "alpha text + beta text"
+  },
+  "15-tasks.md::prompt::cancel-one#1": {
+   "status": "proven",
+   "line": 705,
+   "preview": "cancel-one"
+  },
+  "15-tasks.md::prompt::checked-join#1": {
+   "status": "proven",
+   "line": 507,
+   "preview": "checked-join"
+  },
+  "15-tasks.md::prompt::clean-end#1": {
+   "status": "proven",
+   "line": 848,
+   "preview": "clean-end"
+  },
+  "15-tasks.md::prompt::deep-spawn#1": {
+   "status": "stale",
+   "line": 1965,
+   "preview": "deep-spawn"
+  },
+  "15-tasks.md::prompt::early-start#1": {
+   "status": "proven",
+   "line": 1831,
+   "preview": "early-start"
+  },
+  "15-tasks.md::prompt::freeform#1": {
+   "status": "proven",
+   "line": 393,
+   "preview": "freeform"
+  },
+  "15-tasks.md::prompt::item-seeds#1": {
+   "status": "proven",
+   "line": 308,
+   "preview": "item-seeds"
+  },
+  "15-tasks.md::prompt::jump-keeps-tasks#1": {
+   "status": "proven",
+   "line": 899,
+   "preview": "jump-keeps-tasks"
+  },
+  "15-tasks.md::prompt::late-write#1": {
+   "status": "proven",
+   "line": 1592,
+   "preview": "late-write"
+  },
+  "15-tasks.md::prompt::leak-check#1": {
+   "status": "proven",
+   "line": 1023,
+   "preview": "leak-check"
+  },
+  "15-tasks.md::prompt::leaky-walk#1": {
+   "status": "proven",
+   "line": 987,
+   "preview": "leaky-walk"
+  },
+  "15-tasks.md::prompt::nested-tasks#1": {
+   "status": "proven",
+   "line": 1884,
+   "preview": "nested-tasks"
+  },
+  "15-tasks.md::prompt::not-owned#1": {
+   "status": "proven",
+   "line": 941,
+   "preview": "not-owned"
+  },
+  "15-tasks.md::prompt::one-task#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "one-task"
+  },
+  "15-tasks.md::prompt::pipeline#1": {
+   "status": "proven",
+   "line": 662,
+   "preview": "pipeline"
+  },
+  "15-tasks.md::prompt::pros-and-cons#1": {
+   "status": "proven",
+   "line": 160,
+   "preview": "pros-and-cons"
+  },
+  "15-tasks.md::prompt::race#1": {
+   "status": "proven",
+   "line": 807,
+   "preview": "race"
+  },
+  "15-tasks.md::prompt::seeded-task#1": {
+   "status": "proven",
+   "line": 261,
+   "preview": "seeded-task"
+  },
+  "15-tasks.md::prompt::self-note#1": {
+   "status": "proven",
+   "line": 1151,
+   "preview": "self-note"
+  },
+  "15-tasks.md::prompt::shared-counter#1": {
+   "status": "proven",
+   "line": 1772,
+   "preview": "shared-counter"
+  },
+  "15-tasks.md::prompt::spawn-order#1": {
+   "status": "proven",
+   "line": 113,
+   "preview": "spawn-order"
+  },
+  "15-tasks.md::prompt::status-snapshot#1": {
+   "status": "stale",
+   "line": 1206,
+   "preview": "status-snapshot"
+  },
+  "15-tasks.md::prompt::still-working#1": {
+   "status": "unverifiable",
+   "line": 1469,
+   "preview": "still-working"
+  },
+  "15-tasks.md::prompt::task-events#1": {
+   "status": "proven",
+   "line": 2017,
+   "preview": "task-events"
+  },
+  "15-tasks.md::prompt::task-fall-through#1": {
+   "status": "proven",
+   "line": 221,
+   "preview": "task-fall-through"
+  },
+  "15-tasks.md::prompt::task-ids#1": {
+   "status": "proven",
+   "line": 1723,
+   "preview": "task-ids"
+  },
+  "15-tasks.md::prompt::task-status#1": {
+   "status": "proven",
+   "line": 1107,
+   "preview": "task-status"
+  },
+  "15-tasks.md::prompt::tasks-global#1": {
+   "status": "proven",
+   "line": 54,
+   "preview": "tasks-global"
+  },
+  "15-tasks.md::prompt::timed-join#1": {
+   "status": "stale",
+   "line": 1511,
+   "preview": "timed-join"
+  },
+  "15-tasks.md::prompt::timed-wait#1": {
+   "status": "proven",
+   "line": 1418,
+   "preview": "timed-wait"
+  },
+  "15-tasks.md::prompt::two-tasks#1": {
+   "status": "proven",
+   "line": 437,
+   "preview": "two-tasks"
+  },
+  "15-tasks.md::prompt::var-snapshot#1": {
+   "status": "proven",
+   "line": 354,
+   "preview": "var-snapshot"
+  },
+  "15-tasks.md::prompt::wait-once#1": {
+   "status": "proven",
+   "line": 579,
+   "preview": "wait-once"
+  },
+  "16-limits-and-errors.md::assert::0a2d512c8c2f#1": {
+   "status": "unverifiable",
+   "line": 789,
+   "preview": "unsupported runvil version: 1 (this build supports major 0)"
+  },
+  "16-limits-and-errors.md::assert::0cbe253f7181#1": {
+   "status": "unverifiable",
+   "line": 454,
+   "preview": "not a runvil prompt: no runvil version"
+  },
+  "16-limits-and-errors.md::assert::16cf0be0b141#1": {
+   "status": "unverifiable",
+   "line": 1140,
+   "preview": "the model backend rejected the request (status {status})"
+  },
+  "16-limits-and-errors.md::assert::1b5c08960d18#1": {
+   "status": "unverifiable",
+   "line": 1154,
+   "preview": "the model replied with no text and no tool calls"
+  },
+  "16-limits-and-errors.md::assert::26877d677aae#1": {
+   "status": "unverifiable",
+   "line": 1133,
+   "preview": "model access is turned off or not configured the model backe"
+  },
+  "16-limits-and-errors.md::assert::2f8fa6896ebc#1": {
+   "status": "unverifiable",
+   "line": 991,
+   "preview": "section heading `<heading>` not found; available sections: <"
+  },
+  "16-limits-and-errors.md::assert::341c43ca45bd#1": {
+   "status": "unverifiable",
+   "line": 1108,
+   "preview": "the model backend is limiting the request rate (status 429) "
+  },
+  "16-limits-and-errors.md::assert::4a8c3af9ff0d#1": {
+   "status": "unverifiable",
+   "line": 385,
+   "preview": "section `{name}` prologue section `{name}` epilog section `{"
+  },
+  "16-limits-and-errors.md::assert::5a251d52c08e#1": {
+   "status": "unverifiable",
+   "line": 1162,
+   "preview": "the model backend sent a reply that could not be understood:"
+  },
+  "16-limits-and-errors.md::assert::6b40701b5c1c#1": {
+   "status": "unverifiable",
+   "line": 983,
+   "preview": "invalid alias \"<alias>\": expected [A-Za-z][A-Za-z0-9_-]{0,63"
+  },
+  "16-limits-and-errors.md::assert::861c75810315#1": {
+   "status": "unverifiable",
+   "line": 1115,
+   "preview": "the model backend is overloaded (status {status}) the model "
+  },
+  "16-limits-and-errors.md::assert::872f222ebdbf#1": {
+   "status": "unverifiable",
+   "line": 858,
+   "preview": "lua log event quota exceeded lua log byte quota exceeded cal"
+  },
+  "16-limits-and-errors.md::assert::883e02dcf4db#1": {
+   "status": "unverifiable",
+   "line": 413,
+   "preview": "file must begin with a --- frontmatter delimiter frontmatter"
+  },
+  "16-limits-and-errors.md::assert::8864eaafe782#1": {
+   "status": "unverifiable",
+   "line": 1080,
+   "preview": "the connection to the model backend failed the model backend"
+  },
+  "16-limits-and-errors.md::assert::8a44f0c81ebe#1": {
+   "status": "unverifiable",
+   "line": 526,
+   "preview": "unrecognized fence label `{label}`; the only Lua fence label"
+  },
+  "16-limits-and-errors.md::assert::8bbafb72d5e4#1": {
+   "status": "unverifiable",
+   "line": 1087,
+   "preview": "the model backend sent a reply that could not be understood:"
+  },
+  "16-limits-and-errors.md::assert::adfce14f78d4#1": {
+   "status": "unverifiable",
+   "line": 1406,
+   "preview": "RUNVIL_GATEWAY_URL=http://127.0.0.1:8081/v1"
+  },
+  "16-limits-and-errors.md::assert::b1aba89aebcc#1": {
+   "status": "unverifiable",
+   "line": 1124,
+   "preview": "the model backend refused the request on content policy grou"
+  },
+  "16-limits-and-errors.md::assert::b559ef007d20#1": {
+   "status": "unverifiable",
+   "line": 1206,
+   "preview": "the model backend says the usage quota is spent (status 429)"
+  },
+  "16-limits-and-errors.md::assert::bc23a0685b83#1": {
+   "status": "unverifiable",
+   "line": 1096,
+   "preview": "the model backend sent a reply that could not be understood:"
+  },
+  "16-limits-and-errors.md::assert::c08663eec3b6#1": {
+   "status": "unverifiable",
+   "line": 272,
+   "preview": "the environment cannot satisfy this prompt: - the H1 gate fa"
+  },
+  "16-limits-and-errors.md::assert::c2195305bfe9#1": {
+   "status": "unverifiable",
+   "line": 1308,
+   "preview": "interrupted: the run was cancelled or this call was stopped"
+  },
+  "16-limits-and-errors.md::assert::c5f587759b56#1": {
+   "status": "unverifiable",
+   "line": 516,
+   "preview": "section `{name}` prologue `lua` section `{name}` epilog `lua"
+  },
+  "16-limits-and-errors.md::assert::c96e5204b9ed#1": {
+   "status": "unverifiable",
+   "line": 745,
+   "preview": "empty bullet item in list section `{name}`"
+  },
+  "16-limits-and-errors.md::assert::d33fb35bc02b#1": {
+   "status": "unverifiable",
+   "line": 379,
+   "preview": "lua compilation error at {location} (line {line}): {diagnost"
+  },
+  "16-limits-and-errors.md::assert::d803544a17e4#1": {
+   "status": "unverifiable",
+   "line": 462,
+   "preview": "prompt requires an H1 title prompt must contain exactly one "
+  },
+  "16-limits-and-errors.md::prompt::brief#1": {
+   "status": "unverifiable",
+   "line": 1174,
+   "preview": "brief"
+  },
+  "16-limits-and-errors.md::prompt::broken#1": {
+   "status": "broken",
+   "line": 637,
+   "preview": "broken"
+  },
+  "16-limits-and-errors.md::prompt::capped#1": {
+   "status": "unverifiable",
+   "line": 74,
+   "preview": "capped"
+  },
+  "16-limits-and-errors.md::prompt::chatty#1": {
+   "status": "proven",
+   "line": 153,
+   "preview": "chatty"
+  },
+  "16-limits-and-errors.md::prompt::closer#1": {
+   "status": "proven",
+   "line": 686,
+   "preview": "closer"
+  },
+  "16-limits-and-errors.md::prompt::counter#1": {
+   "status": "proven",
+   "line": 201,
+   "preview": "counter"
+  },
+  "16-limits-and-errors.md::prompt::dup#1": {
+   "status": "proven",
+   "line": 570,
+   "preview": "dup"
+  },
+  "16-limits-and-errors.md::prompt::future#1": {
+   "status": "proven",
+   "line": 765,
+   "preview": "future"
+  },
+  "16-limits-and-errors.md::prompt::helper#1": {
+   "status": "broken",
+   "line": 656,
+   "preview": "helper"
+  },
+  "16-limits-and-errors.md::prompt::hoarder#1": {
+   "status": "broken",
+   "line": 249,
+   "preview": "hoarder"
+  },
+  "16-limits-and-errors.md::prompt::lookalike#1": {
+   "status": "proven",
+   "line": 710,
+   "preview": "lookalike"
+  },
+  "16-limits-and-errors.md::prompt::open#1": {
+   "status": "proven",
+   "line": 495,
+   "preview": "open"
+  },
+  "16-limits-and-errors.md::prompt::patient#1": {
+   "status": "unverifiable",
+   "line": 1318,
+   "preview": "patient"
+  },
+  "16-limits-and-errors.md::prompt::spinner#1": {
+   "status": "unverifiable",
+   "line": 1267,
+   "preview": "spinner"
+  },
+  "16-limits-and-errors.md::prompt::steady#1": {
+   "status": "proven",
+   "line": 10,
+   "preview": "steady"
+  },
+  "16-limits-and-errors.md::prompt::steps#1": {
+   "status": "proven",
+   "line": 540,
+   "preview": "steps"
+  },
+  "16-limits-and-errors.md::prompt::summary#1": {
+   "status": "proven",
+   "line": 893,
+   "preview": "summary"
+  },
+  "16-limits-and-errors.md::prompt::summary#2": {
+   "status": "stale",
+   "line": 1001,
+   "preview": "summary"
+  },
+  "16-limits-and-errors.md::prompt::transform#1": {
+   "status": "proven",
+   "line": 312,
+   "preview": "transform"
+  },
+  "16-limits-and-errors.md::prompt::twice#1": {
+   "status": "proven",
+   "line": 433,
+   "preview": "twice"
+  }
+ }
+}
