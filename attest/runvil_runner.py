@@ -2,12 +2,15 @@
 
 One Host process per claim. One JSON object goes in on stdin::
 
-    {"prompt": "<prompt file text>", "args": [], "script": [], "seed": 123, "started_at": "..."}
+    {"prompt": "<prompt file text>", "args": [], "script": [], "seed": 123, "started_at": "...",
+     "files": {}, "input": null, "mode": null, "refuse": [], "execution": null}
 
 and one PromptObservation comes out on stdout. ``seed`` and ``started_at`` are derived
-from the claim id, so a rerun of the same claim gives the same events. ``script`` holds
-the model replies in round order; nothing in this session supplies any, so a prompt that
-asks a model ends ``needs_script`` and the claim ends unverifiable, never guessed.
+from the claim id. ``script`` holds the model replies in round order, and ``files``,
+``input``, ``mode``, ``refuse`` and ``execution`` describe what the Host supplies for the
+example; all of them come from the sidecar's ``prompts`` section through the claim's
+context. A prompt that asks a model beyond its script ends ``needs_script`` and the claim
+ends unverifiable, never guessed.
 
 The Host binary comes from ``ATTEST_RUNVIL_HOST`` or ``PATH``. A missing binary is an
 error before anything runs; a Host that answers badly is an error too, never evidence.
@@ -78,12 +81,21 @@ class RunvilPromptRunner:
         if args is None:
             # the argument string the doc names for the example, as one argument the Host joins verbatim
             args = [claim.args] if claim.args else []
+        context = claim.context
+        if script is None:
+            script = list(context.script) if context else []
         return {
             "prompt": claim.command or "",
             "args": list(args),
-            "script": list(script or []),
+            "script": list(script),
             "seed": claim_seed(claim.id),
             "started_at": claim_started_at(claim.id),
+            # the Host context the sidecar describes for this example
+            "files": dict(context.files) if context else {},
+            "input": context.input if context else None,
+            "mode": context.mode if context else None,
+            "refuse": list(context.refuse) if context else [],
+            "execution": context.execution if context else None,
         }
 
     def run(self, claim: Claim) -> PromptObservation:

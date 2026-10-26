@@ -12,3 +12,13 @@ trust_loopback = true
 [[profile]]
 name = "main"
 models = []
+
+# The profiles chapter switches to "travel"; a headless build (no local feature)
+# accepts only profiles that list no local or speech model.
+[[profile]]
+name = "work"
+models = []
+
+[[profile]]
+name = "travel"
+models = []

@@ -273,7 +273,10 @@ def test_runvil_runner_speaks_the_protocol(tmp_path, monkeypatch):
     obs = runner.run(prompt_claim())
     assert obs.status == "completed" and obs.result == "hello\n" and obs.host_version == "fake-host@1"
     request = json.loads(log.read_text(encoding="utf-8"))
-    assert request == {"prompt": PROMPT, "args": [], "script": [], "seed": claim_seed("c01"), "started_at": claim_started_at("c01")}
+    assert request == {
+        "prompt": PROMPT, "args": [], "script": [], "seed": claim_seed("c01"), "started_at": claim_started_at("c01"),
+        "files": {}, "input": None, "mode": None, "refuse": [], "execution": None,
+    }
     assert judge(prompt_claim(), Evidence(claim_id="c01", kind="prompt", prompt=obs)).status == "proven"
     # the same claim gives the same request twice
     runner.run(prompt_claim())
@@ -281,6 +284,14 @@ def test_runvil_runner_speaks_the_protocol(tmp_path, monkeypatch):
     # the doc's argument string travels as one argument the Host joins verbatim
     runner.run(prompt_claim().model_copy(update={"args": "later canned value"}))
     assert json.loads(log.read_text(encoding="utf-8"))["args"] == ["later canned value"]
+    # the sidecar's Host context travels field for field
+    from attest.models import PromptContext
+
+    context = PromptContext(files={"paper.md": "the paper body"}, input="# Paper", mode="ask", refuse=["secret.md"], execution="execute-test", script=["one", "two"])
+    runner.run(prompt_claim().model_copy(update={"context": context}))
+    sent = json.loads(log.read_text(encoding="utf-8"))
+    assert sent["files"] == {"paper.md": "the paper body"} and sent["input"] == "# Paper" and sent["mode"] == "ask"
+    assert sent["refuse"] == ["secret.md"] and sent["execution"] == "execute-test" and sent["script"] == ["one", "two"]
 
 
 def test_runvil_runner_fails_closed_on_a_bad_host(tmp_path, monkeypatch):

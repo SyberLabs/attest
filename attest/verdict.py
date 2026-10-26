@@ -109,16 +109,20 @@ def normalize_result(s: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-# the guides' placeholder for run-specific text inside a result fence: {nonce}, {identity}, {...}
-_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_.]*|\.\.\.)\}")
+# the guides' placeholder for run-specific text inside a result fence: {nonce}, {identity}, {...},
+# and a timestamp literal, which stands for the run's own clock (the Harness stamps every run)
+_TIMESTAMP = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"
+_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_.]*|\.\.\.)\}|(" + _TIMESTAMP + ")")
 
 
 def placeholders_in(text: str) -> list[str]:
-    """The distinct placeholders a result fence uses, in order of first appearance."""
+    """The distinct placeholders a result fence uses, in order of first appearance;
+    a timestamp literal is listed as ``<timestamp>``."""
     out: list[str] = []
     for m in _PLACEHOLDER.finditer(text):
-        if m.group(0) not in out:
-            out.append(m.group(0))
+        label = "<timestamp>" if m.group(2) else m.group(0)
+        if label not in out:
+            out.append(label)
     return out
 
 
@@ -126,7 +130,8 @@ def placeholder_pattern(text: str) -> re.Pattern[str] | None:
     """A regex for text that uses placeholders, or None when it uses none.
 
     Each ``{name}`` stands for one run of text within a line; the same name must
-    stand for the same text everywhere it appears. ``{...}`` is any such run."""
+    stand for the same text everywhere it appears. ``{...}`` is any such run. A
+    timestamp literal stands for any timestamp of the same shape."""
     if not _PLACEHOLDER.search(text):
         return None
     parts: list[str] = []
@@ -134,6 +139,10 @@ def placeholder_pattern(text: str) -> re.Pattern[str] | None:
     pos = 0
     for m in _PLACEHOLDER.finditer(text):
         parts.append(re.escape(text[pos : m.start()]))
+        if m.group(2):
+            parts.append(_TIMESTAMP)
+            pos = m.end()
+            continue
         name = m.group(1)
         if name == "...":
             parts.append(r"[^\n]+?")
@@ -379,11 +388,44 @@ def _judge_prompt(claim: Claim, ev: Evidence) -> Verdict:
     return Verdict(claim_id=claim.id, status="proven", reason=reason, evidence=ev)
 
 
+def json_in(expects: str, haystack: str | None) -> bool | None:
+    """When ``expects`` is one JSON value: True if the output holds a JSON value
+    equal to it (whitespace and key order aside), False if not; None when
+    ``expects`` is not JSON, so the text rule decides."""
+    import json
+
+    try:
+        wanted = json.loads(expects.strip())
+    except ValueError:
+        return None
+    if not isinstance(wanted, (dict, list)):
+        return None
+    if haystack is None:
+        return False
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(haystack):
+        if ch not in "{[":
+            continue
+        try:
+            found, _ = decoder.raw_decode(haystack, i)
+        except ValueError:
+            continue
+        if found == wanted:
+            return True
+    return False
+
+
 def _judge_assert(claim: Claim, ev: Evidence) -> Verdict:
     if ev.kind != "shell":
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: assert needs shell output", evidence=ev)
     if not claim.expects:
         return Verdict(claim_id=claim.id, status="unverifiable", reason="unverifiable: assert without expected text", evidence=ev)
+    as_json = json_in(claim.expects, ev.stdout_tail)
+    if as_json is not None:
+        # a printed JSON response: equal as JSON, whatever the spacing
+        if as_json:
+            return Verdict(claim_id=claim.id, status="proven", reason="proven: expected JSON response found in previous step's output (compared as JSON)", evidence=ev, label_match=1.0)
+        return Verdict(claim_id=claim.id, status="stale", reason="stale: expected JSON response not in previous step's output (compared as JSON)", evidence=ev, label_match=0.0)
     if expects_in(claim.expects, ev.stdout_tail):
         return Verdict(claim_id=claim.id, status="proven", reason="proven: expected output found in previous step", evidence=ev, label_match=1.0)
     return Verdict(claim_id=claim.id, status="stale", reason="stale: expected output not in previous step's output", evidence=ev, label_match=0.0)

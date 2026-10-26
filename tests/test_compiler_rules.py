@@ -301,3 +301,15 @@ def test_untagged_config_and_json_fences_are_never_run():
     # the Gateway chapter compiles to its six commands and the systemd snippet as prose
     doc = ingest(str(ROOT / "tests" / "fixtures" / "runvil" / "gateway-01-install-and-run.md"))
     assert [c.kind for c in fences_by_regex(doc)] == ["shell"] * 6 + ["prose"]
+
+
+def test_frontmatter_only_prompt_fences_are_fragments_unless_a_result_follows():
+    frontmatter = "---\nname: greeter\ndescription: says hi\nrunvil: 0\n---\n"
+    alone = ingest_text(f"````markdown\n{frontmatter}````\n")
+    assert [c.kind for c in fences_by_regex(alone)] == ["prose"]
+    # the parser refuses it for lacking a title, and a doc that shows that failure pairs it with the message
+    documented = ingest_text(f"````markdown\n{frontmatter}````\n\n````text\nprompt requires an H1 title\n````\n")
+    claims = fences_by_regex(documented)
+    assert [c.kind for c in claims] == ["prompt"] and claims[0].expects == "prompt requires an H1 title"
+    whole = ingest_text(f"````markdown\n{frontmatter}\n# Greeter\n\n## Main\n\n```lua\nreturn 1\n```\n````\n")
+    assert [c.kind for c in fences_by_regex(whole)] == ["prompt"]

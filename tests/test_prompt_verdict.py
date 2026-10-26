@@ -272,3 +272,36 @@ def test_args_is_prompt_only_and_round_trips():
         Claim(id="c01", kind="shell", span=span(), command="ls", args="x")
     c = prompt_claim().model_copy(update={"args": "rust"})
     assert Claim.model_validate_json(c.model_dump_json()).args == "rust"
+
+
+def test_a_timestamp_in_a_result_fence_stands_for_the_runs_clock():
+    from attest.verdict import placeholders_in, results_equal
+
+    assert placeholders_in("started at 2000-02-29T00:00:00.123Z") == ["<timestamp>"]
+    assert results_equal("2000-02-29T00:00:00.123Z\n", "2026-10-26T08:28:34.326Z\n")
+    assert results_equal("at 2000-02-29T00:00:00Z end", "at 2026-10-26T08:28:34Z end")
+    assert not results_equal("2000-02-29T00:00:00.123Z\n", "not a time\n")
+    assert not results_equal("2000-02-29T00:00:00.123Z\n", "2026-10-26 08:28:34\n")
+    v = judge(prompt_claim(expects="2000-02-29T00:00:00.123Z\n"), prompt_ev(status="completed", result="2026-10-26T08:28:34.326Z"))
+    assert v.status == "proven" and "<timestamp> standing for run-specific text" in v.reason
+
+
+def test_a_json_response_assert_compares_as_json():
+    from attest.verdict import json_in
+
+    doc = '{"profile": "travel", "restart_required": true}'
+    printed = '100    62  100    44 --:--:-- 31000{"profile":"travel","restart_required":true}'
+    assert json_in(doc, printed) is True
+    assert json_in(doc, '{"restart_required":true,"profile":"travel"}') is True  # key order is not a promise
+    assert json_in(doc, '{"profile":"work","restart_required":true}') is False
+    assert json_in("plain text", "plain text") is None
+    assert json_in("42", "42") is None
+    assert json_in(doc, None) is False
+    c = Claim(id="c02", kind="assert", span=span(), expects=doc, depends_on=["c01"])
+    good = Evidence(claim_id="c02", kind="shell", exit_code=0, stdout_tail=printed)
+    v = judge(c, good)
+    assert v.status == "proven" and "compared as JSON" in v.reason
+    assert judge(c, Evidence(claim_id="c02", kind="shell", exit_code=0, stdout_tail='{"error":{"code":"profile_not_found"}}')).status == "stale"
+    # text asserts keep the substring rule
+    t = Claim(id="c02", kind="assert", span=span(), expects="Hello from Flask", depends_on=["c01"])
+    assert judge(t, Evidence(claim_id="c02", kind="shell", exit_code=0, stdout_tail="...\nHello from Flask\n")).status == "proven"

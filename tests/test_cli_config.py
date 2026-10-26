@@ -395,3 +395,51 @@ def test_book_shares_the_service_a_first_doc_started(tmp_path, monkeypatch):
     # a book refuses the single-doc-only options
     refused = CliRunner().invoke(app, ["prove", str(first), str(second), "--runner", "kane", "--home", home, "--loop"])
     assert refused.exit_code == 2
+
+
+# -- prompts: the Host context the doc describes, by frontmatter name ---------------------------------
+
+
+def test_sidecar_prompts_give_a_prompt_claim_its_host_context(tmp_path):
+    from attest.models import PromptContext
+    from attest.pipeline import annotate_prompts, prompt_name
+
+    side = tmp_path / "attest.cli.yaml"
+    side.write_text(
+        "prompts:\n"
+        "  report:\n    files: { paper.md: the paper body }\n    input: '# Paper'\n    mode: ask\n    refuse: [secret.md]\n    execution: execute-test\n    script: [one, two]\n    args: rust\n"
+        "  bare: {}\n",
+        encoding="utf-8",
+    )
+    cfg = load_cli_config(side)
+    spec = cfg.prompts["report"]
+    assert spec.context == PromptContext(files={"paper.md": "the paper body"}, input="# Paper", mode="ask", refuse=["secret.md"], execution="execute-test", script=["one", "two"])
+    assert spec.args == "rust"
+    assert cfg.prompts["bare"].context == PromptContext() and cfg.prompts["bare"].args is None
+    prompt = "---\nname: report\ndescription: d\nrunvil: 0\n---\n\n# Report\n\n## Main\n\n```lua\nreturn 1\n```\n"
+    claim = Claim(id="c01", kind="prompt", span=Span(start_line=1, end_line=1, text="x"), command=prompt, args="doc args")
+    other = claim.model_copy(update={"command": prompt.replace("name: report", "name: other")})
+    assert prompt_name(claim) == "report" and prompt_name(other) == "other"
+    annotated = annotate_prompts([claim, other], cfg)
+    assert annotated[0].context == spec.context and annotated[0].args == "rust"
+    assert annotated[1].context is None and annotated[1].args == "doc args"
+    assert annotate_prompts([claim], CliConfig()) == [claim]
+
+
+@pytest.mark.parametrize(
+    "text,match",
+    [
+        ("prompts:\n  a:\n    mode: yolo\n", "mode"),
+        ("prompts:\n  a:\n    files: { ../x: y }\n", "inside the scratch directory"),
+        ("prompts:\n  a:\n    files: [x]\n", "files must map"),
+        ("prompts:\n  a:\n    nope: 1\n", "nope"),
+        ("prompts:\n  a:\n    args: ''\n", "non-empty string"),
+        ("prompts: [a]\n", "mapping of prompt name"),
+        ("prompts:\n  a: text\n", "needs a mapping"),
+    ],
+)
+def test_sidecar_prompts_are_validated(tmp_path, text, match):
+    side = tmp_path / "attest.cli.yaml"
+    side.write_text(text, encoding="utf-8")
+    with pytest.raises(CliConfigError, match=match):
+        load_cli_config(side)

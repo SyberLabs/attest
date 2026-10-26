@@ -1,0 +1,18 @@
+# Sidecar for the Gateway guide in CI (.github/workflows/runvil-docs.yml). The workflow checks
+# out runvil-docs and runvil as siblings of this repo and builds runvil-gateway before proving.
+fixtures:
+  gateway-config:
+    path: gateway.toml
+    from: gateway.toml
+services:
+  - match: "runvil-gateway --config"
+    ready: http://127.0.0.1:8081/health
+    ready_timeout_s: 60
+substitute:
+  # crates.io's `gateway` is an unrelated package; install Runvil's own gateway from the checkout.
+  # Commands run in a scratch directory, so the paths are absolute through the workflow's variable.
+  "cargo install gateway": 'cargo install --locked --path "$GITHUB_WORKSPACE/runvil/crates/gateway/app" --no-default-features --root "$GITHUB_WORKSPACE/tools" --target-dir "$GITHUB_WORKSPACE/runvil/target"'
+expects:
+  - match: 'curl -H "Authorization: Bearer wrong-token"'
+    output: unauthorized
+browser_claims: false

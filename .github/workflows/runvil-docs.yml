@@ -1,0 +1,71 @@
+# Prove Runvil's documentation with Attest (docs/CLI-RUNNER-SPEC.md, milestone 6).
+#
+# runvil-docs and runvil are checked out read-only at pinned commits beside this repo; the
+# gateway and runvil-docs-host are built from the runvil checkout; both guides run as books
+# with no model call. The report under .attest/ is uploaded whatever the verdicts, and the
+# verdict summary is printed. The prove steps do not fail the job here: drift in Runvil's
+# docs is not a defect of this repo. In a fork of runvil-docs the same steps gate its PRs.
+name: runvil-docs
+
+on:
+  pull_request:
+    paths: [attest/**, host/**, ci/runvil-docs/**, .github/workflows/runvil-docs.yml, rules.yaml]
+  workflow_dispatch:
+
+env:
+  RUNVIL_DOCS_REF: dd8a2456f92961928f54f09c37ade0da1b956355
+  RUNVIL_REF: c27899e7ac45
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: attest }
+      - uses: actions/checkout@v4
+        with:
+          repository: cppalliance/runvil-docs
+          ref: ${{ env.RUNVIL_DOCS_REF }}
+          path: runvil-docs
+      - uses: actions/checkout@v4
+        with:
+          repository: cppalliance/runvil
+          ref: ${{ env.RUNVIL_REF }}
+          path: runvil
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            runvil
+            attest/host/runvil-docs-host -> ../../../runvil/target
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Build runvil-gateway and runvil-docs-host
+        run: |
+          cargo build --release -p gateway --no-default-features
+          cargo build --release --manifest-path ../attest/host/runvil-docs-host/Cargo.toml --target-dir target
+        working-directory: runvil
+      - name: Install Attest
+        run: python -m pip install ./attest
+      - name: Prove the Gateway guide
+        continue-on-error: true
+        env:
+          GATEWAY_KEY: secret-key
+          HOME: ${{ github.workspace }}/gateway-home
+        run: |
+          mkdir -p "$HOME" tools/bin
+          export PATH="$PWD/tools/bin:$PATH"
+          cp attest/ci/runvil-docs/gateway.toml attest/ci/runvil-docs/gateway.cli.yaml runvil-docs/src/gateway/
+          cd runvil-docs/src/gateway
+          attest prove $(ls [01]*.md | sort) --cli-config gateway.cli.yaml --substitute --runner none --home "$GITHUB_WORKSPACE/.attest/gateway"
+      - name: Prove the Language guide
+        continue-on-error: true
+        env:
+          ATTEST_RUNVIL_HOST: ${{ github.workspace }}/runvil/target/release/runvil-docs-host
+        run: |
+          cp attest/ci/runvil-docs/language.cli.yaml runvil-docs/src/language/
+          cd runvil-docs/src/language
+          attest prove $(ls [01]*.md | sort) --cli-config language.cli.yaml --runner none --prompt-runner runvil --home "$GITHUB_WORKSPACE/.attest/language"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: attest-report, path: .attest/ }

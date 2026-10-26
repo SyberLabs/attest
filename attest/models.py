@@ -54,6 +54,22 @@ class Span(BaseModel):
         return self
 
 
+class PromptContext(BaseModel):
+    """What the doc says the Host supplies for one prompt example: the store it
+    seeds, the input text it launches with, its store mode or policy, the run's
+    name, and the model replies in round order. The sidecar file provides it,
+    keyed by the prompt's frontmatter name (docs/CLI-RUNNER-SPEC.md)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    files: dict[str, str] = Field(default_factory=dict)  # store path -> text seeded before the run
+    input: str | None = None  # text for the prompt's declared input file
+    mode: Literal["ask", "plan", "agent"] | None = None  # Runvil's store mode
+    refuse: list[str] = Field(default_factory=list)  # store paths whose changes the Host policy refuses
+    execution: str | None = None  # the run's name, sys.execution
+    script: list[str] = Field(default_factory=list)  # model replies, in round order
+
+
 class Claim(BaseModel):
     """One checkable statement lifted from the doc."""
 
@@ -71,6 +87,8 @@ class Claim(BaseModel):
     expects_error: bool = False
     # prompt claims: the argument string the doc says the example runs with
     args: str | None = None
+    # prompt claims: what the sidecar says the Host supplies for this example
+    context: PromptContext | None = None
     # names of sidecar fixtures that must exist before the claim runs
     setup: list[str] = Field(default_factory=list)
 
@@ -88,6 +106,8 @@ class Claim(BaseModel):
             raise ValueError("expects_error is only meaningful on a prompt claim")
         if self.args is not None and self.kind != "prompt":
             raise ValueError("args is only meaningful on a prompt claim")
+        if self.context is not None and self.kind != "prompt":
+            raise ValueError("context is only meaningful on a prompt claim")
         return self
 
 

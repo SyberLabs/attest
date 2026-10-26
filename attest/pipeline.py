@@ -219,6 +219,35 @@ def annotate_setup(claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
     return out
 
 
+_PROMPT_NAME = re.compile(r"^name:\s*(.+?)\s*$", re.M)
+
+
+def prompt_name(claim: Claim) -> str | None:
+    """The frontmatter name of a prompt claim, which the sidecar keys its contexts by."""
+    if claim.kind != "prompt" or not claim.command:
+        return None
+    head = claim.command.split("\n---", 1)[0]
+    m = _PROMPT_NAME.search(head)
+    return m.group(1) if m else None
+
+
+def annotate_prompts(claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
+    """The sidecar's ``prompts`` gives a prompt claim the Host context the doc
+    describes in prose: seeded files, input text, mode, policy, run name, script."""
+    if not cli_config.prompts:
+        return claims
+    out = []
+    for c in claims:
+        spec = cli_config.prompts.get(prompt_name(c) or "")
+        if spec is not None:
+            update: dict = {"context": spec.context}
+            if spec.args is not None:
+                update["args"] = spec.args
+            c = c.model_copy(update=update)
+        out.append(c)
+    return out
+
+
 def annotate_expects(doc: Doc, claims: list[Claim], cli_config: CliConfig) -> list[Claim]:
     """The sidecar's ``expects`` gives a shell claim the output the doc promises in
     prose. The promised text must appear in the doc, so the sidecar can only
@@ -288,7 +317,7 @@ def prove(
 
         candidate = make_candidate(Path(app_dir), doc.sha256, home)
         shell_env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
-    claims = annotate_expects(doc, annotate_setup(compile_doc(doc, llm=llm), cli_config), cli_config)
+    claims = annotate_prompts(annotate_expects(doc, annotate_setup(compile_doc(doc, llm=llm), cli_config), cli_config), cli_config)
     check_setup(claims, cli_config)
     if getattr(runner, "name", None) == "none":
         browser = [c.id for c in claims if c.kind == "browser"]

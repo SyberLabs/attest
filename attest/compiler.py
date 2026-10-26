@@ -329,15 +329,34 @@ def plan_fences(doc: Doc) -> list[FencePlan]:
                 plan.append(FencePlan(nxt, "result"))
                 i += 2
                 continue
+        if role == "prompt" and not _has_h1(f):
+            # frontmatter shown on its own, with no title after it: a fragment the
+            # guides use to show declarations, which the parser would refuse
+            role = "prose"
         plan.append(FencePlan(f, role))
         i += 1
     return plan
 
 
-def fence_claim(fence: Fence, cid: str, doc: Doc | None = None, result: Fence | None = None, args: str | None = None) -> Claim:
+def _has_h1(fence: Fence) -> bool:
+    """True when a prompt fence has an H1 title line after its frontmatter."""
+    body = fence.text.split("\n---", 1)[1] if "\n---" in fence.text else ""
+    return any(re.match(r"^#\s+\S", ln) for ln in body.split("\n"))
+
+
+def fence_claim(
+    fence: Fence,
+    cid: str,
+    doc: Doc | None = None,
+    result: Fence | None = None,
+    args: str | None = None,
+    role: FenceRole | None = None,
+) -> Claim:
     """The claim a fence compiles to by rule. ``result`` is the paired result
-    fence of a prompt; it needs ``doc`` so the span can cover both fences."""
-    kind = classify_fence(fence)
+    fence of a prompt; it needs ``doc`` so the span can cover both fences.
+    ``role`` is the plan's role for the fence, which can demote a prompt fence
+    to prose; without it the fence's own classification decides."""
+    kind = role if role in ("shell", "assert", "prompt", "prose") else classify_fence(fence)
     span = Span(start_line=fence.start_line, end_line=fence.end_line, text=fence.text)
     if kind == "shell":
         return Claim(id=cid, kind="shell", span=span, command=fence.text)
@@ -361,7 +380,7 @@ def fences_by_regex(doc: Doc) -> list[Claim]:
     for item in plan_fences(doc):
         if item.role == "result":
             continue
-        claims.append(fence_claim(item.fence, f"c{len(claims) + 1:02d}", doc=doc, result=item.result, args=item.args))
+        claims.append(fence_claim(item.fence, f"c{len(claims) + 1:02d}", doc=doc, result=item.result, args=item.args, role=item.role))
     return claims
 
 
@@ -517,7 +536,7 @@ def assemble(doc: Doc, drafts: list[LLMClaim]) -> list[Claim]:
             claims.append(Claim(id=cid, kind="prose", span=span))
     for item in rule_items:
         if item.role != "result":
-            claims.append(fence_claim(item.fence, cid, doc=doc, result=item.result, args=item.args))
+            claims.append(fence_claim(item.fence, cid, doc=doc, result=item.result, args=item.args, role=item.role))
     claims.sort(key=lambda c: (c.span.start_line, c.span.end_line))
     numbered: list[Claim] = []
     for i, c in enumerate(claims):
@@ -756,7 +775,7 @@ def recompile_claim(doc: Doc, claim: Claim, llm: LLM | None = None) -> Claim:
             if item.role == "result":
                 # a result fence belongs to the prompt before it
                 item = next(p for p in plan if p.role == "prompt" and p.result is f)
-            fresh = fence_claim(item.fence, claim.id, doc=doc, result=item.result, args=item.args)
+            fresh = fence_claim(item.fence, claim.id, doc=doc, result=item.result, args=item.args, role=item.role)
             return fresh.model_copy(update={"depends_on": claim.depends_on, "expects": claim.expects if fresh.kind == "shell" else fresh.expects})
     span = Span(start_line=start, end_line=end, text="\n".join(doc.lines[start - 1 : end]))
     if claim.kind == "prose":

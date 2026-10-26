@@ -4,8 +4,15 @@
 //!
 //! ```json
 //! {"prompt": "<prompt file text>", "args": [], "script": ["reply 1", "reply 2"],
-//!  "seed": 123, "started_at": "2026-01-01T00:00:00Z"}
+//!  "seed": 123, "started_at": "2026-01-01T00:00:00Z",
+//!  "files": {"paper.md": "the paper body"}, "input": null, "mode": "ask",
+//!  "refuse": ["secret.md"], "execution": "execute-test"}
 //! ```
+//!
+//! `files` are seeded into the run's store before it starts; `input` is the text
+//! for the prompt's declared input file; `mode` is Runvil's store mode (`ask`,
+//! `plan` or `agent`); `refuse` names store paths whose changes the Host's
+//! policy denies; `execution` is the run's name. All are optional.
 //!
 //! and one `PromptObservation` out on stdout:
 //!
@@ -26,7 +33,7 @@
 //! run's seed from the OS and its start from the wall clock itself, and a Host
 //! runs prompts only through the Harness (Runvil's AGENTS.md).
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{Read, Write};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -43,12 +50,13 @@ use runvil::model::{
     Completion, CompletionError, CompletionErrorKind, CompletionOptions, CompletionResult, Message,
     ModelBinding, ModelCatalog, ModelId, ModelInfo, ThinkingMode, ToolSchema,
 };
+use runvil::vfs::{MemoryBackend, Mode, ModePolicy, Op, Origin, Policy, Verdict, VfsPath};
 use serde::{Deserialize, Serialize};
 
 /// The one model the scripted broker lists, and the model the run selects.
 const MODEL: &str = "script";
 
-/// The run's name: every event's `execution`.
+/// The run's name when the request names none: every event's `execution`.
 const EXECUTION: &str = "attest";
 
 #[derive(Deserialize)]
@@ -64,6 +72,81 @@ struct Request {
     #[serde(default)]
     #[expect(dead_code, reason = "accepted for the protocol; the Harness stamps the start itself")]
     started_at: String,
+    #[serde(default)]
+    files: BTreeMap<String, String>,
+    #[serde(default)]
+    input: Option<String>,
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    refuse: Vec<String>,
+    #[serde(default)]
+    execution: Option<String>,
+}
+
+/// The Host's store policy for one run: the paths the doc says the Host refuses
+/// to change, over Runvil's own mode policy when the doc names a mode.
+struct DocPolicy {
+    refuse: Vec<String>,
+    mode: ModePolicy,
+    /// Off while the Host seeds the store, on for the run.
+    enforced: Arc<AtomicBool>,
+}
+
+impl Policy for DocPolicy {
+    fn check(&self, op: Op, path: &VfsPath) -> Verdict {
+        if !self.enforced.load(Ordering::SeqCst) {
+            return Verdict::Allow;
+        }
+        let changes = !matches!(op, Op::Read | Op::Exists | Op::Glob | Op::List | Op::Stat | Op::ReadLink);
+        let name = path.as_str().trim_start_matches('/');
+        if changes && self.refuse.iter().any(|refused| refused.trim_start_matches('/') == name) {
+            return Verdict::Deny(format!("{op:?} on {name} is refused by the Host's policy"));
+        }
+        self.mode.check(op, path)
+    }
+}
+
+/// The run's store: a fresh memory store under the doc's policy, seeded with the
+/// files the doc says the Host provides.
+fn store_for(request: &Request) -> Result<VfsRef, String> {
+    let mode = match request.mode.as_deref() {
+        None | Some("agent") => Mode::Agent,
+        Some("ask") => Mode::Ask,
+        Some("plan") => Mode::Plan,
+        Some(other) => return Err(format!("unknown store mode {other:?}; use ask, plan or agent")),
+    };
+    // The Host seeds its files as the Host, before the doc's policy applies to
+    // the run: the mode starts as Agent and the refusals are off until the
+    // seeding view is closed.
+    let enforced = Arc::new(AtomicBool::new(false));
+    let policy = DocPolicy {
+        refuse: request.refuse.clone(),
+        mode: ModePolicy::new(Mode::Agent),
+        enforced: Arc::clone(&enforced),
+    };
+    let handle = policy.mode.handle();
+    let vfs = VfsRef::builder()
+        .store("/", MemoryBackend::new())
+        .policy(policy)
+        .build();
+    if !request.files.is_empty() {
+        // seeded through the same store view the Harness uses for the declared input file
+        let access = vfs
+            .acquire_store(Origin::new("attest: seeded files"))
+            .map_err(|error| format!("cannot open the store to seed files: {error}"))?;
+        for (path, text) in &request.files {
+            access
+                .write(path, text.as_bytes())
+                .map_err(|error| format!("cannot seed {path}: {error}"))?;
+        }
+        access
+            .close()
+            .map_err(|error| format!("cannot close the seeding view: {error}"))?;
+    }
+    handle.set(mode);
+    enforced.store(true, Ordering::SeqCst);
+    Ok(vfs)
 }
 
 /// Attest's `PromptObservation`, field for field.
@@ -162,9 +245,10 @@ impl Timer for Clock {
 }
 
 async fn observe(request: Request) -> Result<Observation, String> {
+    let execution = request.execution.clone().unwrap_or_else(|| EXECUTION.to_owned());
     // The Engine's parser first: a parse failure keeps its kind and line,
     // which the Harness's failed outcome folds into one message.
-    let (parsed, _events) = Prompt::parse(&request.prompt, EXECUTION);
+    let (parsed, _events) = Prompt::parse(&request.prompt, &execution);
     if let Err(error) = parsed {
         let mut observation = Observation::new("parse_error");
         observation.error_kind = Some(format!("{:?}", error.kind()));
@@ -173,6 +257,7 @@ async fn observe(request: Request) -> Result<Observation, String> {
         return Ok(observation);
     }
 
+    let vfs = store_for(&request)?;
     let broker = Arc::new(ScriptBroker::new(request.script));
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = Harness::new(
@@ -184,11 +269,11 @@ async fn observe(request: Request) -> Result<Observation, String> {
     );
     let report = harness
         .run(RunRequest {
-            name: EXECUTION.to_owned(),
+            name: execution,
             source: request.prompt,
             args: request.args.join(" "),
-            input_text: None,
-            vfs: VfsRef::default(),
+            input_text: request.input,
+            vfs,
             host: HostSnapshot {
                 selected_model: Some(MODEL.to_owned()),
                 workspace_roots: Vec::new(),
