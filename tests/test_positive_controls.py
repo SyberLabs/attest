@@ -586,6 +586,20 @@ def test_pc_rs_01_twin_contract_where_another_requirement_replaces_it_blocks_the
     assert contract.read_text(encoding="utf-8") == replaced
 
 
+def test_pc_rs_01_twin_contract_whose_change_log_says_the_requirement_was_dropped_blocks_the_handoff(tmp_path):
+    # the text matches and SEC-4's own section says nothing, but the change log says in the passive it was dropped
+    dropped = RS_PROTECTED + "\n## Change log\n\n- 2026-09-01: SEC-4 was dropped.\n"
+    contract, result, data, markdown = _run_reconcile(tmp_path, _rs_request(), contract_text=dropped)
+    assert result.exit_code == 3
+    assert data["handoff_state"] == "blocked"
+    assert data["source_state"] == "not_governing"
+    assert data["authority_state"] == "conflicting"
+    assert data["blocking_reasons"] == ["c01:source_not_governing:prose"]
+    assert data["conflicts"][0]["source_not_governing"] == ["- 2026-09-01: SEC-4 was dropped."]
+    assert "SEC-4 was dropped." in markdown
+    assert contract.read_text(encoding="utf-8") == dropped
+
+
 def test_pc_rs_01_twin_reference_to_a_weaker_copy_of_the_contract_blocks_the_handoff(tmp_path):
     # the text matches the copy the reference names, but the contract under the same root says more
     copy = tmp_path / "notes" / "sec-4.md"
@@ -633,6 +647,12 @@ def test_pc_rs_01_control_fails_when_every_sentence_withdraws_the_requirement(tm
 
 def test_pc_rs_01_control_fails_when_every_sentence_names_the_requirement_as_withdrawn(tmp_path, monkeypatch):
     monkeypatch.setattr(reconcile_spec_mod, "_withdrawing", lambda requirement: "")
+    with pytest.raises(AssertionError):
+        _run_rs_control(tmp_path)
+
+
+def test_pc_rs_01_control_fails_when_every_sentence_says_the_requirement_is_withdrawn_in_the_passive(tmp_path, monkeypatch):
+    monkeypatch.setattr(reconcile_spec_mod, "_withdrawn_passive", lambda subject: "")
     with pytest.raises(AssertionError):
         _run_rs_control(tmp_path)
 
