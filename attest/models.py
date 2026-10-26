@@ -1,12 +1,14 @@
 """Data model for Attest.
 
 Six core models from docs/ARCHITECTURE.md plus BrowserObservation, the neutral
-record of what a browser runner saw. Two invariants are enforced here:
+record of what a browser runner saw, and PromptObservation, the neutral record
+of what a prompt Host reported (docs/CLI-RUNNER-SPEC.md). Two invariants are
+enforced here:
 
 * no Claim without a Span (the field is required and validated)
 * no Verdict other than ``unverifiable`` without Evidence
 
-Nothing in this module knows about any particular browser tool.
+Nothing in this module knows about any particular browser tool or prompt Host.
 """
 
 from __future__ import annotations
@@ -29,10 +31,11 @@ from .contracts import (
 from .receipts import ReceiptEvidence, RunReceipt, VerifiedRunReceipt
 from .snapshots import RepositorySnapshot, SourceVersion
 
-ClaimKind = Literal["shell", "browser", "assert", "prose"]
+ClaimKind = Literal["shell", "browser", "assert", "prose", "prompt"]
 VerdictStatus = Literal["proven", "stale", "broken", "unverifiable", "skipped"]
-EvidenceKind = Literal["shell", "browser"]
+EvidenceKind = Literal["shell", "browser", "prompt"]
 ObservationStatus = Literal["passed", "failed", "unreachable"]
+PromptStatus = Literal["completed", "failed", "parse_error", "refused", "needs_script"]
 
 
 class Span(BaseModel):
@@ -64,6 +67,10 @@ class Claim(BaseModel):
     expects: str | None = None
     store_as: str | None = None
     depends_on: list[str] = Field(default_factory=list)
+    # prompt claims: True when the doc promises the run fails (a fence-error example)
+    expects_error: bool = False
+    # names of sidecar fixtures that must exist before the claim runs
+    setup: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _kind_fields(self) -> "Claim":
@@ -71,8 +78,12 @@ class Claim(BaseModel):
             raise ValueError("shell claim needs a command")
         if self.kind == "browser" and not (self.objective and self.objective.strip()):
             raise ValueError("browser claim needs an objective")
-        if self.kind == "prose" and (self.command or self.objective or self.expects):
+        if self.kind == "prompt" and not (self.command and self.command.strip()):
+            raise ValueError("prompt claim needs a command (the prompt file text)")
+        if self.kind == "prose" and (self.command or self.objective or self.expects or self.expects_error):
             raise ValueError("prose claim must not carry command, objective or expects")
+        if self.expects_error and self.kind != "prompt":
+            raise ValueError("expects_error is only meaningful on a prompt claim")
         return self
 
 
@@ -122,8 +133,27 @@ class BrowserObservation(BaseModel):
     note: str | None = None
 
 
+class PromptObservation(BaseModel):
+    """What a prompt Host reported for one run of a prompt file.
+
+    Tool-neutral: ``result`` is the run result exactly as the Host returned it,
+    ``error_kind`` and ``message`` are the Host's own names and text.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: PromptStatus
+    result: str | None = None
+    error_kind: str | None = None
+    error_line: int | None = Field(default=None, ge=1)
+    message: str | None = None
+    rounds: int = Field(default=0, ge=0)
+    host_version: str
+
+
 class Evidence(BaseModel):
-    """Shell evidence or a BrowserObservation, never both missing."""
+    """Shell evidence, a BrowserObservation or a PromptObservation; exactly the
+    fields of one runner kind, never another's."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -135,7 +165,13 @@ class Evidence(BaseModel):
     service_ready: bool = False
     stdout_tail: str | None = None
     detected_url: str | None = None
+    # services (sidecar): the readiness URL polled and the last HTTP status it gave
+    ready_url: str | None = None
+    ready_status: int | None = None
+    # substitutes (sidecar, --substitute): the command that ran in place of ``command``
+    substitute: str | None = None
     observation: BrowserObservation | None = None
+    prompt: PromptObservation | None = None
 
     @model_validator(mode="after")
     def _shape(self) -> "Evidence":
@@ -144,9 +180,21 @@ class Evidence(BaseModel):
                 raise ValueError("shell evidence needs an exit_code, service_ready=True, or timed_out=True")
             if self.observation is not None:
                 raise ValueError("shell evidence must not carry a browser observation")
-        else:
+            if self.prompt is not None:
+                raise ValueError("shell evidence must not carry a prompt observation")
+        elif self.kind == "browser":
             if self.observation is None:
                 raise ValueError("browser evidence needs an observation")
+            if self.prompt is not None:
+                raise ValueError("browser evidence must not carry a prompt observation")
+        else:
+            if self.prompt is None:
+                raise ValueError("prompt evidence needs a prompt observation")
+            if self.observation is not None:
+                raise ValueError("prompt evidence must not carry a browser observation")
+            shell_fields = (self.exit_code, self.stdout_tail, self.detected_url, self.ready_url, self.ready_status, self.substitute)
+            if self.timed_out or self.service_ready or any(v is not None for v in shell_fields):
+                raise ValueError("prompt evidence must not carry shell runner fields")
         return self
 
     @property

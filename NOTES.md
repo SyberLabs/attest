@@ -135,3 +135,22 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - Self-check after the README rewrite: 6/6. It caught a real bug first: the shell runner took a URL in Attest's own Kane log line for a server announcing itself.
 - SyberWork (Reason fleet): #89 receipt bridge accepts today's real receipts, including the spec-mode one (e94552d); #90 dispatch worker CLI in progress. Coordination: SyberLabs/attest #10 (overview), #11 (contract), #12 (rebase order for #13-#20, reviewed), SyberLabs/SyberWork #90, #91.
 - Freeze on `main` lifted (Mateo). The submission pins to the tag `event-day`.
+
+## CLI runner (2026-10-25, branch cli-runner)
+
+Decisions and deviations from docs/CLI-RUNNER-SPEC.md, each with a reason. Milestones M1 to M4 of the spec; M5 and M6 are not in this branch.
+
+### Baseline
+
+- Clean `main` (e9a81ec) on this laptop: 12 failed, 249 passed, 2 skipped with `OPENAI_API_KEY` unset. CI on ubuntu is green for the same commit. All 12 are Windows-local: nine because `git apply` in `%TEMP%` honours the home directory's git repo (`C:\Users\MATEO` is itself a repo with the system `core.autocrlf=true`) and rewrites patched text to CRLF (`proposals.py`), one because the venv launcher hides a grandchild from the Windows process-tree kill (`execution/supervisor.py`), one stale assertion in `test_flask_quickstart_end_to_end` that CI never runs (it skips without `.venv`), plus two loop tests that fail downstream of the CRLF case. Not fixed here: out of scope for the CLI runner and each touches code the open draft PRs own.
+- With `OPENAI_API_KEY` exported (it is, in this shell), three tests that expect the no-model path call the real API and write new `cache/compiler/v2-*.json` files into the repo; the failure count then drifts between 13 and 15. Every suite run on this branch uses `env -u OPENAI_API_KEY -u OPENAI_MODEL`, and the three generated cache files were deleted before the first commit.
+
+### M1 Models and verdicts
+
+- `PromptObservation` lives in `models.py` as the spec writes it; the simulation marker `SimulationPromptObservation` and the `PromptRunner` protocol live in `attest/prompt_runner.py`, mirroring `runner.py` for browsers. Reason: `models.py` stays tool-neutral.
+- `Evidence` gains `prompt`, and for the sidecar shell rules `ready_url`, `ready_status` and `substitute`. Prompt evidence may carry none of the shell fields and no browser observation; shell and browser evidence may carry no prompt observation. Reason: the spec's new invariant (a claim is never proven from another runner's evidence) is cheapest to hold at the model.
+- `expects_error` is accepted only on prompt claims, and a prose claim may not carry it. Reason: it is a promise about a run; on any other kind it would be a silent no-op.
+- Result normalization strips trailing spaces and tabs at line ends (the spec says "trailing spaces"). Reason: a tab at a line end is invisible in a fence, and the reason text still names the three normalizations.
+- Verdict reasons for proven and stale prompt claims end with "scripted run", as the spec's risk note asks. Shell verdicts for a service name the readiness URL and the timeout from `rules.yaml`; `judge` passes `rules` to the shell judge for that.
+- A substitute that passes is capped at `stale` and the reason names both commands; a substitute that fails stays `broken`. A substitute that starts a service is capped the same way.
+- The loop (`ProveResult.failing`, briefs, grounding, receipts) is untouched: no milestone in M1 to M4 covers it, so prompt claims are not yet sent to the agent. `ReceiptEvidence.kind` in `receipts.py` stays `shell | browser` for the same reason.
