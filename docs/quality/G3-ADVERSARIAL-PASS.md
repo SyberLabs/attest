@@ -13,6 +13,7 @@ FACTORY-REDTEAM-AND-RUBRICS §3 G3: block merge when "any §1 case fails R1–R9
   - Green again after the revert: [run 40302533912](https://github.com/SyberLabs/attest/actions/runs/40302533912).
 
   The scope is the active cases in that inventory at that commit. G3 over *every* §1 case is not met: 10 gaps remain (BR-AB-03, KR-COST-01, KR-DS-03, KR-ISO-02, KR-ISO-06, KR-PI-04, RS-PI-02 xfail; KR-ISO-04, KR-PI-03, KR-SIM-03 stub). No coverage percentage is claimed.
+- **Stacked on #43 (this branch, `feat/g3-adversarial-script-ci`):** the script and its tests are #37's files byte for byte (`fd9c0ed`). The workflow differs in one step: it runs without `--allow-missing-inventory`, because #26's inventory is in this branch's history. Local run on #43's head `42fe329`: exit 0, pytest 78 passed, 3 skipped, 14 deselected. kane_runner 23 active passed, maintain_docs 27 + 1 control (MD-CTRL-01), reconcile_spec 20, syberwork_bridge 7, 0 active not passing, 0 xfail. Open gaps: KR-ISO-04, KR-PI-03, KR-SIM-03 (stub). Hosted, PR #45 at `ce42494` (merge ref `f7a849f`): [run 40313033256](https://github.com/SyberLabs/attest/actions/runs/40313033256), same table and gaps, pytest 78 passed, 3 skipped. G8 `pytest` on the same head: [run 40313033231](https://github.com/SyberLabs/attest/actions/runs/40313033231), 374 passed, 6 skipped, 2 xfailed. The scope is the active cases at that commit, not every §1 case.
 
 ## Enforced scope
 
@@ -42,11 +43,13 @@ The job writes a per-component table (active passed, controls passed, active not
 
 The flag only covers a missing directory. As soon as `tests/redteam/cases` exists, every rule above applies. After #26 merges, drop `--allow-missing-inventory` from the workflow so that deleting the inventory fails the job instead of going quiet.
 
+On the #26 stack (this branch) the inventory is present, so the workflow already runs without the flag: a ref that deletes `tests/redteam/cases` fails with "No case inventory". When this stack and #37 both reach `main`, `.github/workflows/g3-adversarial-pass.yml` is an add/add conflict on that one step. Keep this branch's version (no flag); that is the "drop the flag after #26 merges" step above.
+
 ## Relation to other gates
 
 - **G2 Quota floor** (separate job, R18) counts the same case files against the §1 minimums. G3 does not check floors: it checks that the cases that exist and claim `active` pass. A component with zero cases is G2's failure, not G3's.
 - **G4 Positive controls**: G3 requires at least one active `CONTROL` case in the inventory to pass (MD-CTRL-01 in #26). The end-to-end controls in #31 (`tests/test_positive_controls.py`) are not part of the inventory and are not run by this job; G8 runs them.
-- **G7 Kane resource** removes `ShellSession._kill_listener` (#34). #26's KR-ISO-02 is a strict xfail on that code. If #34 merges first, KR-ISO-02 xpasses and G3 fails with "expected xfailed … update its status" until the case is promoted to `active`. That is intended.
+- **G7 Kane resource** removes `ShellSession._kill_listener` (#34). #26's KR-ISO-02 is a strict xfail on that code. If #34 merges first, KR-ISO-02 xpasses and G3 fails with "expected xfailed … update its status" until the case is promoted to `active`. That is intended. On this branch #43 already carries #34's `shell.py` hunk and KR-ISO-02 is `active`.
 - `tests/quality/test_redteam_contracts.py` holds earlier N5 red-team checks that are not §1 inventory cases. G8 runs them; G3 does not.
 
 ## Not covered
