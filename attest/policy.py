@@ -188,7 +188,7 @@ class MaintainDocsPolicy:
             # quantified line keeps its numbers.
             if _markers(old_target, _QUANTIFIERS) and _NUMBERS.findall(old_target) != _NUMBERS.findall(new_target):
                 problems.append("quantified protected contract changed")
-        elif False and (old_markers or old_negations):  # NEGATIVE CONTROL: new promise rules off
+        elif old_markers or old_negations:
             # Any promise marker or negation makes the target a promise. Keeping its markers
             # is not enough: it must keep its negations and gain no exception or hedge.
             new_negations = _markers(new_target, self.negation_markers)
