@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import socket
 import sys
@@ -271,8 +272,10 @@ def test_pipeline_blocks_unapproved_shell_claims_when_recipes_only(tmp_path):
         session.close()
 
 
-@pytest.mark.skipif(not (ROOT / ".venv").exists(), reason="needs the dev venv with flask installed")
+@pytest.mark.skipif(importlib.util.find_spec("flask") is None, reason="needs flask (pip install -e '.[test]')")
 def test_flask_quickstart_end_to_end():
+    if port_open("http://127.0.0.1:5000"):
+        pytest.skip("port 5000 is already in use; the quickstart's server needs it")
     doc = ingest(str(ROOT / "demo" / "flask.md"))
     claims = fences_by_regex(doc)
     scripts = Path(sys.executable).parent
@@ -280,7 +283,9 @@ def test_flask_quickstart_end_to_end():
     scratch = new_scratch("attest-flask-")
     with ShellSession(workdir=scratch, timeout_s=120, env=env, recipes_only=False) as s:
         evs = [s.run(c) for c in claims]
-        assert [e.exit_code for e in evs] == [0, 0, 0], [e.stdout_tail for e in evs]
+        # The server claim stays running, so it has no exit code; readiness is the proof.
+        assert [e.exit_code for e in evs] == [0, 0, None], [e.stdout_tail for e in evs]
+        assert evs[2].service_ready is True and evs[2].timed_out is False
         assert (scratch / "hello.py").exists()
         assert evs[2].detected_url == "http://127.0.0.1:5000"
         assert s.base_url == "http://127.0.0.1:5000"
