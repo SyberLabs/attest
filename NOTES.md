@@ -136,6 +136,13 @@ Decisions and deviations from docs/ARCHITECTURE.md, each with a reason. Newest a
 - SyberWork (Reason fleet): #89 receipt bridge accepts today's real receipts, including the spec-mode one (e94552d); #90 dispatch worker CLI in progress. Coordination: SyberLabs/attest #10 (overview), #11 (contract), #12 (rebase order for #13-#20, reviewed), SyberLabs/SyberWork #90, #91.
 - Freeze on `main` lifted (Mateo). The submission pins to the tag `event-day`.
 
+## Oct 25: SyberWork dispatch works end to end
+
+- Root cause of the "intermittent" dispatch failure: under dispatch, `python -m attest.worker` inherits `ATTEST_WORKER_CMD` (the dispatch command line), and the built-in worker parsed its model out of `worker_identity()`, so `C:\Users\...` became the model and OpenAI answered `model_not_found`. Every dispatched ticket failed; direct runs passed only because the variable was unset. Fixed in #22 (`builtin_model()`), which also keeps an external worker's stderr in `<case>.worker.log`.
+- Full loop through SyberWork dispatch (SyberWork #92 head): Acme CRM, line 15 broken, ticket admitted and routed to `python -m attest.worker` (gpt-6-sol), Kane re-check 4/4 proven, receipt `0ca486124ac8-c05-46`. Kane credits: 54.4 (first pass, authored fresh) + 17.1 (re-check).
+- `demo/beat_factory.ps1` now routes through SyberWork by default when `.attest\syberwork` holds the checkout; `-Direct` calls the worker without it.
+- Windows: `main` fails 12 tests locally that pass on the Ubuntu CI (line endings in the proposal and workflow code); issue #23.
+
 ## CLI runner (2026-10-25, branch cli-runner)
 
 Decisions and deviations from docs/CLI-RUNNER-SPEC.md, each with a reason. Milestones M1 to M4 of the spec; M5 and M6 are not in this branch.
