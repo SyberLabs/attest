@@ -598,11 +598,11 @@ _WITHDRAWING_VERB = (
     r"|cancel(?:s|led|ed|ling|ing)?|void(?:s|ed|ing)?|drop(?:s|ped|ping)?|remov(?:e|es|ed|ing)"
     r"|delet(?:e|es|ed|ing)|abolish(?:es|ed|ing)?|discontinu(?:e|es|ed|ing)|annul(?:s|led|ling)?"
     r"|retract(?:s|ed|ing)?|scrap(?:s|ped|ping)?|suspend(?:s|ed|ing)?|sunset(?:s|ted|ting)?"
-    # NEGATIVE CONTROL: waive/override off
+    r"|waiv(?:e|es|ed|ing)|overrid(?:e|es|den|ing)|overrode"
 )
 _WITHDRAWING_NOUN = (
     r"(?:replacement|withdrawal|retirement|revocation|rescission|repeal|deprecation|cancell?ation|removal"
-    r"|deletion|abolition|discontinuation|annulment|retraction|suspension)\s+(?:of|for)|in\s+place\s+of"
+    r"|deletion|abolition|discontinuation|annulment|retraction|suspension|waiver|override)\s+(?:of|for)|in\s+place\s+of"
     r"|instead\s+of"
 )
 _OBJECT_MARKS = r"[\s*_`'\"\[\]():]*"
@@ -662,7 +662,7 @@ def _subject_in_list(requirement: str) -> str:
     return rf"(?:{_ID}{_LIST_SEPARATOR}){{0,8}}{own}(?:{_LIST_SEPARATOR}{_ID}){{0,8}}"
 
 
-_SELF_WITHDRAWN = re.compile(rf"{_SELF}{_WITHDRAWS}", re.IGNORECASE)  # NEGATIVE CONTROL: passive off
+_SELF_WITHDRAWN = re.compile(rf"{_SELF}{_WITHDRAWS}|{_withdrawn_passive(_SELF)}", re.IGNORECASE)
 
 
 def _heading_level(unit: str) -> int:
@@ -770,7 +770,7 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
     passive = re.compile(_withdrawn_passive(_subject_in_list(requirement)), re.IGNORECASE)
     withdrawn = re.compile(
         rf"(?:{token.pattern}|{_THIS_REQUIREMENT}){_WITHDRAWS}|{_withdrawing(requirement)}"
-        rf"",  # NEGATIVE CONTROL: passive forms off
+        rf"|{_withdrawn_passive(_THIS_REQUIREMENT)}|{passive.pattern}",
         re.IGNORECASE,
     )
     own: set[int] = set()
@@ -789,7 +789,7 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
         for i in _section(units, index, requirement):
             text = after_id if i == index else units[i]
             # the label's own line read whole too, so ``## SEC-4 is withdrawn`` has the id as its subject
-            if _withdrawal(text, withdrawn, leads=i != index, no_longer=True):
+            if _withdrawal(text, withdrawn, leads=i != index, no_longer=True) or (i == index and _withdrawal(label, passive)):
                 found.setdefault("prose", []).append(units[i])
         # the heading of each enclosing level above the label (a heading label's own title is its text)
         need = _heading_level(label) if label.startswith("#") else 7
