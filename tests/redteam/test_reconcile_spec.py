@@ -7,7 +7,7 @@ Unless a case supplies its own ``source``, ``diagnose`` and ``_cli`` give every
 document the request's protected texts are checked against (the authority
 reference's path, else source_doc) a text that labels each requirement with the
 first protected text the request submits for it, so cases about other checks are
-not blocked by the source check. RS-AB-10, RS-AB-11 and RS-CTRL-01 supply their
+not blocked by the source check. RS-AB-10, RS-AB-11, RS-AB-12 and RS-CTRL-01 supply their
 own documents.
 """
 
@@ -356,6 +356,74 @@ def test_unusable_protected_document_blocks(rt_case, tmp_path, monkeypatch):
         {**ready, "source_digests": {}},
         {**ready, "source_digests": {"docs/other.md": "0" * 64}},
     ):
+        with pytest.raises(ValidationError):
+            ReconcileHandoff.model_validate(forged)
+
+
+def _contract_request(protected_text: str, requirement: str = "SEC-4") -> dict:
+    return {
+        "source_doc": "docs/requirements.md",
+        "authority_status": "present",
+        "conflicts": [{
+            "claim_id": "c01", "protected_requirement_id": requirement, "authority_reference": f"contracts/security.md#{requirement}",
+            "protected_text": protected_text,
+            "observed_text": "The sign-in flow accepted a password-only administrator sign-in.",
+            "candidate_side": "app_wrong",
+            "evidence": [{"kind": "runtime", "pointer": "artifacts/run-17/sign-in.png", "description": "Observed sign-in flow"}],
+        }],
+    }
+
+
+@case("RS-AB-12")
+def test_text_matched_in_a_document_that_does_not_govern_blocks(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    # a governing contract with look-alike words (a status_code key, "Status codes:", a withdrawn section
+    # before SEC-4 holding another requirement, SEC-6's own "deprecated" title) is still a ready handoff
+    for requirement, text in i["governing_requirements"].items():
+        governing = tmp_path / f"governing-{requirement}"
+        _write_files(governing / "src", {"contracts/security.md": i["governing"]})
+        result = _cli(governing, _contract_request(text, requirement), "--source-root", str(governing / "src"))
+        assert result.exit_code == x["governing_exit_code"], (requirement, result.output)
+        data, _ = _written(governing)
+        assert data["source_state"] == "matched" and data["conflicts"][0]["source_not_governing"] == [], requirement
+
+    for name, variant in i["variants"].items():
+        run = tmp_path / name
+        root = run / "src"
+        _write_files(root, {"contracts/security.md": variant["document"]})
+        request = _contract_request(variant.get("protected_text", i["protected_text"]))
+        result = _cli(run, request, "--source-root", str(root))
+        assert result.exit_code == x["exit_code"], (name, result.output)
+        assert x["stderr_contains"] in result.output, name
+        data, markdown = _written(run)
+        for key in ("handoff_state", "source_state", "authority_state", "repair_state"):
+            assert data[key] == x[key], (name, key, data[key])
+        assert data["blocking_reasons"] == [x["reason_prefix"] + why for why in variant["reasons"]], (name, data["blocking_reasons"])
+        conflict = data["conflicts"][0]
+        # the text did match: the document was read and says what was submitted, it just doesn't govern
+        assert conflict["source_protected_text"] is None, name
+        assert data["source_digests"] == {
+            "contracts/security.md": hashlib.sha256(variant["document"].encode("utf-8")).hexdigest()
+        }, name
+        assert variant["shows"] in conflict["source_not_governing"], (name, conflict["source_not_governing"])
+        assert x["markdown_contains"] in markdown and variant["shows"] in markdown, name
+        assert "Handoff: `blocked`" in markdown, name
+        assert (root / "contracts" / "security.md").read_text(encoding="utf-8") == variant["document"], name
+
+    # an API caller that passes the document it read gets the same blocked handoff
+    superseded = i["variants"]["superseded_banner"]["document"]
+    handoff = diagnose(_contract_request(i["protected_text"]), source=superseded)
+    assert handoff.handoff_state == x["handoff_state"]
+    assert handoff.source_state == x["source_state"]
+    assert handoff.blocking_reasons == [x["reason_prefix"] + "superseded"]
+
+    # and a handoff JSON that claims ready over a document that doesn't govern does not load
+    ready = diagnose(_contract_request(i["protected_text"]), source=i["governing"]).model_dump()
+    assert ready["handoff_state"] == "ready"
+    ReconcileHandoff.model_validate(ready)
+    flagged = copy.deepcopy(ready)
+    flagged["conflicts"][0]["source_not_governing"] = ["status: superseded"]
+    for forged in ({**ready, "source_state": "not_governing"}, flagged):
         with pytest.raises(ValidationError):
             ReconcileHandoff.model_validate(forged)
 

@@ -1,0 +1,128 @@
+{
+  "id": "RS-AB-12",
+  "component": "reconcile_spec",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R2",
+    "R4",
+    "R9"
+  ],
+  "status": "active",
+  "theme": "injected_superseded_claim",
+  "title": "Protected text quoted exactly from a document that says it is superseded, draft or otherwise not governing blocks the handoff (exit 3) and shows the lines that say so; the same text in a governing contract with look-alike words is still ready",
+  "input": {
+    "protected_text": "The application must require multi-factor authentication\nfor every administrator sign-in.",
+    "governing": "---\ntitle: Security contract\nstatus: approved\nstatus_code_policy: strict\n---\n\n# Security contract\n\n**Status:** Approved\n\nStatus codes: the API answers 401 to an unauthenticated call.\n\n## Withdrawn requirements\n\n- SEC-3: Passwords rotate every 30 days.\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-6 Reject deprecated TLS versions\n\nThe application must refuse TLS 1.0 and 1.1.\n",
+    "variants": {
+      "front_matter_superseded": {
+        "document": "---\ntitle: Security contract\nstatus: superseded\nsuperseded_by: contracts/security-v2.md\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "status",
+          "superseded"
+        ],
+        "shows": "superseded_by: contracts/security-v2.md"
+      },
+      "front_matter_draft": {
+        "document": "---\nstatus: draft\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "status"
+        ],
+        "shows": "status: draft"
+      },
+      "front_matter_status_blank": {
+        "document": "---\nstatus:\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "status"
+        ],
+        "shows": "status:"
+      },
+      "status_line_proposed": {
+        "document": "# Security contract\n\n**Status:** Proposed\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "status"
+        ],
+        "shows": "**Status:** Proposed"
+      },
+      "status_word_not_listed": {
+        "document": "# Security contract\n\nStatus: Under review\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "status"
+        ],
+        "shows": "Status: Under review"
+      },
+      "status_heading_replaced": {
+        "document": "# ADR 7: Security contract\n\n## Status\n\nReplaced by ADR 12 (contracts/security-v2.md).\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "status"
+        ],
+        "shows": "## Status Replaced by ADR 12 (contracts/security-v2.md)."
+      },
+      "status_table_row": {
+        "document": "# Security contract\n\n| Field | Value |\n|---|---|\n| Status | Deprecated |\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "status"
+        ],
+        "shows": "| Status | Deprecated |"
+      },
+      "superseded_banner": {
+        "document": "# Security contract\n\n> This contract was superseded by contracts/security-v2.md on 2026-09-01.\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "superseded"
+        ],
+        "shows": "> This contract was superseded by contracts/security-v2.md on 2026-09-01."
+      },
+      "replaced_by_key": {
+        "document": "---\nreplaced_by: contracts/security-v2.md\n---\n\n# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "superseded"
+        ],
+        "shows": "replaced_by: contracts/security-v2.md"
+      },
+      "superceded_note_elsewhere": {
+        "document": "# Security contract\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n\nSEC-3 was superceded by SEC-9.\n",
+        "reasons": [
+          "superseded"
+        ],
+        "shows": "SEC-3 was superceded by SEC-9."
+      },
+      "withdrawn_section": {
+        "document": "# Security contract\n\n## Withdrawn requirements\n\n- **SEC-4:** The application must require multi-factor authentication for every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "section"
+        ],
+        "shows": "## Withdrawn requirements"
+      },
+      "draft_title": {
+        "document": "# Security contract (draft)\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "reasons": [
+          "section"
+        ],
+        "shows": "# Security contract (draft)"
+      },
+      "tag_after_id": {
+        "document": "# Security contract\n\n## SEC-4 (withdrawn)\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## Session rules\n\n- **SEC-5:** Sessions must expire after 15 minutes idle.\n",
+        "protected_text": "(withdrawn) The application must require multi-factor authentication\nfor every administrator sign-in.",
+        "reasons": [
+          "section"
+        ],
+        "shows": "## SEC-4 (withdrawn)"
+      }
+    },
+    "governing_requirements": {
+      "SEC-4": "The application must require multi-factor authentication\nfor every administrator sign-in.",
+      "SEC-6": "Reject deprecated TLS versions The application must refuse TLS 1.0 and 1.1."
+    }
+  },
+  "expected": {
+    "exit_code": 3,
+    "stderr_contains": "blocked:",
+    "governing_exit_code": 0,
+    "handoff_state": "blocked",
+    "source_state": "not_governing",
+    "authority_state": "conflicting",
+    "repair_state": "handoff",
+    "reason_prefix": "c01:source_not_governing:",
+    "markdown_contains": "Where the checked document says this requirement may not govern"
+  }
+}
