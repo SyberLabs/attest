@@ -16,7 +16,7 @@
     {% if rv.patch %}<div><dt>Patch sha256</dt><dd><code>{{ rv.patch }}</code></dd></div>{% endif %}
     {% if rv.before or rv.after %}<div><dt>Status</dt><dd><span class="mini {{ rv.before }}">{{ rv.before or '?' }}</span> <span class="to" aria-label="then">&rarr;</span> <span class="mini {{ rv.after }}">{{ rv.after or '?' }}</span></dd></div>{% endif %}
   </dl>
-  <div class="rcpt-f"><span>Receipt <code>{{ rv.case_id }}</code></span><span class="rcpt-links"><a href="../receipts/{{ rv.case_id }}.json">receipt</a>{% if ref.get('ticket') %} &middot; <a href="{{ ref.get('ticket') }}">ticket</a>{% endif %}</span></div>
+  <div class="rcpt-f"><span>Receipt <code>{{ rv.case_id }}</code></span><span class="rcpt-links"><a href="../receipts/{{ rv.case_id }}.json">receipt</a>{% if ref.get('ticket') %} &middot; <a href="{{ ref.get('ticket')|safe_href }}">ticket</a>{% endif %}</span></div>
 </div>
 {%- endmacro -%}
 <!doctype html>
@@ -65,11 +65,9 @@
   .score .lbl { display: block; margin-top: 3px; font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
   .score.proven .big b:first-child, .score.proven .lbl { color: var(--proven); }
   .score.stale .lbl { color: var(--stale); } .score.broken .lbl { color: var(--broken); }
-  .bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line-soft); margin: 9px 0 8px; }
-  .bar i { display: block; height: 100%; }
-  .bar i + i { box-shadow: inset 2px 0 0 #fff; }
-  .bar .proven { background: var(--proven-line); } .bar .stale { background: var(--stale-line); } .bar .broken { background: var(--broken-line); }
-  .bar .unverifiable { background: var(--unverifiable-line); } .bar .skipped { background: var(--skipped-line); }
+  .bar { display: block; width: 100%; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line-soft); margin: 9px 0 8px; }
+  .bar .proven { fill: var(--proven-line); } .bar .stale { fill: var(--stale-line); } .bar .broken { fill: var(--broken-line); }
+  .bar .unverifiable { fill: var(--unverifiable-line); } .bar .skipped { fill: var(--skipped-line); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
   .chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--line); color: var(--muted); background: #fff; white-space: nowrap; }
   .chip .ic { width: 12px; height: 12px; }
@@ -229,6 +227,15 @@
     .ba { grid-template-columns: 1fr; gap: 6px; } .ba-arrow { transform: rotate(90deg); height: 20px; }
     .chips .meta { margin-left: 0; }
   }
+  .review-status { margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--stale-line); border-radius: 8px; background: var(--card); }
+  .review-status h2 { margin: 0 0 8px; font-size: 14px; }
+  .review-status dl { display: grid; grid-template-columns: 145px minmax(0, 1fr); gap: 5px 12px; margin: 0; }
+  .review-status dt { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+  .review-status dd { margin: 0; overflow-wrap: anywhere; }
+  .review-status .unresolved { color: var(--broken); font-weight: 700; }
+
+  .review-status .allowed { color: var(--proven); font-weight: 700; }
+  .review-status code { overflow-wrap: anywhere; }
 .logo.brand{background:none;padding:0;overflow:hidden}.logo.brand img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
 </style>
 </head>
@@ -246,7 +253,7 @@
         <span class="lbl">{% if score.tone == 'proven' %}all proven{% else %}proven{% endif %}</span>
       </div>
     </div>
-    <div class="bar" aria-hidden="true">{% for s in score.segments %}<i class="{{ s.status }}" style="width: {{ s.pct }}%"></i>{% endfor %}</div>
+    <svg class="bar" aria-hidden="true" viewBox="0 0 100 1" preserveAspectRatio="none">{% for s in score.segments %}<rect class="{{ s.status }}" x="{{ s.x }}" y="0" width="{{ s.pct }}" height="1"/>{% endfor %}</svg>
     <div class="chips">
       <span class="chip stale {{ 'on' if strip.stale else 'zero' }}">{{ icon('stale') }}<span class="n" data-count="stale">{{ strip.stale }}</span> stale</span>
       <span class="chip broken {{ 'on' if strip.broken else 'zero' }}">{{ icon('broken') }}<span class="n" data-count="broken">{{ strip.broken }}</span> broken</span>
@@ -268,11 +275,24 @@
 </header>
 
 <main>
+  <section class="review-status" aria-label="Review status">
+    <h2>Review status</h2>
+    <dl>
+      <dt>Coverage gaps</dt>
+      <dd>{% if coverage_claims == 0 %}No compiled checkable claims; coverage is unknown.{% elif coverage_gaps %}{{ coverage_gaps|length }} compiled claim{{ '' if coverage_gaps|length == 1 else 's' }} lack a proven result: <ul>{% for claim_id, status in coverage_gaps %}<li>{{ claim_id }} · {{ status }}</li>{% endfor %}</ul>{% else %}No non-proven compiled claims; requirements outside this document are not assessed.{% endif %}</dd>
+      <dt>Authority</dt>
+      <dd class="{{ 'allowed' if authority_status.startswith('Allowed') else 'unresolved' }}">{{ authority_status }} — {{ authority_detail }}</dd>
+      <dt>Proposal</dt>
+      <dd>{{ proposal_status }}</dd>
+      <dt>Content identity</dt>
+      <dd>{% if before_identity %}<strong>Before</strong> <code>{{ before_identity }}</code> · <strong>After</strong> <code>{{ after_identity }}</code>{% else %}Current document SHA-256 <code>{{ after_identity }}</code>{% endif %}</dd>
+    </dl>
+  </section>
   <div class="doc">
     <div class="head">
       <span class="src">{{ doc.source }}</span>
       {% if doc.commit %}<span>commit {{ doc.commit[:12] }}</span>{% endif %}
-      <span>sha256 {{ doc.sha256[:12] }}</span>
+      <span>sha256 {{ after_identity[:12] }}</span>
       <span>{{ doc.lines|length }} lines</span>
     </div>
     {% for b in blocks %}
@@ -311,7 +331,7 @@
             {% set receipt = receipts.get(c.id, {}) %}
             {% set rv = receipt_views.get(c.id) %}
             {% if not rv %}
-            <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% elif auth.get('decision') == 'implementation_required' %}implementation required{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}{% if receipt.get('ticket') %} &middot; <a href="{{ receipt.get('ticket') }}">Ticket</a>{% endif %}</p>
+            <p class="reason">Authority: {% if auth.get('decision') == 'doc_repair_denied' %}refused{% elif auth.get('decision') == 'implementation_required' %}implementation required{% else %}allowed{% endif %}{% if auth.get('rule') %} &middot; {{ auth.get('rule') }}{% endif %}{% if receipt.get('case_id') %} &middot; <a href="../receipts/{{ receipt.get('case_id') }}.json">Receipt</a>{% endif %}{% if receipt.get('ticket') %} &middot; <a href="{{ receipt.get('ticket')|safe_href }}">Ticket</a>{% endif %}</p>
             {% elif auth.get('decision') != 'implementation_required' %}{{ receipt_strip(rv, receipt) }}{% endif %}
             {% if auth.get('decision') == 'doc_repair_denied' %}
               <div class="nopatch"><b>DOC REPAIR REFUSED: implementation handoff</b><br>The application must change, not the doc.</div>
@@ -322,7 +342,7 @@
               <div class="impl-t"><span class="impl-lbl">Ticket</span>{{ rv.ticket_title }}</div>
               {% if rv.acceptance %}<div class="impl-acc"><span class="impl-lbl">Acceptance criterion</span>{{ rv.acceptance }}</div>{% endif %}
               {% else %}
-              <div class="impl-t">{% if receipt.get('ticket') %}<a href="{{ receipt.get('ticket') }}">{{ receipt.get('ticket_title') }}</a>{% else %}{{ receipt.get('ticket_title') }}{% endif %}</div>
+              <div class="impl-t">{% if receipt.get('ticket') %}<a href="{{ receipt.get('ticket')|safe_href }}">{{ receipt.get('ticket_title') }}</a>{% else %}{{ receipt.get('ticket_title') }}{% endif %}</div>
               {% endif %}
               <div class="impl-n">The spec is the contract: the doc stays as written and the app changed in a candidate copy.</div>
             </div>
@@ -388,7 +408,7 @@
           <div class="cols">
             {% if c.kind == 'browser' %}
               <div class="shot">
-                {% if ev and ev.screenshot %}<a href="{{ ev.screenshot }}" target="_blank" rel="noopener"><img src="{{ ev.screenshot }}" alt="screenshot for {{ c.id }}"></a><div class="cap"><span>Kane's screenshot of the page</span><a href="{{ ev.screenshot }}" target="_blank" rel="noopener">full size</a></div>{% else %}<div class="empty">screenshot slot: no screenshot from runner "{{ runner_name }}"</div>{% endif %}
+                {% if artifact_urls.get(c.id) %}<a href="{{ artifact_urls.get(c.id) }}" target="_blank" rel="noopener"><img src="{{ artifact_urls.get(c.id) }}" alt="screenshot for {{ c.id }}"></a><div class="cap"><span>Kane's screenshot of the page</span><a href="{{ artifact_urls.get(c.id) }}" target="_blank" rel="noopener">full size</a></div>{% else %}<div class="empty">screenshot slot: no local digest-verified artifact from runner "{{ runner_name }}"</div>{% endif %}
               </div>
               <dl class="kv">
                 <dt>Objective</dt><dd>{{ c.objective }}</dd>
@@ -421,7 +441,7 @@
     </div>
     {% endfor %}
   </div>
-  <footer>Attest &middot; every badge has evidence behind it &middot; numbers above come from the ledger</footer>
+  <footer>Attest &middot; every badge has evidence behind it &middot; numbers above come from the ledger<br>Local review server binds to loopback only and has no authentication; do not expose it through a public proxy.</footer>
 </main>
 <script>
   (function () {

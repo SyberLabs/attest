@@ -313,7 +313,7 @@ def _write_live_page(result: ProveResult, home: Path, runner_name: str, now: str
     """Refresh the live page. A failed refresh never fails the prove."""
     try:
         _write_live_page_unsafe(result, home, runner_name, now, running)
-    except OSError:
+    except (OSError, ValueError):
         pass
 
 
@@ -330,7 +330,8 @@ def _write_live_page_unsafe(result: ProveResult, home: Path, runner_name: str, n
     verdicts, prior = localize_screenshots(result)
     html_text = render_page(result.doc, result.claims, verdicts, strip, briefs=result.briefs,
                             prior_verdicts=prior, runner_name=runner_name, live=running, now=now,
-                            authority=getattr(result, "authority", {}), receipts=getattr(result, "receipts", {}))
+                            authority=getattr(result, "authority", {}), receipts=getattr(result, "receipts", {}),
+                            artifact_dir=result.out_dir / "artifacts")
     page = result.out_dir / "index.html"
     tmp = page.with_suffix(".html.tmp")
     tmp.write_text(html_text, encoding="utf-8")
@@ -372,6 +373,7 @@ def localize_screenshots(result: ProveResult) -> tuple[list[Verdict], dict[str, 
 def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
     ledger = Ledger(home / "ledger.jsonl")
     strip = ledger.summary(result.doc.sha256, result.turn)
+    result.out_dir.mkdir(parents=True, exist_ok=True)  # the artifact store sits inside it
     verdicts, prior = localize_screenshots(result)
     html_text = render_page(
         result.doc,
@@ -383,6 +385,7 @@ def render_result(result: ProveResult, home: Path, runner_name: str) -> Path:
         authority=getattr(result, "authority", {}),
         receipts=getattr(result, "receipts", {}),
         runner_name=runner_name,
+        artifact_dir=result.out_dir / "artifacts",
     )
     page = write_page(result.out_dir, html_text)
     result.page = page
