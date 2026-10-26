@@ -397,12 +397,30 @@
                 {% if ev and ev.observation and ev.observation.note %}{% set runner_note = runner_notes.get(c.id) %}<dt>Runner note</dt><dd>{% if runner_note.text %}{{ runner_note.text }}{% endif %}{% if runner_note.pack %}{% if runner_note.text %} | {% endif %}pack {{ runner_note.pack }} <small><code>kane-cli evidence serve {{ runner_note.path }}</code></small>{% endif %}</dd>{% endif %}
                 {% if not brief and c.depends_on %}<dt>Depends on</dt><dd>{{ c.depends_on|join(', ') }}</dd>{% endif %}
               </dl>
+            {% elif c.kind == 'prompt' %}
+              <dl class="kv">
+                <dt>Prompt file</dt><dd><pre><code>{{ c.command }}</code></pre></dd>
+                {% if c.expects %}<dt>Doc {{ 'expects the error' if c.expects_error else 'expects the result' }}</dt><dd><pre><code>{{ c.expects }}</code></pre></dd>{% elif c.expects_error %}<dt>Doc expects</dt><dd>the run fails</dd>{% endif %}
+                {% if not brief and c.depends_on %}<dt>Depends on</dt><dd>{{ c.depends_on|join(', ') }}</dd>{% endif %}
+              </dl>
+              <dl class="kv">
+                {% if ev and ev.prompt %}
+                  <dt>Run status</dt><dd>{{ ev.prompt.status }}{% if ev.prompt.rounds %} &middot; {{ ev.prompt.rounds }} scripted model round{{ '' if ev.prompt.rounds == 1 else 's' }}{% endif %}</dd>
+                  {% if ev.prompt.result is not none %}<dt>Result</dt><dd><pre><code>{{ ev.prompt.result }}</code></pre></dd>{% endif %}
+                  {% if ev.prompt.error_kind %}<dt>Error kind</dt><dd><code>{{ ev.prompt.error_kind }}</code>{% if ev.prompt.error_line %} at line {{ ev.prompt.error_line }}{% endif %}</dd>{% endif %}
+                  {% if ev.prompt.message %}<dt>Message</dt><dd>{{ ev.prompt.message }}</dd>{% endif %}
+                  <dt>Host</dt><dd><code>{{ ev.prompt.host_version }}</code></dd>
+                {% else %}
+                  <dt>Run</dt><dd>no prompt runner observation</dd>
+                {% endif %}
+              </dl>
             {% else %}
               <dl class="kv">
                 {% if c.command %}<dt>Command</dt><dd><pre><code>{{ c.command }}</code></pre></dd>{% endif %}
                 {% if c.expects %}<dt>Doc expects</dt><dd><code>{{ c.expects }}</code></dd>{% endif %}
                 {% if ev %}
-                  <dt>Exit code</dt><dd>{{ 'timed out' if ev.timed_out else ev.exit_code }}{% if ev.detected_url %} &middot; opened {{ ev.detected_url }}{% endif %}</dd>
+                  <dt>Exit code</dt><dd>{{ 'timed out' if ev.timed_out else ev.exit_code }}{% if ev.detected_url %} &middot; opened {{ ev.detected_url }}{% endif %}{% if ev.ready_url %} &middot; readiness {{ ev.ready_url }}{% if ev.ready_status is not none %} answered {{ ev.ready_status }}{% endif %}{% endif %}</dd>
+                  {% if ev.substitute %}<dt>Ran instead</dt><dd><code>{{ ev.substitute }}</code> (sidecar substitute, capped at stale)</dd>{% endif %}
                 {% endif %}
               </dl>
               <dl class="kv">

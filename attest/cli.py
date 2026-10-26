@@ -252,6 +252,23 @@ def _runner(name: str, fake_observations: Path | None, headless: bool = False, r
     raise typer.BadParameter(f"unknown runner {name!r}; use fake or kane")
 
 
+def _prompt_runner(name: str | None, prompt_observations: Path | None):
+    """The prompt runner for prompt claims: runvil by default, fake (simulation only) on request."""
+    from .prompt_runner import FakePromptRunner
+    from .runvil_runner import RunvilPromptRunner
+    from .verdict import load_rules
+
+    if name in (None, "runvil"):
+        if prompt_observations is not None:
+            raise typer.BadParameter("--prompt-observations only applies to --prompt-runner fake")
+        return RunvilPromptRunner(timeout_s=load_rules().prompt_timeout_s)
+    if name == "fake":
+        if prompt_observations:
+            return FakePromptRunner.from_file(prompt_observations)
+        return FakePromptRunner()
+    raise typer.BadParameter(f"unknown prompt runner {name!r}; use runvil or fake")
+
+
 RULE = "-" * 64
 STATUS_COLOR = {"PROVEN": typer.colors.GREEN, "STALE": typer.colors.YELLOW, "BROKEN": typer.colors.RED}
 # code points that PowerShell 5.1 would garble, mapped to plain ASCII
@@ -289,6 +306,14 @@ def _log(claim, verdict) -> None:
             detail = f"exit code {'timed out' if evidence and evidence.timed_out else evidence.exit_code if evidence else 'unknown'}"
         if evidence and evidence.substitute:
             detail += f" via substitute `{evidence.substitute}`"
+    elif claim.kind == "prompt" and evidence and evidence.prompt:
+        obs = evidence.prompt
+        if obs.status == "completed":
+            detail = f'run completed, result "{_clip((obs.result or "").strip(), 60)}"'
+        else:
+            detail = f"run {obs.status}: {obs.error_kind or ''}{' ' if obs.error_kind and obs.message else ''}{_clip(obs.message or '', 80)}".rstrip(": ")
+        if verdict.status == "stale":
+            detail = f'doc expects "{_clip((claim.expects or "").strip(), 40)}", {detail}'
     elif evidence and evidence.observation:
         observed = ", ".join(str(v) for v in evidence.observation.observed.values())
         detail = f'Kane saw "{observed}"' if observed else verdict.reason
@@ -343,6 +368,8 @@ def prove_cmd(
     app_dir: Path | None = typer.Option(None, "--app", help="Spec mode: the doc is the contract for this app directory; failing claims become tickets the implementation agent closes in a copy of the app (implies --loop)."),
     cli_config: Path | None = typer.Option(None, "--cli-config", help="Sidecar with fixtures, services and substitutes (default: attest.cli.yaml beside the doc)."),
     substitute: bool = typer.Option(False, "--substitute", help="Allow the sidecar's substitutes; a claim that passes only through one is capped at stale."),
+    prompt_runner: str | None = typer.Option(None, "--prompt-runner", help="Prompt runner for prompt claims: runvil (default, needs runvil-docs-host) or fake (simulation only)."),
+    prompt_observations: Path | None = typer.Option(None, "--prompt-observations", help="JSON of recorded PromptObservation records for the fake prompt runner."),
 ) -> None:
     """Execute every claim in a document and render it with badges."""
     if apply:
@@ -350,6 +377,9 @@ def prove_cmd(
         raise typer.Exit(2)
     if runner == "fake" and not simulation:
         typer.echo("fake observations require --simulation and cannot verify claims.", err=True)
+        raise typer.Exit(2)
+    if prompt_runner == "fake" and not simulation:
+        typer.echo("fake prompt observations require --simulation and cannot verify claims.", err=True)
         raise typer.Exit(2)
     if simulation and runner != "fake":
         typer.echo("--simulation is only valid with --runner fake.", err=True)
@@ -363,6 +393,7 @@ def prove_cmd(
         sys.stdout = tee
     try:
         br = _runner(runner, fake_observations, headless=headless, report=report, cdp_endpoint=cdp_endpoint)
+        pr = _prompt_runner(prompt_runner, prompt_observations)
         _header(source, br.name)
         try:
             skip_ids = {claim_id.strip() for item in skip for claim_id in item.split(",") if claim_id.strip()}
@@ -374,7 +405,7 @@ def prove_cmd(
                 source, runner=br, home=home, log=narrate, keep_servers=loop,
                 stop_before=stop_before, skip=skip_ids, live=live, on_start=before, simulation=simulation,
                 recipes_only=recipes_only, app_dir=app_dir,
-                cli_config=cli_config, allow_substitutes=substitute,
+                cli_config=cli_config, allow_substitutes=substitute, prompt_runner=pr,
             )
         except ValueError as e:
             br.close()
@@ -446,7 +477,7 @@ def prove_cmd(
         if not simulation and any(
             result.by_id[claim.id].status != "proven"
             for claim in result.claims
-            if claim.kind in {"shell", "browser", "assert"}
+            if claim.kind in {"shell", "browser", "assert", "prompt"}
         ):
             raise typer.Exit(1)
     finally:

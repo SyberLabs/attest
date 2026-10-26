@@ -19,6 +19,7 @@ from .execution.recipes import ApprovedRecipeExecutor
 from .ingest import ingest
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
+from .prompt_runner import PromptRunner
 from .render import badge_svg, proof_md, render_page, write_page
 from .runner import BrowserRunner, FakeBrowserRunner
 from .shell import ShellSession, new_scratch
@@ -98,8 +99,12 @@ def execute(
     simulation: bool = False,
     cli_config: CliConfig | None = None,
     allow_substitutes: bool = False,
+    prompt_runner: PromptRunner | None = None,
 ) -> tuple[dict[str, Evidence], list[Verdict], ShellSession]:
-    """Run claims in doc order; simulation evidence can never produce a proven verdict."""
+    """Run claims in doc order; simulation evidence can never produce a proven verdict.
+
+    Prompt claims go to ``prompt_runner``; without one they get no evidence and end
+    unverifiable."""
     evidence: dict[str, Evidence] = {}
     verdicts: list[Verdict] = []
     reached: dict[str, Verdict] = dict(prior or {})
@@ -172,6 +177,9 @@ def execute(
                     src = next((reached[d].evidence for d in c.depends_on if d in reached and reached[d].evidence), None)
                     if src is not None and src.kind == "shell":
                         ev = src.model_copy(update={"claim_id": c.id})
+                elif c.kind == "prompt" and prompt_runner is not None:
+                    obs = prompt_runner.run(c)
+                    ev = Evidence(claim_id=c.id, kind="prompt", prompt=obs)
             v = judge(c, ev, reached, rules)
             if simulation:
                 v = v.model_copy(update={"status": "unverifiable", "reason": f"simulation only; not verification evidence: {v.reason}"})
@@ -227,6 +235,7 @@ def prove(
     app_dir: Path | None = None,
     cli_config: CliConfig | Path | str | None = None,
     allow_substitutes: bool = False,
+    prompt_runner: PromptRunner | None = None,
 ) -> ProveResult:
     rules = rules or load_rules()
     if runner is None:
@@ -235,6 +244,8 @@ def prove(
         raise ValueError("fake browser evidence requires simulation=True and cannot verify claims")
     if simulation and getattr(runner, "name", None) != "fake":
         raise ValueError("simulation=True is only valid with the fake browser runner")
+    if getattr(prompt_runner, "name", None) == "fake" and not simulation:
+        raise ValueError("fake prompt observations require simulation=True and cannot verify claims")
     doc = ingest(source)
     if cli_config is None:
         found = find_cli_config(source)
@@ -253,6 +264,12 @@ def prove(
         shell_env = {**(shell_env or {}), "ATTEST_APP_DIR": candidate.posix}
     claims = annotate_setup(compile_doc(doc, llm=llm), cli_config)
     check_setup(claims, cli_config)
+    if any(c.kind == "prompt" for c in claims):
+        if prompt_runner is None:
+            raise ValueError("the document has prompt claims; pass a prompt runner (--prompt-runner runvil or fake)")
+        check = getattr(prompt_runner, "check", None)
+        if check is not None:
+            check()  # a missing Host fails before any claim runs
     uncovered = _uncompiled_required_lines(doc, claims)
     if uncovered:
         raise CompileError(
@@ -302,7 +319,7 @@ def prove(
             claims, runner, rules, scratch, shell_env=shell_env, log=record if live else log,
             stop_before=stop_before, skip=skip, on_start=announce, simulation=simulation,
             recipes_only=recipes_only, recipe_executor=recipe_executor,
-            cli_config=cli_config, allow_substitutes=allow_substitutes,
+            cli_config=cli_config, allow_substitutes=allow_substitutes, prompt_runner=prompt_runner,
         )
         if not keep_servers:
             session.close()

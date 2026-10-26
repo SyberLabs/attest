@@ -433,6 +433,13 @@ def runner_saw(v: Verdict | None) -> str:
     ev = v.evidence
     if ev.kind == "shell":
         return "timed out" if ev.timed_out else f"exit code {ev.exit_code}"
+    if ev.kind == "prompt":
+        p = ev.prompt
+        if p is None:
+            return ""
+        if p.status == "completed":
+            return f'"{(p.result or "").strip()}"'
+        return f"{p.status}: {p.error_kind or ''} {p.message or ''}".strip()
     obs = ev.observation
     if obs is None:
         return ""
