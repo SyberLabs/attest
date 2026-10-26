@@ -229,7 +229,7 @@ def test_missing_or_conflicting_authority_fails_the_cli(rt_case, tmp_path):
 def _write_files(root: Path, files: dict[str, str]) -> None:
     for name, text in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
-        (root / name).write_text(text, encoding="utf-8")
+        (root / name).write_text(text, encoding="utf-8", newline="")
 
 
 @case("RS-AB-10")

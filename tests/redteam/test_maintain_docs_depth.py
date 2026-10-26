@@ -51,6 +51,10 @@ def _recipes(approved: dict[str, str]) -> ApprovedRecipeExecutor:
 
 
 def _alive(pid: int) -> bool:
+    if os.name == "nt":
+        from tests.test_execution import _alive as windows_alive
+
+        return windows_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -63,7 +67,7 @@ def _alive(pid: int) -> bool:
 def _reap(*pids: int) -> None:
     for pid in pids:
         if _alive(pid):
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, signal.SIGTERM if os.name == "nt" else signal.SIGKILL)
 
 
 # -- PI: prompt injection ------------------------------------------------------------
@@ -73,7 +77,7 @@ def _reap(*pids: int) -> None:
 def test_injected_command_in_approved_candidate_never_runs(rt_case, tmp_path):
     i, x = rt_case["input"], rt_case["expected"]
     marker = tmp_path / i["marker"]
-    candidate = i["candidate"].replace(i["marker"], marker.as_posix())
+    candidate = i["candidate"].replace(i["marker"], marker.as_posix()).replace("python3", f'"{Path(sys.executable).as_posix()}"')
     command = candidate.split("```bash\n", 1)[1].split("\n```", 1)[0]
     # The canary works: a shell given the candidate's command writes the marker.
     canary = tmp_path / "canary"
@@ -183,7 +187,6 @@ def test_silent_repair_agent_is_stopped_at_its_deadline(rt_case, tmp_path, monke
     assert (doc.read_text(encoding="utf-8") == i["doc"]) is x["doc_unchanged"]
 
 
-@pytest.mark.skipif(os.name == "nt", reason="process probe is POSIX only")
 @case("MD-COST-04")
 def test_agent_deadline_leaves_no_agent_process_running(rt_case, tmp_path):
     i, x = rt_case["input"], rt_case["expected"]

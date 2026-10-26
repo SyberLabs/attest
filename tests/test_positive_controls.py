@@ -457,7 +457,7 @@ def _rs_request(**conflict_overrides) -> dict:
 def _run_reconcile(tmp_path: Path, request: dict, *flags: str, contract_text: str = RS_PROTECTED):
     contract = tmp_path / "contracts" / "security.md"
     contract.parent.mkdir()
-    contract.write_text(contract_text, encoding="utf-8")
+    contract.write_text(contract_text, encoding="utf-8", newline="")
     request_path = tmp_path / "diagnosis.json"
     request_path.write_text(json.dumps(request), encoding="utf-8")
     out = tmp_path / "out"

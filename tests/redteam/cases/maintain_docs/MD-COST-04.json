@@ -5,10 +5,9 @@
   "rubrics": [
     "R7"
   ],
-  "status": "xfail",
+  "status": "active",
   "theme": null,
   "title": "An agent stopped at its deadline leaves no process of its own running",
-  "gap": "attest.loop.call_agent runs the agent with subprocess.run(shell=True, timeout=...). On timeout only the shell it started is killed; the agent command under that shell, and any process it started, keep running past the deadline (observed on Linux with /bin/sh). The Kane runner stops its whole process group at the deadline (KR-ISO-06); the agent call has no equivalent yet.",
   "input": {
     "agent_timeout_s": 1,
     "agent_sleep_s": 60,
