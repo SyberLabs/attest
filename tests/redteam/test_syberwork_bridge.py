@@ -215,6 +215,9 @@ def test_ticket_with_caller_success_or_evidence_is_refused(rt_case, monkeypatch)
     code, calls = _run_worker(monkeypatch, json.dumps({**_ticket(), **i["extra_fields"]}))
     assert len(calls) == x["worker_calls"]
     assert code == x["exit_code"]
+    # control: the same ticket without the extra fields is dispatched, so refusing every ticket cannot pass
+    code, calls = _run_worker(monkeypatch, json.dumps(_ticket()))
+    assert (code, len(calls)) == (x["control_exit_code"], x["control_worker_calls"])
 
 
 @case("BR-AB-04")

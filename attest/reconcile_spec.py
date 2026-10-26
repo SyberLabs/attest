@@ -171,8 +171,18 @@ class ReconcileSpec:
         )
 
 
+# every character str.splitlines() breaks on: a code span cannot hold one, and the next
+# line would render as Markdown of its own (a heading, a list item)
+_LINE_BREAKS = re.compile(r"[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
+
+
 def _inline_code(value: str) -> str:
-    """Render arbitrary input as a safe Markdown code span."""
+    """Render arbitrary input as a safe Markdown code span.
+
+    Line breaks are shown as JSON escapes (``\\n``), so the span stays on one
+    line; the JSON artifact keeps the value as submitted.
+    """
+    value = _LINE_BREAKS.sub(lambda m: json.dumps(m.group(0))[1:-1], value)
     runs = [len(m.group(0)) for m in re.finditer(r"`+", value)]
     marker = "`" * (max(runs, default=0) + 1)
     pad = " " if value.startswith("`") or value.endswith("`") else ""
