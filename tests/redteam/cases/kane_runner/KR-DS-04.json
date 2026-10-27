@@ -1,0 +1,25 @@
+{
+  "id": "KR-DS-04",
+  "component": "kane_runner",
+  "category": "DS",
+  "rubrics": [
+    "R3",
+    "R5"
+  ],
+  "status": "xfail",
+  "theme": "stale_or_wrong_app_version",
+  "title": "A pack sealed from a test file whose start URL names another origin still backs the claim",
+  "gap": "pack_disagreement retargets the expected step wording to the pack's own front-matter url, so the url Kane opened is never compared with the one Attest wrote (the detected local server). A claim whose objective has no URL reads the same on any origin. Needs the start URL Attest wrote recorded with the run and compared on read-back.",
+  "input": {
+    "capture": "author_pass",
+    "claim": "c07",
+    "expects": "Hello, World!",
+    "written_url": "http://127.0.0.1:5000/",
+    "sealed_url": "https://staging.example.invalid/",
+    "source": "Recorded capture tests/fixtures/kane/author_pass.pack.zip (event-day smoke run, sanitized); not live Kane."
+  },
+  "expected": {
+    "written_pack_backs": true,
+    "other_origin_pack_backs": false
+  }
+}

@@ -113,6 +113,28 @@ class SQLiteWorkflowStore:
             raise WorkflowStorageError(f"artifact digest mismatch for {digest}")
         return content
 
+    def artifacts_containing(self, marker: bytes) -> list[tuple[str, bytes]]:
+        """Every stored artifact whose content contains ``marker``, as (digest, content), each verified."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT digest, content FROM artifacts WHERE instr(content, ?) > 0 ORDER BY digest", (marker,)
+            ).fetchall()
+        out = []
+        for row in rows:
+            content = bytes(row["content"])
+            if digest_bytes(content) != row["digest"]:
+                raise WorkflowStorageError(f"artifact digest mismatch for {row['digest']}")
+            out.append((row["digest"], content))
+        return out
+
+    def validations(self) -> list[tuple[str, dict[str, Any]]]:
+        """Every workflow's stored validation record, as (workflow id, record), workflows without one left out."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT workflow_id, validation_json FROM workflows WHERE validation_json IS NOT NULL ORDER BY workflow_id"
+            ).fetchall()
+        return [(row["workflow_id"], json.loads(row["validation_json"])) for row in rows]
+
     def create(self, workflow_id: str, proposal: dict[str, Any]) -> WorkflowRecord:
         payload = canonical_json(proposal)
         with self._connect() as db:

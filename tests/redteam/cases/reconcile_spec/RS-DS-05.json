@@ -1,0 +1,30 @@
+{
+  "id": "RS-DS-05",
+  "component": "reconcile_spec",
+  "category": "DS",
+  "rubrics": [
+    "R1",
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "A look-alike requirement id (non-breaking hyphen, Cyrillic letters) is not the contract's requirement and blocks",
+  "input": {
+    "files": {
+      "contracts/security.md": "# Security contract\n\n**Status:** Approved\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-5\n\nSessions must expire after 15 minutes idle.\n"
+    },
+    "ids": {
+      "non_breaking_hyphen": "SEC‑4",
+      "cyrillic": "ЅЕС-4",
+      "fullwidth_digit": "SEC-４"
+    },
+    "protected_text": "The application must require multi-factor authentication\nfor every administrator sign-in."
+  },
+  "expected": {
+    "exit_code": 3,
+    "reason": "c01:requirement_not_in_source",
+    "authority_state": "missing",
+    "source_state": "mismatch"
+  }
+}

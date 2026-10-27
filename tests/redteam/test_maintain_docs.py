@@ -5,15 +5,18 @@ Inputs and expected invariants live in cases/maintain_docs/<ID>.json.
 
 from __future__ import annotations
 
+import dataclasses
+import hashlib
 import json
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from attest.approvals import ApprovalError, approve_workflow
+from attest.approvals import ApprovalError, approval_bindings, approve_workflow, verify_approval
 from attest.compiler import ClaimSet, CompileError, compile_doc, fences_by_regex
 from attest.contracts import RepairProposal
 from attest.execution.recipes import ApprovedRecipeExecutor
@@ -29,7 +32,8 @@ from attest.runner import FakeBrowserRunner
 from attest.snapshots import SourceVersion
 from attest.storage import SQLiteWorkflowStore, canonical_json
 from attest.verdict import Rules, judge
-from attest.workflow import WorkflowError, promote_workflow, resume_workflow
+from attest import workflow as workflow_module
+from attest.workflow import DOCS_APPROVAL_CODES, WorkflowError, promote_workflow, resume_workflow
 
 from ._harness import KaneTestRunner, case, make_diff
 
@@ -47,6 +51,7 @@ def _prose_target(text: str, start: int, end: int) -> Claim:
 
 def propose(tmp_path: Path, base: str, candidate: str, *, target: Claim | None = None, policy=None,
             plan: str = "Repair only c01; preserve all promises."):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     source = tmp_path / "guide.md"
     # LF bytes on every platform: text mode writes CRLF on Windows, and the CRLF-resave case
     # (MD-DS-05) needs the approved bytes to differ from the resaved ones
@@ -261,6 +266,330 @@ def test_policy_swapped_after_approval_is_unresolved(rt_case, tmp_path):
     assert result.state == x["state"]
     assert x["reason_contains"] in result.validation["reason"]
     assert source.read_text(encoding="utf-8") == i["base"]
+
+
+def _refused_and_allowed(rt_case, tmp_path, check_refused):
+    """Each refused pair is rejected with a handoff and can't be approved; each allowed one awaits approval."""
+    i, x = rt_case["input"], rt_case["expected"]
+    for n, item in enumerate(i["refused"]):
+        base = item["base"]
+        source, store, record = propose(tmp_path / f"refused-{n}", base, item["candidate"],
+                                        target=_prose_target(base, 1, 1), plan="Match the app.")
+        assert record.state == x["refused_state"], item
+        authority = record.proposal["authority"]
+        check_refused(item, authority["violations"])
+        assert authority["implementation_handoff"]["kind"] == x["handoff_kind"]
+        with pytest.raises(ApprovalError, match=x["approve_error"]):
+            approve_workflow(store, record.workflow_id, "reviewer")
+        assert source.read_text(encoding="utf-8") == base
+    # negative control: the same gate still lets a descriptive repair through
+    for n, item in enumerate(i["allowed"]):
+        base = item["base"]
+        _, _, record = propose(tmp_path / f"allowed-{n}", base, item["candidate"], target=_prose_target(base, 1, 1))
+        assert record.state == x["allowed_state"], (item, record.proposal["authority"]["violations"])
+
+
+@case("MD-AB-08")
+def test_negated_or_excepted_promise_is_refused(rt_case, tmp_path):
+    def check(item, violations):
+        assert any(item["violation"] in v for v in violations), (item, violations)
+
+    _refused_and_allowed(rt_case, tmp_path, check)
+
+
+@case("MD-AB-09")
+def test_changed_unit_or_number_word_in_a_promise_is_refused(rt_case, tmp_path):
+    def check(item, violations):
+        assert rt_case["expected"]["violation_contains"] in violations, (item, violations)
+
+    _refused_and_allowed(rt_case, tmp_path, check)
+
+
+class _OlderAuthority(MaintainDocsPolicy):
+    """An authority that allowed every patch: the same fields, so the same policy digest."""
+
+    def authorize(self, **kwargs):
+        decision = super().authorize(**kwargs)
+        return dataclasses.replace(decision, allowed=True, reason="authorized for Maintain Docs", violations=[],
+                                   implementation_handoff=None)
+
+
+@case("MD-AB-10")
+def test_approval_under_an_older_authority_is_rejudged_before_apply(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    older = _OlderAuthority()
+    assert older.digest == MaintainDocsPolicy().digest
+
+    def approved(name, candidate):
+        source, store, record = propose(tmp_path / name, i["base"], candidate, policy=older)
+        assert record.state == "awaiting_approval"
+        approve_workflow(store, record.workflow_id, i["approver"])
+        command = candidate.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        return source, store, record, ApprovedRecipeExecutor({command: [sys.executable, "-c", "print('ready')"]})
+
+    # Validation re-judges the patch before running anything.
+    source, store, record, ready = approved("resume", i["candidate"])
+    result = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, apply=True)
+    assert result.state == x["resume_state"]
+    assert x["reason_contains"] in result.validation["reason"]
+    assert source.read_text(encoding="utf-8") == i["base"]
+
+    # A record validated under the older authority is re-judged at --apply.
+    source, store, record, ready = approved("promote", i["candidate"])
+    validated = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, policy=older)
+    assert validated.state == x["validated_state"]
+    with pytest.raises(WorkflowError, match=x["promote_error"]):
+        promote_workflow(store, record.workflow_id)
+    with pytest.raises(WorkflowError, match=x["promote_error"]):
+        resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, apply=True)
+    assert store.get(record.workflow_id).state == x["validated_state"]
+    assert source.read_text(encoding="utf-8") == i["base"]
+
+    # negative control: a descriptive repair approved the same way still promotes
+    source, store, record, ready = approved("control", i["control_candidate"])
+    resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=ready, policy=older)
+    assert promote_workflow(store, record.workflow_id).state == x["control_state"]
+    assert source.read_text(encoding="utf-8") == i["control_candidate"]
+
+
+def _digest_correct_approval(record, actor: str, approved_at: str | None = None) -> dict:
+    """An approval verify_approval accepts (bindings and digest right) that `attest approve` didn't write."""
+    approval = {**approval_bindings(record.proposal), "actor": actor,
+                "approved_at": approved_at or datetime.now(timezone.utc).isoformat()}
+    approval["approval_digest"] = hashlib.sha256(canonical_json(approval).encode("utf-8")).hexdigest()
+    return approval
+
+
+def _write_row(store, workflow_id: str, state: str, approval: dict) -> None:
+    with sqlite3.connect(store.path) as db:
+        db.execute("UPDATE workflows SET state = ?, approval_json = ? WHERE workflow_id = ?",
+                   (state, canonical_json(approval), workflow_id))
+
+
+def _forged_approval(tmp_path, i, shape: str):
+    """A workflow in `validating` whose approval verify_approval accepts but no approve event of its own backs."""
+    candidate = i["denied_candidate"] if shape == "denied_offer" else i["candidate"]
+    source, store, record = propose(tmp_path, i["base"], candidate)
+    wid = record.workflow_id
+    if shape == "denied_offer":
+        assert record.state == "rejected"
+        _write_row(store, wid, "validating", _digest_correct_approval(record, i["approver"]))
+    elif shape == "row_written":
+        _write_row(store, wid, "validating", _digest_correct_approval(record, i["approver"]))
+    elif shape == "unnamed_event":
+        store.transition(wid, "awaiting_approval", "validating", approval=_digest_correct_approval(record, i["approver"]))
+    elif shape == "twin_swapped":
+        claims = fences_by_regex(ingest_text(i["base"], source=str(source)))
+        twin = create_repair_proposal(store, source_path=source, base_text=i["base"], candidate_text=candidate,
+                                      diff=make_diff(i["base"], candidate), target_claim=claims[0], baseline_claims=claims,
+                                      plan="Repair only c01; preserve all promises.")
+        assert twin.proposal["proposal_digest"] == record.proposal["proposal_digest"]
+        approve_workflow(store, wid, i["approver"])
+        _write_row(store, wid, "validating", approve_workflow(store, twin.workflow_id, "intruder").approval)
+    elif shape == "policy_actor":
+        # #60 refuses this actor at admission. Still exercise #63 against a row
+        # written by an older host (or directly), past that earlier guard.
+        with pytest.raises(ApprovalError, match="human approver"):
+            approve_workflow(store, wid, "policy:auto-approve")
+        approval = _digest_correct_approval(record, "policy:auto-approve")
+        store.transition(wid, "awaiting_approval", "validating", approval=approval,
+                         event={"actor": approval["actor"], "approval_digest": approval["approval_digest"]})
+    elif shape == "backdated":
+        approval = _digest_correct_approval(record, i["approver"], approved_at="2020-01-01T00:00:00+00:00")
+        store.transition(wid, "awaiting_approval", "validating", approval=approval,
+                         event={"actor": approval["actor"], "approval_digest": approval["approval_digest"]})
+    else:
+        raise AssertionError(f"unknown forgery shape {shape!r}")
+    verify_approval(store.get(wid))  # digest-correct: the older gate accepts every one
+    return source, store, wid
+
+
+def _marking_recipes(marker: Path) -> ApprovedRecipeExecutor:
+    """The candidate's command, approved as a recipe that leaves a marker when it runs."""
+    return ApprovedRecipeExecutor({"echo ready && exit 0": [sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"]})
+
+
+@case("MD-AB-11")
+def test_approval_attest_approve_did_not_record_is_refused_before_validation(rt_case, tmp_path):
+    i, x = rt_case["input"], rt_case["expected"]
+    for item in i["forgeries"]:
+        assert item["code"] in DOCS_APPROVAL_CODES
+        root = tmp_path / item["shape"]
+        source, store, wid = _forged_approval(root, i, item["shape"])
+        marker = root / "ran"
+        result = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker), apply=True)
+        assert result.state == x["resume_state"], item
+        assert result.validation["reason"].startswith(f"{x['reason_prefix']} ({item['code']})"), (item, result.validation)
+        assert x["nothing_ran"] and "statuses" not in result.validation and not marker.exists(), item
+        assert source.read_text(encoding="utf-8") == i["base"], item
+
+    # negative control: the same candidate, approved with `attest approve`, validates and promotes
+    source, store, record = propose(tmp_path / "control", i["base"], i["candidate"])
+    approve_workflow(store, record.workflow_id, i["approver"])
+    marker = tmp_path / "control" / "ran"
+    promoted = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker), apply=True)
+    assert promoted.state == x["control_state"] and marker.exists()
+    assert source.read_text(encoding="utf-8") == i["candidate"]
+
+
+@case("MD-AB-12")
+def test_record_validated_without_the_approve_event_is_refused_at_apply(rt_case, tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    import attest.cli as cli_module
+
+    i, x = rt_case["input"], rt_case["expected"]
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
+    for item in i["forgeries"]:
+        root = tmp_path / item["shape"]
+        source, store, wid = _forged_approval(root, i, item["shape"])
+        with monkeypatch.context() as older:
+            # an Attest whose gate stopped at verify_approval validated this record
+            older.setattr(workflow_module, "verify_docs_approval", lambda store, record: verify_approval(record))
+            older.setattr(workflow_module, "_approval_disagreement", lambda store, record: None)
+            validated = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(root / "ran"))
+        assert validated.state == x["validated_state"], item
+
+        error = x["promote_error"].format(code=item["code"])
+        with pytest.raises(WorkflowError, match=error):
+            promote_workflow(store, wid)
+        with pytest.raises(WorkflowError, match=error):
+            resume_workflow(store, wid, runner=KaneTestRunner(), apply=True)
+        out = CliRunner().invoke(cli_module.app, ["resume", wid, "--apply", "--home", str(store.path.parent)])
+        assert out.exit_code == x["cli_exit"] and x["cli_output"].format(code=item["code"]) in out.output, (item, out.output)
+        assert store.get(wid).state == x["validated_state"], item
+        assert source.read_text(encoding="utf-8") == i["base"], item
+
+    # negative control: a record validated after `attest approve` still promotes
+    source, store, record = propose(tmp_path / "control", i["base"], i["candidate"])
+    approve_workflow(store, record.workflow_id, i["approver"])
+    resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=_marking_recipes(tmp_path / "control" / "ran"))
+    assert promote_workflow(store, record.workflow_id).state == x["control_state"]
+    assert source.read_text(encoding="utf-8") == i["candidate"]
+
+
+def _git(cwd: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", "-c", "user.name=attest", "-c", "user.email=attest@example.test", "-c", "init.defaultBranch=main",
+                    *args], cwd=cwd, check=True, capture_output=True)
+
+
+def _approved_in_a_clone_pair(root: Path, i: dict):
+    """An approved proposal for <repo>/docs/guide.md, and a clone of that repository at the same commit.
+
+    The store lives outside both, so swapping the docs directory moves nothing Attest owns.
+    """
+    repo = root / "repo"
+    source = repo / i["source"]
+    source.parent.mkdir(parents=True)
+    source.write_text(i["base"], encoding="utf-8", newline=chr(10))
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    _git(root, "clone", "-q", str(repo), "clone")
+    store = SQLiteWorkflowStore(root / "home" / "workflow.sqlite3")
+    claims = fences_by_regex(ingest_text(i["base"], source=str(source)))
+    record = create_repair_proposal(store, source_path=source, base_text=i["base"], candidate_text=i["candidate"],
+                                    diff=make_diff(i["base"], i["candidate"]), target_claim=claims[0],
+                                    baseline_claims=claims, plan="Repair only c01; preserve all promises.")
+    assert record.state == "awaiting_approval"
+    approve_workflow(store, record.workflow_id, i["approver"])
+    return repo, root / "clone", source, store, record.workflow_id
+
+
+def _swap_docs_dir(repo: Path, clone: Path, i: dict, swap: str) -> Path:
+    """Move the approved docs directory aside and put a link to the clone's (or a real copy) in its place."""
+    docs = (repo / i["source"]).parent
+    moved = docs.with_name(docs.name + ".approved")
+    docs.rename(moved)
+    if swap == "symlink_to_clone":
+        docs.symlink_to(clone / docs.relative_to(repo), target_is_directory=True)
+    elif swap == "replaced_by_copy":
+        docs.mkdir()
+        (docs / Path(i["source"]).name).write_bytes((moved / Path(i["source"]).name).read_bytes())
+    else:
+        raise AssertionError(f"unknown swap {swap!r}")
+    return moved
+
+
+@case("MD-AB-13")
+def test_symlinked_directory_on_the_source_path_is_never_validated_or_written_through(rt_case, tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    import attest.cli as cli_module
+    from attest.docs_source import SOURCE_PATH_CODES
+    from attest.proposals import current_build_digest
+
+    i, x = rt_case["input"], rt_case["expected"]
+    monkeypatch.setattr(cli_module, "_runner", lambda *args, **kwargs: KaneTestRunner())
+    name = Path(i["source"]).name
+    for n, item in enumerate(i["swaps"]):
+        assert item["code"] in SOURCE_PATH_CODES
+        root = tmp_path / f"{n}-{item['when']}"
+        try:
+            repo, clone, source, store, wid = _approved_in_a_clone_pair(root, i)
+            probe = root / "probe"
+            probe.symlink_to(clone, target_is_directory=True)
+        except OSError as exc:  # Windows without Developer Mode or admin cannot create symlinks
+            pytest.skip(f"cannot create a symlink here ({exc})")
+        # The clone is at the approved commit: through a link, its source bytes and build
+        # identity are the approved ones, so only the path check can tell them apart.
+        clone_source = clone / i["source"]
+        proposal = store.get(wid).proposal
+        built = current_build_digest(probe / i["source"], proposal["source_digest"])
+        assert (built == proposal["build_digest"]) is x["clone_build_matches"]
+        assert hashlib.sha256(clone_source.read_bytes()).hexdigest() == proposal["source_digest"]
+        marker = root / "ran"
+
+        if item["when"] == "before_validation":
+            moved = _swap_docs_dir(repo, clone, i, item["swap"])
+            result = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker), apply=True)
+            assert result.state == x["resume_state"], item
+            assert result.validation["reason"].startswith(f"{x['reason_prefix']} ({item['code']})"), (item, result.validation)
+            assert "statuses" not in result.validation and not marker.exists(), item
+        else:
+            validated = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker))
+            assert validated.state == x["validated_state"], item
+            error = x["promote_error"].format(code=item["code"])
+            if item["when"] == "after_validation":
+                moved = _swap_docs_dir(repo, clone, i, item["swap"])
+                with pytest.raises(WorkflowError, match=error):
+                    promote_workflow(store, wid)
+                with pytest.raises(WorkflowError, match=error):
+                    resume_workflow(store, wid, runner=KaneTestRunner(), apply=True)
+                out = CliRunner().invoke(cli_module.app, ["resume", wid, "--apply", "--home", str(store.path.parent)])
+                assert out.exit_code == x["cli_exit"], (item, out.output)
+                assert x["cli_output"].format(code=item["code"]) in out.output, (item, out.output)
+            else:
+                # The swap lands after --apply has opened the approved directory and checked
+                # the source and the build, and before the candidate is renamed into place.
+                swapped = []
+
+                def build_then_swap(path, source_digest=None):
+                    digest = current_build_digest(path, source_digest)
+                    swapped.append(_swap_docs_dir(repo, clone, i, item["swap"]))
+                    return digest
+
+                with monkeypatch.context() as during:
+                    during.setattr(workflow_module, "current_build_digest", build_then_swap)
+                    with pytest.raises(WorkflowError, match=error):
+                        promote_workflow(store, wid)
+                moved = swapped[0]
+            assert store.get(wid).state == x["validated_state"], item
+
+        assert x["nothing_written_outside"] and clone_source.read_text(encoding="utf-8") == i["base"], item
+        assert (moved / name).read_text(encoding="utf-8") == i["base"], item
+        assert (repo / i["source"]).read_text(encoding="utf-8") == i["base"], item
+        assert not [p.name for p in moved.iterdir() if p.name != name], item  # no staged file left behind
+
+    # negative control: the same pair, nothing swapped, validates and promotes in place
+    repo, clone, source, store, wid = _approved_in_a_clone_pair(tmp_path / "control", i)
+    marker = tmp_path / "control" / "ran"
+    promoted = resume_workflow(store, wid, runner=KaneTestRunner(), recipe_executor=_marking_recipes(marker), apply=True)
+    assert promoted.state == x["control_state"] and marker.exists()
+    assert source.read_text(encoding="utf-8") == i["candidate"]
+    assert (clone / i["source"]).read_text(encoding="utf-8") == i["base"]
 
 
 # -- DS: digest swap / identity confusion ----------------------------------------------

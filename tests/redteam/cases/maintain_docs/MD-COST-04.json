@@ -1,0 +1,23 @@
+{
+  "id": "MD-COST-04",
+  "component": "maintain_docs",
+  "category": "COST",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "An agent stopped at its deadline leaves no process of its own running",
+  "input": {
+    "agent_timeout_s": 1,
+    "agent_sleep_s": 60,
+    "child_sleep_s": 30
+  },
+  "expected": {
+    "max_elapsed_s": 10,
+    "returned": "",
+    "stderr_log_contains": "timed out after 1 s",
+    "agent_alive": false,
+    "child_alive": false
+  }
+}

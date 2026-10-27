@@ -11,6 +11,13 @@ Kane's browser observations are bound as on the Maintain Docs path: each names t
 fresh Kane run validation binds it to, and the build the runner measured around that
 run. The runner measures the spec's worktree (the doc it was prepared with), so the
 proposal records that build too, as ``spec_build_digest``, and approval binds it.
+
+The approval itself must be the one ``attest approve`` recorded for this workflow
+(``verify_spec_approval``): a digest-correct approval that no approve event backs,
+that names another workflow, a policy or blank approver, a proposal its authority
+denied, or a time outside the approval window is refused with a stable code. So is one on
+a workflow whose event log doesn't replay to its state: a rejection, ``unresolved`` or
+promotion the store recorded as final can't be reopened by rewriting the row's state.
 """
 
 from __future__ import annotations
@@ -22,15 +29,16 @@ import shutil
 import stat
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .approvals import verify_approval
+from .approvals import ApprovalError, is_policy_actor, verify_approval
 from .ingest import sha256_of
 from .models import Claim
 from .proposals import current_build_digest, proposal_digest
 from .shell import new_scratch
-from .storage import SQLiteWorkflowStore, WorkflowRecord, canonical_json
+from .storage import _ALLOWED_TRANSITIONS, SQLiteWorkflowStore, WorkflowRecord, canonical_json
 from .verdict import Rules, load_rules
 
 SPEC_APP_KIND = "spec_app"
@@ -45,6 +53,20 @@ SPEC_POLICY_DIGEST = hashlib.sha256(canonical_json(SPEC_PROMOTION_POLICY).encode
 
 class AppPromotionError(RuntimeError):
     pass
+
+
+class SpecApprovalError(ApprovalError):
+    """A spec promotion's approval was refused; ``code`` is one of SPEC_APPROVAL_CODES."""
+
+    def __init__(self, code: str, detail: str):
+        super().__init__(f"spec approval refused ({code}): {detail}")
+        self.code = code
+
+
+SPEC_APPROVAL_CODES = (
+    "approval_missing", "approval_unbound", "approval_not_this_workflow", "approval_not_human",
+    "authority_not_allowed", "approval_unrecorded", "approval_stale", "approval_history_broken",
+)
 
 
 # -- tree identity -------------------------------------------------------------------
@@ -205,6 +227,60 @@ def create_app_promotion_proposal(
     )
 
 
+# -- approval ------------------------------------------------------------------------
+
+
+def verify_spec_approval(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """The approval is a human's, recorded by ``attest approve`` for this workflow, after its proposal."""
+    approval = record.approval
+    if not approval:
+        raise SpecApprovalError("approval_missing", "no human approval is recorded for this workflow")
+    try:
+        verify_approval(record)
+    except ApprovalError as exc:
+        raise SpecApprovalError("approval_unbound", str(exc)) from exc
+    if approval.get("workflow_id") != record.workflow_id:
+        raise SpecApprovalError("approval_not_this_workflow", "the approval names another workflow, or none")
+    actor = approval.get("actor")
+    if not isinstance(actor, str) or not actor.strip() or actor != actor.strip() or is_policy_actor(actor):
+        raise SpecApprovalError("approval_not_human", f"approver {actor!r} is not a human identity")
+    if not (record.proposal.get("authority") or {}).get("allowed"):
+        raise SpecApprovalError("authority_not_allowed", "authority policy did not authorize this proposal")
+    # approve_workflow writes exactly one awaiting_approval -> validating event naming the approver and digest
+    events = store.events(record.workflow_id)
+    steps = [(e["from_state"], e["to_state"]) for e in events]
+    offered = [i for i, step in enumerate(steps) if step == ("proposed", "awaiting_approval")]
+    approved = [i for i, step in enumerate(steps) if step == ("awaiting_approval", "validating")]
+    if (
+        len(offered) != 1 or len(approved) != 1 or offered[0] > approved[0]
+        or events[offered[0]]["payload"] != {"authority": "allowed", "policy_digest": SPEC_POLICY_DIGEST}
+    ):
+        raise SpecApprovalError("approval_unrecorded", "the workflow has no single recorded proposal and approval")
+    if events[approved[0]]["payload"] != {"actor": actor, "approval_digest": approval.get("approval_digest")}:
+        raise SpecApprovalError("approval_unrecorded", "the approval is not the one `attest approve` recorded")
+    try:
+        at = datetime.fromisoformat(approval["approved_at"])
+        window = (datetime.fromisoformat(events[offered[0]]["created_at"]),
+                  datetime.fromisoformat(events[approved[0]]["created_at"]))
+        inside = at.tzinfo is not None and window[0] <= at <= window[1]
+    except (KeyError, TypeError, ValueError):
+        inside = False
+    if not inside:
+        raise SpecApprovalError("approval_stale", "the approval was not given between this proposal and its approval event")
+
+
+def verify_spec_history(store: SQLiteWorkflowStore, record: WorkflowRecord) -> None:
+    """The approval's workflow is still open: its event log replays to the state the row is in."""
+    # store.create writes one creation event and store.transition one event per allowed step:
+    # replayed, the log ends in the row's state. A final state reopened in the row doesn't.
+    steps = [(e["from_state"], e["to_state"]) for e in store.events(record.workflow_id)]
+    if steps[:1] != [(None, "proposed")] or any(
+        before != after[0] or after[1] not in _ALLOWED_TRANSITIONS.get(after[0], ())
+        for (_, before), after in zip(steps, steps[1:])
+    ) or steps[-1][1] != record.state:
+        raise SpecApprovalError("approval_history_broken", "the workflow's recorded events do not lead to its current state")
+
+
 # -- validation ----------------------------------------------------------------------
 
 
@@ -266,8 +342,8 @@ def resume_app_workflow(
     """Validate the approved candidate with fresh Kane evidence against the whole spec, optionally promote."""
     from .pipeline import execute
     from .workflow import (
-        WorkflowError, _kane_pack_bindings, _kane_run_bindings, _observation_build_failures, _observation_run_failures,
-        _seal_validation, _validation_digest,
+        WorkflowError, _approval_disagreement, _kane_pack_bindings, _kane_run_bindings, _observation_build_failures, _observation_run_failures,
+        _reused_kane_runs, _seal_validation, _validation_digest,
     )
 
     record = store.get(workflow_id)
@@ -276,14 +352,21 @@ def resume_app_workflow(
     if simulation or getattr(runner, "name", None) != "kane":
         raise WorkflowError("promotion validation requires fresh Kane evidence; simulation/fake evidence is not accepted")
     if record.state == "validated":
-        verify_approval(record)
+        try:
+            verify_spec_approval(store, record)
+            verify_spec_history(store, record)
+        except ApprovalError as exc:
+            raise WorkflowError(f"{exc}; --apply refused") from exc
         if apply:
             return promote_app_workflow(store, workflow_id)
         return record
     if record.state != "validating":
         raise WorkflowError(f"workflow is {record.state}; only an approved workflow can be resumed")
     try:
-        verify_approval(record)
+        verify_spec_approval(store, record)
+        verify_spec_history(store, record)
+        if problem := _approval_disagreement(store, record):
+            raise WorkflowError(problem)
         _check_identity(record.proposal)
         files = _candidate_files(store, record.proposal)
         claims = [Claim.model_validate(x) for x in json.loads(store.get_artifact(record.proposal["artifact_digests"]["spec_claims"]))]
@@ -322,7 +405,7 @@ def resume_app_workflow(
         # The same bindings as Maintain Docs validation: a fresh Kane run per browser claim,
         # named by its observation, on the spec build approval recorded.
         kane_runs, stale_runs = _kane_run_bindings(runner, runs_before, claims, evidence)
-        kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs)
+        kane_packs, unbacked = _kane_pack_bindings(runner, claims, evidence, kane_runs, record.approval)
         validation["spec_build_digest"] = record.proposal["spec_build_digest"]
         validation["kane_runs"] = kane_runs
         validation["kane_packs"] = kane_packs
@@ -331,6 +414,7 @@ def resume_app_workflow(
             *_observation_run_failures(claims, evidence, kane_runs),
             *_observation_build_failures(claims, evidence, record.proposal["spec_build_digest"]),
             *unbacked,
+            *(f"{claim_id}:kane_run_reused" for claim_id, _ in _reused_kane_runs(store, workflow_id, None, kane_runs)),
         ]
         if unbound:
             validation["successful"] = False
@@ -369,8 +453,8 @@ def resume_app_workflow(
 def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> WorkflowRecord:
     """Write the approved, validated candidate's changed files into the original app, or nothing."""
     from .workflow import (
-        WorkflowError, _refuse_unbacked_browser_evidence, _refuse_unbound_browser_evidence, _refuse_unproven_claims,
-        _refuse_unsealed_validation,
+        WorkflowError, _refuse_reused_kane_runs, _refuse_unbacked_browser_evidence, _refuse_unbound_browser_evidence,
+        _refuse_unproven_claims, _refuse_unrecorded_approval, _refuse_unsealed_validation,
     )
 
     record = store.get(workflow_id)
@@ -379,7 +463,11 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
         raise WorkflowError("not a spec mode promotion workflow")
     if record.state != "validated" or not record.approval or not record.validation:
         raise WorkflowError("--apply is disabled unless an approved candidate has successful validation")
-    verify_approval(record)
+    try:
+        verify_spec_approval(store, record)
+    except ApprovalError as exc:
+        raise WorkflowError(f"{exc}; --apply refused") from exc
+    _refuse_unrecorded_approval(store, record)
     validation = record.validation
     if (
         not validation.get("successful")
@@ -402,7 +490,12 @@ def promote_app_workflow(store: SQLiteWorkflowStore, workflow_id: str) -> Workfl
     _refuse_unbound_browser_evidence(validation, [c.id for c in browser], proposal["spec_build_digest"])
     _refuse_unproven_claims(validation, claims)
     _refuse_unsealed_validation(store, record)
-    _refuse_unbacked_browser_evidence(validation, browser)
+    try:
+        verify_spec_history(store, record)  # after the seal check, which names a relabelled rejection
+    except ApprovalError as exc:
+        raise WorkflowError(f"{exc}; --apply refused") from exc
+    _refuse_unbacked_browser_evidence(validation, browser, record.approval)
+    _refuse_reused_kane_runs(store, record)
     if tree_digest(base) != proposal.get("base_digest") or tree_digest(source) != proposal.get("source_digest"):
         raise WorkflowError("baseline tree digest mismatch; --apply refused")
     candidate_manifest = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}

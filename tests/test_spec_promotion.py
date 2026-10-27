@@ -193,7 +193,12 @@ def test_candidate_change_through_an_app_symlink_is_never_approvable(tmp_path, m
     app, spec = setup(tmp_path, monkeypatch, LINK_AGENT)
     outside = tmp_path / "outside.js"
     outside.write_text("// outside\n", encoding="utf-8")
-    (app / "link.js").symlink_to(outside)
+    try:
+        (app / "link.js").symlink_to(outside)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) != 1314:
+            raise
+        pytest.skip("host does not grant Windows symlink creation")
     home = tmp_path / "home"
     runner = KaneTestRunner()
     result = prove(str(spec), runner=runner, home=home, app_dir=app, keep_servers=True)

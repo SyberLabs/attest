@@ -1,17 +1,21 @@
 import difflib
+import hashlib
+import sqlite3
 import sys
 
 import pytest
 
 from attest.approvals import ApprovalError, approve_workflow
 from attest.compiler import CompileError, fences_by_regex
+from attest.docs_source import SOURCE_PATH_CODES, SourceDir, SourcePathError
+from attest import docs_source
 from attest.execution.recipes import ApprovedRecipeExecutor
 from attest.ingest import ingest_text, sha256_of
 from attest.models import Claim, Span
 from attest.policy import MaintainDocsPolicy, validate_diff_scope
 from attest.proposals import create_repair_proposal, current_build_digest
-from attest.storage import SQLiteWorkflowStore
-from attest.workflow import WorkflowError, promote_workflow, resume_workflow
+from attest.storage import SQLiteWorkflowStore, canonical_json
+from attest.workflow import DocsApprovalError, WorkflowError, promote_workflow, resume_workflow, verify_docs_approval
 
 
 # Resume validation is recipes-only; the fixture's repaired command is an approved recipe.
@@ -45,14 +49,18 @@ def make_diff(old, new, filename="guide.md"):
     )
 
 
-def allowed_fixture(tmp_path, candidate="# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n"):
-    base = "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n"
+def allowed_fixture(
+    tmp_path,
+    candidate="# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    base="# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    store_dir=None,
+):
     source = tmp_path / "guide.md"
     source.write_text(base, encoding="utf-8")
     doc = ingest_text(base, source=str(source))
     claims = fences_by_regex(doc)
     target = claims[0]
-    store = SQLiteWorkflowStore(tmp_path / "workflow.sqlite3")
+    store = SQLiteWorkflowStore((store_dir or tmp_path) / "workflow.sqlite3")
     record = create_repair_proposal(
         store,
         source_path=source,
@@ -423,6 +431,31 @@ def test_policy_refuses_weakening_quantified_contract(tmp_path):
     assert "quantified protected contract changed" in proposal.proposal["authority"]["reason"]
 
 
+def test_shell_flags_are_not_promises_through_proposal_and_apply(tmp_path, monkeypatch):
+    # "--only-binary :all:" carries the "only" and "all" markers and "--no-cache-dir" adds "no".
+    # In a command they are flags: the repair is allowed when proposed and when re-judged at --apply.
+    monkeypatch.chdir(tmp_path)
+    command = "pip install --no-cache-dir --only-binary :all: attest==1.3"
+    source, store, record = allowed_fixture(
+        tmp_path, candidate=f"# Quickstart\n\nRun this:\n\n```bash\n{command}\n```\n",
+        base="# Quickstart\n\nRun this:\n\n```bash\npip install --only-binary :all: attest==1.2\n```\n",
+    )
+    assert record.state == "awaiting_approval", record.proposal["authority"]["violations"]
+    approve_workflow(store, record.workflow_id, "reviewer")
+    recipes = ApprovedRecipeExecutor({command: [sys.executable, "-c", "print('ok')"]})
+    promoted = resume_workflow(store, record.workflow_id, runner=KaneTestRunner(), recipe_executor=recipes, apply=True)
+    assert promoted.state == "promoted"
+    assert command in source.read_text(encoding="utf-8")
+
+    # The same edit read as prose (an unknown target kind) is a promise, and is refused.
+    base, candidate = "pip install --only-binary :all: attest==1.2\n", f"{command}\n"
+    decision = MaintainDocsPolicy().authorize(
+        diff=make_diff(base, candidate), doc_name="guide.md", base_text=base, candidate_text=candidate,
+        target_start=1, target_end=1, target_claim_id="c01", base_digest="b", candidate_digest="c",
+    )
+    assert not decision.allowed and any("negation" in v for v in decision.violations)
+
+
 def test_proposal_requires_candidate_to_match_exact_patch(tmp_path):
     base = "# Quickstart\n\n```bash\necho ready && exit 1\n```\n"
     candidate = "# Quickstart\n\n```bash\necho ready && exit 0\n```\n"
@@ -471,3 +504,190 @@ def test_whole_document_compile_rejects_added_or_reinterpreted_unrelated_claims(
     changed_target = target.model_copy(update={"kind": "prose"})
     ok, reason = _compile_complete([target, other], [changed_target, other], "c01")
     assert not ok and "target claim kind" in reason
+
+
+def _approval_refusal(store, workflow_id):
+    with pytest.raises(DocsApprovalError) as refused:
+        verify_docs_approval(store, store.get(workflow_id))
+    return refused.value.code
+
+
+def _rewrite(store, workflow_id, sql, *args):
+    with sqlite3.connect(store.path) as db:
+        db.execute(sql, (*args, workflow_id))
+
+
+def test_docs_approval_recorded_by_attest_approve_is_accepted(tmp_path):
+    _, store, proposal = allowed_fixture(tmp_path)
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    verify_docs_approval(store, store.get(proposal.workflow_id))
+
+
+def test_docs_approval_refusals_have_stable_codes(tmp_path):
+    def approved(name):
+        (tmp_path / name).mkdir()
+        _, store, proposal = allowed_fixture(tmp_path / name)
+        return store, approve_workflow(store, proposal.workflow_id, "reviewer")
+
+    store, record = approved("missing")
+    _rewrite(store, record.workflow_id, "UPDATE workflows SET approval_json = NULL WHERE workflow_id = ?")
+    assert _approval_refusal(store, record.workflow_id) == "approval_missing"
+
+    store, record = approved("unbound")
+    _rewrite(store, record.workflow_id, "UPDATE workflows SET approval_json = ? WHERE workflow_id = ?",
+             canonical_json({**record.approval, "actor": "someone else"}))
+    assert _approval_refusal(store, record.workflow_id) == "approval_unbound"
+
+    # a padded approver passes verify_approval when its digest is recomputed; approve strips it
+    store, record = approved("padded")
+    padded = {key: value for key, value in record.approval.items() if key != "approval_digest"}
+    padded["actor"] = " reviewer"
+    padded["approval_digest"] = hashlib.sha256(canonical_json(padded).encode("utf-8")).hexdigest()
+    _rewrite(store, record.workflow_id, "UPDATE workflows SET approval_json = ? WHERE workflow_id = ?", canonical_json(padded))
+    assert _approval_refusal(store, record.workflow_id) == "approval_not_human"
+
+    # the offer must be the allowing authority's, under the proposal's own policy
+    store, record = approved("offer")
+    _rewrite(store, record.workflow_id,
+             "UPDATE workflow_events SET payload_json = ? WHERE to_state = 'awaiting_approval' AND workflow_id = ?",
+             canonical_json({"authority": "allowed", "policy_digest": "0" * 64}))
+    assert _approval_refusal(store, record.workflow_id) == "approval_unrecorded"
+
+    # a second approve event, however it got there, is not one recorded approval
+    store, record = approved("replayed")
+    _rewrite(store, record.workflow_id,
+             "INSERT INTO workflow_events(workflow_id, from_state, to_state, payload_json, created_at) "
+             "SELECT workflow_id, from_state, to_state, payload_json, created_at FROM workflow_events "
+             "WHERE to_state = 'validating' AND workflow_id = ?")
+    assert _approval_refusal(store, record.workflow_id) == "approval_unrecorded"
+
+
+def test_resume_of_a_validated_record_without_its_approve_event_is_refused(tmp_path):
+    source, store, proposal = allowed_fixture(tmp_path)
+    base = source.read_text(encoding="utf-8")
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY)
+    _rewrite(store, proposal.workflow_id, "DELETE FROM workflow_events WHERE to_state = 'validating' AND workflow_id = ?")
+
+    # resume without --apply refuses as well: it must not report the record as fine
+    with pytest.raises(WorkflowError, match=r"docs approval refused \(approval_unrecorded\).*--apply refused"):
+        resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner())
+    assert store.get(proposal.workflow_id).state == "validated"
+    assert source.read_text(encoding="utf-8") == base
+
+
+def _docs_behind_a_link(tmp_path):
+    """An approved proposal for docs/guide.md (unversioned), with the store outside docs."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    source, store, proposal = allowed_fixture(docs, store_dir=tmp_path)
+    approve_workflow(store, proposal.workflow_id, "reviewer")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "guide.md").write_bytes(source.read_bytes())
+    return docs, source, store, proposal, outside
+
+
+def _swap_for_link(docs, outside):
+    moved = docs.with_name("docs.approved")
+    docs.rename(moved)
+    try:
+        docs.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:  # Windows without Developer Mode or admin cannot create symlinks
+        pytest.skip(f"cannot create a symlink here ({exc})")
+    return moved
+
+
+def test_unversioned_source_behind_a_symlinked_directory_is_refused_with_a_stable_code(tmp_path):
+    # Before #63's successor this was refused only because the unversioned build identity
+    # names the resolved path ("build identity changed"); now the path check says why.
+    docs, source, store, proposal, outside = _docs_behind_a_link(tmp_path)
+    base = outside.joinpath("guide.md").read_text(encoding="utf-8")
+    moved = _swap_for_link(docs, outside)
+    result = resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY, apply=True)
+    assert result.state == "unresolved"
+    assert result.validation["reason"].startswith("source path refused (source_redirected)")
+    assert (outside / "guide.md").read_text(encoding="utf-8") == base
+    assert (moved / "guide.md").read_text(encoding="utf-8") == base
+
+
+def test_unversioned_validated_record_behind_a_symlinked_directory_is_not_applied(tmp_path):
+    docs, source, store, proposal, outside = _docs_behind_a_link(tmp_path)
+    base = source.read_text(encoding="utf-8")
+    assert resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY).state == "validated"
+    _swap_for_link(docs, outside)
+    with pytest.raises(WorkflowError, match=r"source path refused \(source_redirected\).*--apply refused"):
+        promote_workflow(store, proposal.workflow_id)
+    assert store.get(proposal.workflow_id).state == "validated"
+    assert (outside / "guide.md").read_text(encoding="utf-8") == base
+
+
+def test_source_path_refusals_have_stable_codes(tmp_path):
+    real = tmp_path / "real.md"
+    real.write_text("x\n", encoding="utf-8")
+
+    def code(path):
+        with pytest.raises(SourcePathError) as caught:
+            with SourceDir(path) as source:
+                source.read()
+        assert caught.value.code in SOURCE_PATH_CODES
+        assert str(caught.value).startswith(f"source path refused ({caught.value.code}): ")
+        return caught.value.code
+
+    assert code("real.md") == "source_not_canonical"
+    assert code(f"{tmp_path}/sub/../real.md") == "source_not_canonical"
+    assert code(f"{tmp_path}/./real.md") == "source_not_canonical"
+    assert code(tmp_path / "absent.md") == "source_missing"
+    assert code(tmp_path / "absent" / "real.md") == "source_missing"
+    (tmp_path / "dir.md").mkdir()
+    assert code(tmp_path / "dir.md") == "source_missing"
+    try:
+        (tmp_path / "link.md").symlink_to(real)
+        (tmp_path / "linked").symlink_to(tmp_path, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"cannot create a symlink here ({exc})")
+    assert code(tmp_path / "link.md") == "source_symlink"
+    assert code(tmp_path / "linked" / "real.md") == "source_redirected"
+    # the wording older refusals had is kept for the file itself
+    with pytest.raises(SourcePathError, match="source file is missing or is a symlink"):
+        SourceDir(tmp_path / "link.md").__enter__()
+    with SourceDir(real) as source:
+        assert source.read() == b"x\n"
+
+
+@pytest.mark.skipif(not docs_source._PINNED, reason="no O_NOFOLLOW / dir_fd here: the path is checked, not pinned")
+def test_a_directory_swapped_after_the_last_check_is_still_not_written_through(tmp_path, monkeypatch):
+    # The last path check and the rename are two calls. A swap between them is not
+    # refused, but the rename is relative to the directory held open since the source
+    # was read: the candidate lands in the approved directory, never behind the link.
+    docs, source, store, proposal, outside = _docs_behind_a_link(tmp_path)
+    base = source.read_text(encoding="utf-8")
+    resume_workflow(store, proposal.workflow_id, runner=KaneTestRunner(), recipe_executor=READY)
+    checked = SourceDir.still_named
+    moved = []
+
+    def check_then_swap(self):
+        checked(self)
+        moved.append(_swap_for_link(docs, outside))
+
+    monkeypatch.setattr(SourceDir, "still_named", check_then_swap)
+    assert promote_workflow(store, proposal.workflow_id).state == "promoted"
+    assert (outside / "guide.md").read_text(encoding="utf-8") == base
+    assert hashlib.sha256((moved[0] / "guide.md").read_bytes()).hexdigest() == proposal.proposal["candidate_digest"]
+    assert sorted(p.name for p in moved[0].iterdir()) == ["guide.md"]
+
+
+def test_a_directory_swapped_while_validation_runs_leaves_the_workflow_unresolved(tmp_path):
+    docs, source, store, proposal, outside = _docs_behind_a_link(tmp_path)
+    base = source.read_text(encoding="utf-8")
+
+    class SwappingRunner(KaneTestRunner):
+        def prepare(self, claims, source="doc"):
+            super().prepare(claims, source)
+            _swap_for_link(docs, outside)
+
+    result = resume_workflow(store, proposal.workflow_id, runner=SwappingRunner(), recipe_executor=READY, apply=True)
+    assert result.state == "unresolved"
+    assert result.validation["reason"].startswith("source path refused (source_redirected)")
+    assert "after validation ran" in result.validation["reason"]
+    assert (outside / "guide.md").read_text(encoding="utf-8") == base

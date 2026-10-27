@@ -1,0 +1,22 @@
+{
+  "id": "KR-ISO-08",
+  "component": "kane_runner",
+  "category": "ISO",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "active",
+  "theme": "escape_disposable_environment",
+  "title": "kane-cli runs in the Kane home with no stdin: a relative write lands in the Kane home, never in the caller's working directory, and it cannot read Attest's input",
+  "input": {
+    "relative_write": "kane-relative-write.txt",
+    "caller_stdin": "approve\n",
+    "timeout_s": 30
+  },
+  "expected": {
+    "cwd_is_kane_home": true,
+    "stdin_read": "",
+    "written_under_kane_home": true,
+    "caller_dir_files": []
+  }
+}

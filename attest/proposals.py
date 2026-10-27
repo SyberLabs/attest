@@ -167,6 +167,7 @@ def create_repair_proposal(
         target_claim_id=target_claim.id,
         base_digest=base_digest,
         candidate_digest=candidate_digest,
+        target_kind=target_claim.kind,
     )
     proposal["authority"] = decision.as_dict()
     proposal["proposal_digest"] = proposal_digest(proposal)

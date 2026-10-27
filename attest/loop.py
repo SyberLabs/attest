@@ -25,6 +25,7 @@ from pathlib import Path
 import typer
 
 from .execution.recipes import ApprovedRecipeExecutor
+from .execution.supervisor import attach_process_tree, terminate_process_tree
 from .grounding import ground
 from .ledger import Ledger
 from .models import Brief, Claim, Doc, Evidence, Verdict
@@ -139,25 +140,33 @@ def call_agent(text: str, cwd: Path, cmd: str | None = None, timeout_s: int = AG
     cmd = cmd or AGENT_CMD
     if cmd.strip() == "openai" or cmd.startswith("openai:"):
         return call_openai_agent(text, cmd.split(":", 1)[1] if ":" in cmd else None, timeout_s)
+    flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    p = subprocess.Popen(
+        cmd,
+        cwd=str(cwd),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=True,
+        **flags,
+    )
+    attach_process_tree(p)
     try:
-        p = subprocess.run(
-            cmd,
-            input=text,
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_s,
-            shell=True,
-        )
+        out, err = p.communicate(text, timeout=timeout_s)
     except subprocess.TimeoutExpired:
+        terminate_process_tree(p)
+        p.communicate(timeout=2)
         if stderr_log:
             stderr_log.write_text(f"timed out after {timeout_s} s (ATTEST_AGENT_TIMEOUT_S)\n", encoding="utf-8")
         return ""
+    finally:
+        terminate_process_tree(p)
     if stderr_log:
-        stderr_log.write_text(f"{p.stderr.rstrip()}\n[exit {p.returncode}]\n", encoding="utf-8")
-    return p.stdout
+        stderr_log.write_text(f"{err.rstrip()}\n[exit {p.returncode}]\n", encoding="utf-8")
+    return out
 
 
 # the closing fence must sit at column 0: diff lines always start with +, -, space or @

@@ -34,6 +34,7 @@ import threading
 import time
 import zipfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -309,6 +310,7 @@ def find_pack(evidence_dir: Path, session_id: str | None) -> Path | None:
 
 
 PACK_WORDING = "pack's step for the claim is not the approved claim's wording"
+PACK_BEFORE_APPROVAL = "pack's Kane run started before this workflow was approved"
 
 
 def _front_url(test_md: str) -> str | None:
@@ -319,7 +321,23 @@ def _front_url(test_md: str) -> str | None:
     return url if isinstance(url, str) else None
 
 
-def pack_disagreement(data: bytes, claim_id: str, session_id: str | None, claim: Claim | None = None) -> str | None:
+def _run_started(run_yaml: bytes) -> datetime | None:
+    """When the pack's run started, from Kane's ``run.yaml`` (``started``, UTC); None if it doesn't say."""
+    run = yaml.safe_load(run_yaml.decode("utf-8", "replace"))
+    started = run.get("started") if isinstance(run, dict) else None
+    if isinstance(started, str):  # Kane quotes it; unquoted, YAML reads a timestamp
+        try:
+            started = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(started, datetime):
+        return None
+    return started if started.tzinfo else started.replace(tzinfo=timezone.utc)
+
+
+def pack_disagreement(
+    data: bytes, claim_id: str, session_id: str | None, claim: Claim | None = None, not_before: datetime | None = None
+) -> str | None:
     """Why a pack's own record doesn't show this claim's step passing in this Kane session; None if it does.
 
     Read in memory, nothing extracted: exactly one test in the pack names the session in
@@ -328,7 +346,9 @@ def pack_disagreement(data: bytes, claim_id: str, session_id: str | None, claim:
     0-based like the pack's step directories) passed. With ``claim``, that step's text must
     also be the ``step_body`` Attest writes for it, local URLs pointed at the file's own
     start URL: a pack Kane sealed for other wording (an earlier doc, an edited test file)
-    is not this claim's evidence.
+    is not this claim's evidence. With ``not_before`` (the approval's time, timezone-aware),
+    the run must have started then or later by its ``run.yaml``: a run of the same wording
+    from before the approval is not the validation's run.
     """
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
@@ -348,6 +368,7 @@ def pack_disagreement(data: bytes, claim_id: str, session_id: str | None, claim:
                 test_md = z.read(prefix + str(definition.get("path") or "test.md"))
             except KeyError:
                 return "pack has no test file"
+            started = _run_started(z.read("run.yaml")) if not_before is not None and "run.yaml" in z.namelist() else None
         if definition.get("sha256") != "sha256:" + hashlib.sha256(test_md).hexdigest():
             return "pack's test file is not the definition Kane ran"
         text = test_md.decode("utf-8", "replace")
@@ -361,6 +382,11 @@ def pack_disagreement(data: bytes, claim_id: str, session_id: str | None, claim:
         actions = [a for a in result.get("steps") or [] if isinstance(a, dict) and str(a.get("id", "")).split("-")[0] == index]
         if not actions or max(actions, key=lambda a: int(a.get("ordinal") or 0)).get("status") != "passed":
             return "pack does not show the claim's step passed"
+        if not_before is not None:
+            if started is None:
+                return "pack doesn't say when its Kane run started"
+            if started < not_before:
+                return PACK_BEFORE_APPROVAL
     except Exception as exc:  # a pack that can't be read backs nothing
         return f"pack is unreadable: {type(exc).__name__}"
     return None

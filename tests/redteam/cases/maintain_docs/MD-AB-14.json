@@ -1,0 +1,49 @@
+{
+  "id": "MD-AB-14",
+  "component": "maintain_docs",
+  "category": "AB",
+  "rubrics": [
+    "R1",
+    "R3",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "A stored approval rewritten after it was recorded (another approver, or rebound to another candidate and re-digested) stops validation unresolved and nothing is promoted",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 0\n```\n",
+    "approved_recipes": {
+      "echo ready && exit 0": "print('ready')"
+    },
+    "approver": "reviewer",
+    "rewrites": {
+      "actor_rewritten": {
+        "fields": {
+          "actor": "release-bot"
+        },
+        "redigest": false
+      },
+      "rebound_and_redigested": {
+        "fields": {
+          "candidate_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "redigest": true
+      },
+      "approval_removed": {
+        "fields": null,
+        "redigest": false
+      }
+    }
+  },
+  "expected": {
+    "state": "unresolved",
+    "reasons": {
+      "actor_rewritten": "approval digest is invalid",
+      "rebound_and_redigested": "approval is not bound to the current proposal",
+      "approval_removed": "docs approval refused (approval_missing)"
+    },
+    "promote_error": "--apply is disabled",
+    "source_unchanged": true
+  }
+}

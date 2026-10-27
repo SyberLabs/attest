@@ -11,6 +11,9 @@ so does an empty section. Sections come from the test name prefix:
 ``record``             ``test_record_*``             stored validation not the one this workflow's validation sealed
 ``pack``               ``test_pack_*``               browser evidence its Kane evidence pack, read back, does not back
 ``wording``            ``test_wording_*``            the pack's step for a claim is not the wording Attest writes for the approved claim
+``run-time``           ``test_run_time_*``           the pack's Kane run started before the workflow was approved
+``run-reuse``          ``test_run_reuse_*``          the pack's Kane run is one another sealed validation in the store binds
+``approval-time``      ``test_approval_time_*``      the approval the pack's run is read against is not the one its event recorded, or predates the proposal
 ``control``            ``test_control_*``            intact bindings still verify (refuse-everything fails)
 
 A green result covers only those tests. It is not a coverage figure, and nothing here
@@ -35,6 +38,9 @@ SECTIONS = {
     "record": "test_record_",
     "pack": "test_pack_",
     "wording": "test_wording_",
+    "run-time": "test_run_time_",
+    "run-reuse": "test_run_reuse_",
+    "approval-time": "test_approval_time_",
     "control": "test_control_",
 }
 

@@ -1,0 +1,24 @@
+{
+  "id": "RS-COST-03",
+  "component": "reconcile_spec",
+  "category": "COST",
+  "rubrics": [
+    "R7"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "Many conflicts that name one protected document read it once",
+  "input": {
+    "conflicts": 300,
+    "files": {
+      "contracts/security.md": "# Security contract\n\n**Status:** Approved\n\n## SEC-4\n\nThe application must require multi-factor authentication\nfor every administrator sign-in.\n\n## SEC-5\n\nSessions must expire after 15 minutes idle.\n"
+    }
+  },
+  "expected": {
+    "reads": {
+      "contracts/security.md": 1
+    },
+    "exit_code": 0,
+    "handoff_state": "ready"
+  }
+}

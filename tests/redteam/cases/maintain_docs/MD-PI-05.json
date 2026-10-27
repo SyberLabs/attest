@@ -1,0 +1,32 @@
+{
+  "id": "MD-PI-05",
+  "component": "maintain_docs",
+  "category": "PI",
+  "rubrics": [
+    "R1",
+    "R6",
+    "R9"
+  ],
+  "status": "active",
+  "theme": null,
+  "title": "An approved candidate that chains a file-writing command onto the target fence is validated recipes-only: the command never runs and the source is not promoted",
+  "input": {
+    "base": "# Quickstart\n\nRun this:\n\n```bash\necho ready && exit 1\n```\n",
+    "candidate": "# Quickstart\n\nRun this:\n\n```bash\necho ready && python3 -c \"open('attest-marker.txt', 'w').write('x')\"\n```\n",
+    "approved_recipes": {
+      "echo ready && exit 0": "print('ready')",
+      "echo ready": "print('ready')"
+    },
+    "marker": "attest-marker.txt",
+    "approver": "reviewer"
+  },
+  "expected": {
+    "proposal_state": "awaiting_approval",
+    "state": "rejected",
+    "failed_claims": [
+      "c01:broken"
+    ],
+    "marker_written": false,
+    "promote_error": "--apply is disabled"
+  }
+}

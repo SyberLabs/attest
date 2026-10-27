@@ -6,13 +6,16 @@ source is authoritative, edit a contract, or promote a proposed requirement.
 The CLI does read the document each conflict's authority reference names (else
 ``source_doc``), confined to a root, to check that the submitted protected text
 is the requirement as that document states it, and that the document does not
-say it, or the requirement's section, no longer governs.
+say it, or the requirement's section, no longer governs. It also reads the other
+Markdown documents under that root, so a reference to a copy that states the
+requirement differently from another document there doesn't pass as the contract.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,10 +27,13 @@ CandidateSide = Literal["doc_wrong", "app_wrong", "both", "ambiguous"]
 AuthorityStatus = Literal["present", "missing", "conflicting"]
 EvidenceKind = Literal["runtime", "receipt", "source", "document", "other"]
 HandoffState = Literal["ready", "blocked"]
-SourceState = Literal["matched", "not_governing", "mismatch", "unreadable", "not_checked"]
+SourceState = Literal["matched", "not_governing", "contested", "mismatch", "unreadable", "not_checked"]
 
 # A requirements document is text; a larger file is not read and blocks the handoff.
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
+# The other documents read under the root (see read_sources): Markdown, and at most this many.
+SCANNED_SUFFIXES = (".md", ".markdown")
+MAX_SCANNED_DOCUMENTS = 10_000
 
 # at least one non-whitespace character: a blank pointer or requirement is not one
 _NOT_BLANK = r"\S"
@@ -96,6 +102,9 @@ class ConflictDiagnosis(BaseModel):
     source_protected_text: str | None = None
     # the lines of that document that say the requirement does not govern (see _not_governing)
     source_not_governing: list[str] = Field(default_factory=list)
+    # by path, the texts other documents read under the root label this requirement with,
+    # where they differ from the matched text (see _elsewhere)
+    source_elsewhere: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class ReconcileHandoff(BaseModel):
@@ -125,7 +134,7 @@ class ReconcileHandoff(BaseModel):
         # A consumer re-reading the JSON gets the same guarantee as the CLI: a handoff is
         # ready only with authority present, a pointer on every conflict, every protected
         # text matched in a document that was read and doesn't say it no longer governs,
-        # and no reasons.
+        # no other document read stating it differently, and no reasons.
         if self.handoff_state == "ready" and (
             self.blocking_reasons
             or self.authority_state != "present"
@@ -133,6 +142,7 @@ class ReconcileHandoff(BaseModel):
             or self.source_state != "matched"
             or any(c.source_checked_in not in self.source_digests for c in self.conflicts)
             or any(c.source_not_governing for c in self.conflicts)
+            or any(c.source_elsewhere for c in self.conflicts)
         ):
             raise ValueError(
                 "a ready handoff needs present authority, provided evidence, a matched source and no blocking reasons"
@@ -171,10 +181,11 @@ class ReconcileSpec:
         """Diagnose ``request`` against ``sources``, the documents ``read_sources`` read.
 
         A conflict whose document is not in ``sources`` was never compared with the
-        text it claims to quote, so the handoff is blocked (``not_checked``). This
-        method reads no file itself.
+        text it claims to quote, so the handoff is blocked (``not_checked``). Every
+        other document in ``sources`` is compared with it too. This method reads no
+        file itself.
         """
-        source_state, source_reasons, in_source, not_governing = _source_check(request, sources)
+        source_state, source_reasons, in_source, not_governing, elsewhere = _source_check(request, sources)
         blocking = _blocking_reasons(request) + source_reasons
         authority_state = request.authority_status
         if authority_state == "present" and any(_reason_is(r, _CONFLICTING_AUTHORITY) for r in blocking):
@@ -212,6 +223,7 @@ class ReconcileSpec:
                     source_checked_in=protected_document(conflict, request.source_doc),
                     source_protected_text=in_source.get(conflict.claim_id),
                     source_not_governing=not_governing.get(conflict.claim_id, []),
+                    source_elsewhere=elsewhere.get(conflict.claim_id, {}),
                 )
             )
 
@@ -261,6 +273,7 @@ _CONFLICTING_AUTHORITY = (
     "protected_text_not_in_source",
     "requirement_ambiguous_in_source",
     "source_not_governing",
+    "requirement_differs_elsewhere",
 )
 # ... and these make it missing.
 _MISSING_AUTHORITY = (
@@ -393,10 +406,66 @@ def protected_document(conflict: ConflictClaim, source_doc: str) -> str:
     return path or source_doc.strip()
 
 
-def read_sources(request: ReconcileRequest, root: str | Path) -> dict[str, SourceDocument | SourceUnreadable]:
-    """Read every document the request's protected texts are checked against, once each."""
+def read_sources(
+    request: ReconcileRequest, root: str | Path, *, skip: tuple[str | Path, ...] = ()
+) -> dict[str, SourceDocument | SourceUnreadable]:
+    """Read every document the request's protected texts are checked against, once each.
+
+    Then read every other Markdown document under ``root``, by its path relative to
+    ``root``, and keep those that name one of the request's requirement ids, so
+    ``diagnose`` can see a requirement stated differently elsewhere. The walk skips
+    ``.git``, the directories in ``skip`` (earlier handoffs) and symlinked
+    directories. A file that resolves out of ``root``, a broken link and anything not
+    a regular file hold no document under it and are left out. Any other file it
+    can't read is kept as ``SourceUnreadable``, and so are a directory it can't list
+    (``directory_unreadable``) and the first file past ``MAX_SCANNED_DOCUMENTS``
+    (``too_many_documents``).
+    """
     paths = dict.fromkeys(protected_document(c, request.source_doc) for c in request.conflicts)
-    return {path: read_source(path, root) for path in paths}
+    sources: dict[str, SourceDocument | SourceUnreadable] = {path: read_source(path, root) for path in paths}
+    base = Path(root).resolve()
+    checked = set()
+    for path in paths:
+        if not Path(path).is_absolute() and "://" not in path:
+            try:
+                checked.add((base / path).resolve())
+            except (OSError, RuntimeError):
+                pass
+    skipped = {Path(directory).resolve() for directory in skip}
+    tokens = [
+        re.compile(rf"(?<![\w-]){re.escape(c.protected_requirement_id.strip())}(?![\w-])", re.IGNORECASE)
+        for c in request.conflicts
+    ]
+    scanned = 0
+
+    def unlisted(error: OSError) -> None:
+        listed = Path(error.filename or base)
+        relative = listed.relative_to(base).as_posix() if listed.is_relative_to(base) else str(listed)
+        sources.setdefault(relative, SourceUnreadable("directory_unreadable"))
+
+    for directory, subdirectories, files in os.walk(base, onerror=unlisted):
+        here = Path(directory)
+        subdirectories[:] = sorted(
+            name for name in subdirectories if name != ".git" and (here / name).resolve() not in skipped
+        )
+        for name in sorted(files):
+            if not name.casefold().endswith(SCANNED_SUFFIXES):
+                continue
+            relative = (here / name).relative_to(base).as_posix()
+            if relative in sources or (here / name).resolve() in checked:
+                continue
+            scanned += 1
+            if scanned > MAX_SCANNED_DOCUMENTS:
+                sources[relative] = SourceUnreadable("too_many_documents")
+                return sources
+            document = read_source(relative, base)
+            if isinstance(document, SourceUnreadable):
+                # a link out of the root, a broken link or not a regular file: no document under the root
+                if document.reason != "outside_root" and (here / name).is_file():
+                    sources[relative] = document
+            elif any(token.search(document.text) for token in tokens):
+                sources[relative] = document
+    return sources
 
 
 # Markdown that may sit around a requirement label: headings, quotes, list markers,
@@ -556,26 +625,55 @@ def _not_governing(text: str, units: list[str], requirement: str, matched: str) 
     return {why: list(dict.fromkeys(shown)) for why, shown in found.items()}
 
 
+def _elsewhere(
+    sources: Mapping[str, SourceDocument | SourceUnreadable],
+    units: dict[str, list[str]],
+    checked_in: str,
+    requirement: str,
+    matched: str,
+) -> dict[str, list[str]]:
+    """The texts other documents in ``sources`` label ``requirement`` with, where they differ from ``matched``.
+
+    Every other document counts, whatever it says about itself: an archived copy that
+    states the requirement differently blocks too, since Reconcile Spec can't tell
+    which document is the contract and an attacker's copy can say the same thing.
+    """
+    found: dict[str, list[str]] = {}
+    for path, document in sources.items():
+        if path == checked_in or not isinstance(document, SourceDocument):
+            continue
+        if path not in units:
+            units[path] = _units(document.text)
+        differing = [text for text in dict.fromkeys(_labelled_texts(units[path], requirement)) if text != matched]
+        if differing:
+            found[path] = differing
+    return found
+
+
 def _source_check(
     request: ReconcileRequest, sources: Mapping[str, SourceDocument | SourceUnreadable] | None
-) -> tuple[SourceState, list[str], dict[str, str], dict[str, list[str]]]:
+) -> tuple[SourceState, list[str], dict[str, str], dict[str, list[str]], dict[str, dict[str, list[str]]]]:
     """Compare each submitted protected text with what its document says.
 
     The submitted text must equal the text the document labels with the requirement
     id, after folding whitespace only: no case folding, no Unicode normalization,
     no partial match. A shorter, reworded or scoped-down text is not the requirement
     as written. A matched text then blocks if the document says it doesn't govern
-    (``_not_governing``). Returns the state (the worst over all conflicts), the
-    blocking reasons, per claim the document's text where it differs, and per claim
-    the lines that say it doesn't govern.
+    (``_not_governing``), or if another document in ``sources`` labels the
+    requirement with different text (``_elsewhere``). A document in ``sources`` that
+    no conflict is checked against but that couldn't be read blocks the request.
+    Returns the state (the worst over all conflicts), the blocking reasons, per claim
+    the document's text where it differs, per claim the lines that say it doesn't
+    govern, and per claim the other documents' differing texts.
     """
     if sources is None:
-        return "not_checked", ["request:source_not_checked"], {}, {}
+        return "not_checked", ["request:source_not_checked"], {}, {}, {}
     labelled: dict[tuple[str, str], list[str]] = {}
     units: dict[str, list[str]] = {}
     reasons: list[str] = []
     differs: dict[str, str] = {}
     not_governing: dict[str, list[str]] = {}
+    elsewhere: dict[str, dict[str, list[str]]] = {}
     states: set[SourceState] = set()
     for conflict in request.conflicts:
         cid = conflict.claim_id
@@ -609,12 +707,22 @@ def _source_check(
                 reasons += [f"{cid}:source_not_governing:{why}" for why in kinds]
                 not_governing[cid] = list(dict.fromkeys(line for why in kinds for line in found[why]))
                 states.add("not_governing")
+            other = _elsewhere(sources, units, path, requirement, distinct[0])
+            if other:
+                reasons.append(f"{cid}:requirement_differs_elsewhere")
+                elsewhere[cid] = other
+                states.add("contested")
             continue
         states.add("mismatch")
-    for state in ("not_checked", "unreadable", "mismatch", "not_governing"):
+    checked = {protected_document(c, request.source_doc) for c in request.conflicts}
+    for path, source in sources.items():
+        if path not in checked and isinstance(source, SourceUnreadable):
+            reasons.append(f"{path}:source_unreadable:{source.reason}")
+            states.add("unreadable")
+    for state in ("not_checked", "unreadable", "mismatch", "contested", "not_governing"):
         if state in states:
-            return state, reasons, differs, not_governing
-    return "matched", reasons, differs, not_governing
+            return state, reasons, differs, not_governing, elsewhere
+    return "matched", reasons, differs, not_governing, elsewhere
 
 
 def handoff_package_problems(request: ReconcileRequest, markdown_path: Path, json_path: Path) -> list[str]:
@@ -720,6 +828,11 @@ def render_handoff_markdown(handoff: ReconcileHandoff) -> str:
             lines += _text_block("Text the checked document gives this requirement (differs from the submitted text)", conflict.source_protected_text)
         if conflict.source_not_governing:
             lines += _text_block("Where the checked document says this requirement may not govern", "\n".join(conflict.source_not_governing))
+        if conflict.source_elsewhere:
+            lines += _text_block(
+                "Other documents under the source root that state this requirement differently",
+                "\n".join(f"{path}: {text}" for path, texts in conflict.source_elsewhere.items() for text in texts),
+            )
         lines += _text_block("Observed application behavior (evidence, not authority)", conflict.observed_text)
         if conflict.proposed_protected_text is not None:
             lines += _text_block("Unapplied proposed protected text", conflict.proposed_protected_text)
